@@ -1,52 +1,50 @@
 ```
-# Environment variables
+# Compiled and build artifacts
+*.pyc
+__pycache__/
+*.o
+*.obj
+*.class
+*.exe
+*.dll
+*.so
+*.a
+*.out
+
+# Dependencies
+node_modules/
+venv/
+.venv/
 .env
 .env.local
 .env.*
 
-# Build artifacts
-*.dart_tool/
-*.build/
-build/
-
-# Dependencies
-**/.dart_tool/
-**/build/
-
-# Logs
+# Logs and temp files
 *.log
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# IDE files
-.idea/
-.vscode/
+*.tmp
 *.swp
 *.swo
 
-# Coverage
+# Build directories
+dist/
+build/
+target/
+.gradle/
+
+# Editors
+.vscode/
+.idea/
+
+# Coverage reports
 coverage/
 htmlcov/
 .coverage
 
-# Distribution / packaging
-*.tar.gz
-*.zip
+# Python specific
+.mypy_cache/
+.pytest_cache/
 
-# Temporary files
-*.tmp
-*.temp
-
-# Flutter/Dart specific
-.dart_tool/
-.packages
-.pubspec.lock
-
-# Mobile app specific build directories
-ios/build/
-android/app/build/
-android/.gradle/
-**/generated/
+# System files
+.DS_Store
+Thumbs.db
 ```
