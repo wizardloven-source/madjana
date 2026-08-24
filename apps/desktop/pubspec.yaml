@@ -1,0 +1,45 @@
+name: madjana_desktop
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.5.1
+  supabase_flutter: ^2.7.0
+  intl: 0.20.2
+  fl_chart: ^0.69.0
+  flutter_dotenv: ^5.1.0
+  uuid: ^4.2.1
+  path: ^1.9.0
+  
+  # ===== المكتبة الجديدة المضافة =====
+  sqflite_common_ffi: ^2.3.0
+  # ==================================
+
+  core:
+    path: ../../packages/core
+  domain:
+    path: ../../packages/domain
+  data:
+    path: ../../packages/data
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - .env

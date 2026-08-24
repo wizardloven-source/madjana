@@ -1,0 +1,14 @@
+# الترجمة
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+.idea/
+
+# المتغيرات البيئية (المفاتيح - لا تُرفع أبداً)
+.env
+
+# أنظمة التشغيل
+.DS_Store
+Thumbs.db

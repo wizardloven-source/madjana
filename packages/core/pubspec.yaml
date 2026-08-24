@@ -1,0 +1,14 @@
+name: core
+description: النماذج والثوابت المشتركة
+version: 1.0.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  intl: 0.20.2
+  equatable: ^2.0.5
+  uuid: ^4.2.1
+
+dev_dependencies:
+  test: ^1.25.0

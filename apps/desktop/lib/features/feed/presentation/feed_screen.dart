@@ -1,0 +1,474 @@
+﻿import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core/core.dart';
+import '../../../core/csv_exporter.dart';
+import '../../../core/providers.dart';
+import '../../../shared/widgets/period_filter.dart';
+import '../../auth/providers/auth_provider.dart';
+
+/// شاشة العلف (استهلاك + استلام) - للمدير
+class FeedScreen extends ConsumerStatefulWidget {
+  const FeedScreen({super.key});
+
+  @override
+  ConsumerState<FeedScreen> createState() => _FeedScreenState();
+}
+
+class _FeedScreenState extends ConsumerState<FeedScreen> {
+  List<FeedConsumptionModel> _consumption = [];
+  List<FeedReceivedModel> _received = [];
+  double _stock = 0;
+  bool _loading = true;
+  int _tab = 0;
+  DateTime _fromDate = DateTime.now().subtract(const Duration(days: 30));
+  DateTime _toDate = DateTime.now();
+
+  String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final feedRepo = ref.read(feedRepositoryProvider);
+    final consumption = await feedRepo.getAllConsumption(
+      farmId: _farmId,
+      fromDate: _fromDate,
+      toDate: _toDate,
+    );
+    final received = await feedRepo.getAllReceived(
+      farmId: _farmId,
+      fromDate: _fromDate,
+      toDate: _toDate,
+    );
+    final stock = await feedRepo.getCurrentFeedStock(_farmId);
+
+    if (!mounted) return;
+    setState(() {
+      _consumption = consumption;
+      _received = received;
+      _stock = stock;
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // إعادة التحميل عند وصول بيانات من أجهزة أخرى
+    ref.listen(dataRefreshTickProvider, (_, __) => _load());
+    final totalConsumed =
+        _consumption.fold<double>(0, (s, r) => s + r.quantityKg);
+    final totalReceived =
+        _received.fold<double>(0, (s, r) => s + r.quantityKg);
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          QuickPeriodBar(
+            fromDate: _fromDate,
+            toDate: _toDate,
+            onChanged: (period) {
+              setState(() {
+                _fromDate = period.from;
+                _toDate = period.to;
+              });
+              _load();
+            },
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Chip(
+                label: Text('المخزون الحالي: ${Formatters.formatNumber(_stock.toInt())} كغ'),
+                avatar: const Icon(Icons.warehouse, size: 18),
+              ),
+              Chip(
+                label: Text('المستهلك: ${Formatters.formatNumber(totalConsumed.toInt())} كغ'),
+                avatar: const Icon(Icons.remove_circle_outline, size: 18),
+              ),
+              Chip(
+                label: Text('المستلم: ${Formatters.formatNumber(totalReceived.toInt())} كغ'),
+                avatar: const Icon(Icons.add_circle_outline, size: 18),
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: _fromDate,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                  );
+                  if (d != null) {
+                    setState(() => _fromDate = d);
+                    _load();
+                  }
+                },
+                icon: const Icon(Icons.date_range),
+                label: Text('من: ${Formatters.formatDate(_fromDate)}'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: _toDate,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                  );
+                  if (d != null) {
+                    setState(() => _toDate = d);
+                    _load();
+                  }
+                },
+                icon: const Icon(Icons.date_range),
+                label: Text('إلى: ${Formatters.formatDate(_toDate)}'),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: _exportCsv,
+                icon: const Icon(Icons.file_download_outlined),
+                label: const Text('تصدير CSV'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SegmentedButton<int>(
+            segments: const [
+              ButtonSegment(
+                value: 0,
+                label: Text('الاستهلاك'),
+                icon: Icon(Icons.restaurant),
+              ),
+              ButtonSegment(
+                value: 1,
+                label: Text('الاستلام'),
+                icon: Icon(Icons.local_shipping),
+              ),
+            ],
+            selected: {_tab},
+            onSelectionChanged: (s) => setState(() => _tab = s.first),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _tab == 0
+                    ? _consumptionTable()
+                    : _receivedTable(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _consumptionTable() {
+    if (_consumption.isEmpty) {
+      return const Center(child: Text('لا توجد بيانات'));
+    }
+    return SingleChildScrollView(
+      child: DataTable(
+        headingRowColor: WidgetStatePropertyAll(
+          Theme.of(context).colorScheme.surfaceContainerHighest,
+        ),
+        columns: const [
+          DataColumn(label: Text('التاريخ')),
+          DataColumn(label: Text('الكمية (كغ)')),
+          DataColumn(label: Text('أكياس')),
+        ],
+        rows: [
+          for (final r in _consumption)
+            DataRow(
+              cells: [
+                DataCell(Text(Formatters.formatDate(r.date))),
+                DataCell(
+                  Text(
+                    Formatters.formatNumber(r.quantityKg),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                DataCell(Text(r.bagsCount == 0 ? '-' : '${r.bagsCount}')),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _receivedTable() {
+    if (_received.isEmpty) {
+      return const Center(child: Text('لا توجد بيانات'));
+    }
+    return SingleChildScrollView(
+      child: DataTable(
+        headingRowColor: WidgetStatePropertyAll(
+          Theme.of(context).colorScheme.surfaceContainerHighest,
+        ),
+        columns: const [
+          DataColumn(label: Text('التاريخ')),
+          DataColumn(label: Text('الكمية (كغ)')),
+          DataColumn(label: Text('النوع')),
+          DataColumn(label: Text('المورد')),
+          DataColumn(label: Text('رقم الفاتورة')),
+          DataColumn(label: Text('السعر / كغ')),
+        ],
+        rows: [
+          for (final r in _received)
+            DataRow(
+              onSelectChanged: (_) => _showPriceDialog(r),
+              cells: [
+                DataCell(Text(Formatters.formatDate(r.date))),
+                DataCell(
+                  Text(
+                    Formatters.formatNumber(r.quantityKg),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                DataCell(Text(_feedTypeLabel(r.feedType))),
+                DataCell(Text(r.supplier ?? '-')),
+                DataCell(Text(r.invoiceNumber ?? '-')),
+                DataCell(_priceCell(r)),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _priceCell(FeedReceivedModel r) {
+    if (r.pricePerKg == null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade100,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          'بانتظار التسعير',
+          style: TextStyle(fontSize: 11, color: Colors.orange.shade900),
+        ),
+      );
+    }
+    return Tooltip(
+      message:
+          'الإجمالي: ${Formatters.formatCurrency(r.totalPrice!)}',
+      child: Text('${r.pricePerKg!.toStringAsFixed(2)} / كغ'),
+    );
+  }
+
+  /// تسجيل سعر العلف المستلم — ينشئ فاتورة مصروف تلقائياً
+  Future<void> _showPriceDialog(FeedReceivedModel r) async {
+    final priceController =
+        TextEditingController(text: r.pricePerKg?.toStringAsFixed(2) ?? '');
+    double? total;
+    final farmId = ref.read(authProvider).currentUser?.farmId;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('تسجيل سعر العلف'),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('الكمية: ${Formatters.formatNumber(r.quantityKg)} كغ'),
+                if (r.supplier != null && r.supplier!.isNotEmpty)
+                  Text('المورد: ${r.supplier}'),
+                if (r.invoiceNumber != null && r.invoiceNumber!.isNotEmpty)
+                  Text('فاتورة رقم: ${r.invoiceNumber}'),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: priceController,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'سعر الكيلوغرام',
+                    suffixText: 'ر.ي / كغ',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (v) => setDialogState(() {
+                    total = double.tryParse(v);
+                  }),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primaryContainer
+                        .withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Text('إجمالي الفاتورة:'),
+                      const Spacer(),
+                      Text(
+                        total == null || total! <= 0
+                            ? '-'
+                            : Formatters.formatCurrency(
+                                total! * r.quantityKg,
+                              ),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'سيتم إنشاء فاتورة في المصروفات تلقائياً',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final price = double.tryParse(priceController.text);
+                if (price == null || price <= 0) return;
+                try {
+                  await ref.read(feedRepositoryProvider).setReceivedPrice(
+                        id: r.id!,
+                        pricePerKg: price,
+                      );
+
+                  // فاتورة المصروف — مع تحديث الفاتورة السابقة إن وُجدت
+                  final amount = price * r.quantityKg;
+                  final marker = '[FR:${r.id}]';
+                  final expenses = await ref
+                      .read(expenseRepositoryProvider)
+                      .getExpenses(farmId: farmId);
+                  ExpenseModel? existing;
+                  for (final e in expenses) {
+                    if ((e.description ?? '').contains(marker)) {
+                      existing = e;
+                      break;
+                    }
+                  }
+
+                  final description =
+                      'فاتورة علف ${r.supplier ?? ''} ${r.invoiceNumber ?? ''} $marker'
+                          .trim();
+                  if (existing != null) {
+                    await ref.read(expenseRepositoryProvider).save(
+                          existing.copyWith(
+                            date: r.date,
+                            amount: amount,
+                            description: description,
+                          ),
+                        );
+                  } else {
+                    await ref.read(expenseRepositoryProvider).save(
+                          ExpenseModel(
+                            farmId: farmId!,
+                            date: r.date,
+                            category: ExpenseCategory.feed,
+                            description: description,
+                            amount: amount,
+                            syncStatus: SyncStatus.synced,
+                            createdAt: DateTime.now(),
+                          ),
+                        );
+                  }
+
+                  if (!mounted) return;
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'تم التسعير وإنشاء فاتورة بمبلغ ${Formatters.formatCurrency(amount)}',
+                      ),
+                    ),
+                  );
+                  _load();
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('فشل التسعير: $e')),
+                  );
+                }
+              },
+              child: const Text('حفظ التسعير'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _feedTypeLabel(FeedType type) {
+    switch (type) {
+      case FeedType.starter:
+        return 'بادئ';
+      case FeedType.grower:
+        return 'نامي';
+      case FeedType.layer:
+        return 'بياض';
+    }
+  }
+
+  Future<void> _exportCsv() async {
+    try {
+      final String fileName;
+      final List<List<String>> rows;
+
+      if (_tab == 0) {
+        fileName =
+            'feed_consumption_${DateTime.now().toIso8601String().split('T').first}';
+        rows = [
+          ['التاريخ', 'الكمية (كغ)', 'أكياس'],
+          for (final r in _consumption)
+            [
+              Formatters.formatDate(r.date),
+              '${r.quantityKg}',
+              r.bagsCount == 0 ? '' : '${r.bagsCount}',
+            ],
+        ];
+      } else {
+        fileName =
+            'feed_received_${DateTime.now().toIso8601String().split('T').first}';
+        rows = [
+          ['التاريخ', 'الكمية (كغ)', 'النوع', 'المورد', 'رقم الفاتورة', 'سعر الكغ', 'الإجمالي'],
+          for (final r in _received)
+            [
+              Formatters.formatDate(r.date),
+              '${r.quantityKg}',
+              _feedTypeLabel(r.feedType),
+              r.supplier ?? '',
+              r.invoiceNumber ?? '',
+              r.pricePerKg?.toStringAsFixed(2) ?? '',
+              r.totalPrice?.toStringAsFixed(2) ?? '',
+            ],
+        ];
+      }
+
+      final path = await CsvExporter.saveCsv(fileName: fileName, rows: rows);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تم التصدير إلى: $path')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('فشل التصدير: $e')),
+      );
+    }
+  }
+}

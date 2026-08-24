@@ -1,0 +1,76 @@
+poultry_farm_system/
+├── packages/
+│   ├── core/                    # النماذج والثوابت المشتركة
+│   │   ├── lib/
+│   │   │   ├── src/
+│   │   │   │   ├── models/      # Data Models
+│   │   │   │   ├── constants/   # الثوابت والـ Enums
+│   │   │   │   ├── utils/       # دوال مساعدة
+│   │   │   │   └── core.dart    # barrel file
+│   │   │   └── core.dart
+│   │   └── pubspec.yaml
+│   │
+│   ├── data/                    # مصادر البيانات (Supabase + SQLite)
+│   │   ├── lib/
+│   │   │   ├── src/
+│   │   │   │   ├── datasources/
+│   │   │   │   │   ├── remote/  # Supabase
+│   │   │   │   │   └── local/   # SQLite
+│   │   │   │   ├── repositories/
+│   │   │   │   └── sync/        # Sync Engine
+│   │   │   └── data.dart
+│   │   └── pubspec.yaml
+│   │
+│   └── domain/                  # Use Cases + Interfaces
+│       ├── lib/
+│       │   ├── src/
+│       │   │   ├── usecases/
+│       │   │   ├── repositories/ # Abstract interfaces
+│       │   │   └── entities/
+│       │   └── domain.dart
+│       └── pubspec.yaml
+│
+├── apps/
+│   ├── mobile/                  # تطبيق Flutter للموبايل
+│   │   ├── lib/
+│   │   │   ├── app/
+│   │   │   ├── features/
+│   │   │   │   ├── auth/
+│   │   │   │   ├── home/
+│   │   │   │   ├── egg_production/
+│   │   │   │   ├── mortality/
+│   │   │   │   ├── feed_consumption/
+│   │   │   │   ├── dispatch/
+│   │   │   │   ├── medications/
+│   │   │   │   ├── feed_received/
+│   │   │   │   └── settings/
+│   │   │   ├── shared/          # Widgets مشتركة (Numpad, Buttons)
+│   │   │   └── main.dart
+│   │   └── pubspec.yaml
+│   │
+│   └── web/                     # تطبيق Flutter للويب
+│       ├── lib/
+│       │   ├── app/
+│       │   ├── features/
+│       │   │   ├── dashboard/
+│       │   │   ├── production/
+│       │   │   ├── mortality/
+│       │   │   ├── feed/
+│       │   │   ├── dispatch/
+│       │   │   ├── payments/
+│       │   │   ├── customers/
+│       │   │   ├── medications/
+│       │   │   ├── inventory/
+│       │   │   ├── reports/
+│       │   │   └── settings/
+│       │   └── main.dart
+│       └── pubspec.yaml
+│
+├── supabase/
+│   ├── migrations/
+│   │   └── 001_initial_schema.sql
+│   └── functions/
+│       └── sync_records/
+│           └── index.ts
+│
+└── README.md
