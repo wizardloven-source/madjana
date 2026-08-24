@@ -10,7 +10,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 7;
+  static const int _dbVersion = 8;
 
   /// الحصول على نسخة قاعدة البيانات
   static Future<Database> get database async {
@@ -415,6 +415,81 @@ class LocalDatabase {
         if (oldVersion < 7) {
           await db
               .execute('ALTER TABLE feed_received ADD COLUMN price_per_kg REAL');
+        }
+
+        // v8: نظام العمال والرواتب
+        if (oldVersion < 8) {
+          // جدول العمال
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS workers (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              phone TEXT NOT NULL,
+              farm_id TEXT,
+              assigned_flock_ids TEXT,
+              base_salary REAL NOT NULL DEFAULT 0,
+              hire_date TEXT NOT NULL,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL
+            )
+          ''');
+
+          // جدول كشوف الراتب
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS salary_slips (
+              id TEXT PRIMARY KEY,
+              worker_id TEXT NOT NULL,
+              worker_name TEXT NOT NULL,
+              year INTEGER NOT NULL,
+              month INTEGER NOT NULL,
+              base_salary REAL NOT NULL,
+              advances REAL DEFAULT 0,
+              bonuses REAL DEFAULT 0,
+              deductions REAL DEFAULT 0,
+              net_salary REAL NOT NULL,
+              is_paid INTEGER NOT NULL DEFAULT 0,
+              paid_at TEXT,
+              notes TEXT,
+              created_at TEXT NOT NULL
+            )
+          ''');
+
+          // جدول طلبات السلف
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS advance_requests (
+              id TEXT PRIMARY KEY,
+              worker_id TEXT NOT NULL,
+              worker_name TEXT NOT NULL,
+              amount REAL NOT NULL,
+              reason TEXT NOT NULL,
+              request_date TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'pending',
+              manager_notes TEXT,
+              reviewed_at TEXT,
+              created_at TEXT NOT NULL
+            )
+          ''');
+
+          // جدول مصروفات الرواتب
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS salary_expenses (
+              id TEXT PRIMARY KEY,
+              farm_id TEXT NOT NULL,
+              worker_id TEXT NOT NULL,
+              slip_id TEXT NOT NULL,
+              amount REAL NOT NULL,
+              type TEXT NOT NULL,
+              date TEXT NOT NULL,
+              notes TEXT,
+              created_at TEXT NOT NULL
+            )
+          ''');
+
+          // فهارس للأداء
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_workers_farm ON workers(farm_id)');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_salary_slips_worker ON salary_slips(worker_id)');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_advance_requests_worker ON advance_requests(worker_id)');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_salary_expenses_farm ON salary_expenses(farm_id)');
         }
   }
 

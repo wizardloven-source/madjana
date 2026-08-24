@@ -81,9 +81,17 @@ class SettingsScreen extends ConsumerWidget {
             icon: Icons.sync,
             title: 'المزامنة التلقائية',
             subtitle: 'رفع البيانات تلقائياً عند توفر الإنترنت',
-            trailing: const Switch(
+            trailing: Switch(
               value: true,
-              onChanged: null, // TODO: ربط بـ Provider
+              onChanged: (value) {
+                // TODO: ربط بـ Provider عند إضافة إعداد المزامنة التلقائية
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('هذه الميزة قيد التطوير'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
             ),
           ),
           const Divider(),

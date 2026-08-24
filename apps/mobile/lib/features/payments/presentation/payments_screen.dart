@@ -1,104 +1,247 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
-import '../../../shared/widgets/custom_numpad.dart';
-import '../../../shared/widgets/date_picker_field.dart';
-import '../../../shared/widgets/modern_ui.dart';
-import '../../auth/providers/auth_provider.dart';
-import '../../reference_data/providers/reference_data_provider.dart';
-import '../../dispatch/providers/dispatch_provider.dart';
 
-/// شاشة قبض المبالغ - للمدير فقط
-///
-/// ⚠️ لا يمكن للعامل الوصول لهذه الشاشة أبداً
-class PaymentsScreen extends ConsumerStatefulWidget {
+/// شاشة القبض (للمدير فقط)
+/// 
+/// ملاحظات:
+/// - هذه الشاشة تظهر فقط للمدير في تطبيق سطح المكتب
+/// - العامل لا يراها أبداً (تمنع على مستوى التطبيق والـ RLS)
+/// - تُستخدم لتسجيل الأسعار والقبض من الزبائن
+class PaymentsScreen extends StatefulWidget {
   const PaymentsScreen({super.key});
 
   @override
-  ConsumerState<PaymentsScreen> createState() => _PaymentsScreenState();
+  State<PaymentsScreen> createState() => _PaymentsScreenState();
 }
 
-class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
-  DateTime _selectedDate = DateTime.now();
-  String? _selectedCustomerId;
-  String? _selectedDispatchId;
-  double _pricePerCarton = 0;
-  double _amountPaid = 0;
-  PaymentMethod _paymentMethod = PaymentMethod.cash;
-  String _activeField = 'price';
-
-  final _notesController = TextEditingController();
-
-  // قائمة التخريج المتاحة (غير المدفوعة)
-  final List<DispatchModel> _dispatches = [];
-  bool _dispatchesRequested = false;
-
-  // مخازن الإدخال النصي لكل حقل (تمنع أخطاء التحويل العشري)
-  final Map<String, String> _buffers = {
+class _PaymentsScreenState extends State<PaymentsScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _buffers = <String, String>{
     'price': '',
     'amount': '',
   };
+  int? _selectedDispatchId;
+  double _pricePerCarton = 0;
+  double _amountPaid = 0;
+  double _totalDue = 0;
+
+  // قائمة التخريجات غير المقبوضة (يجلبها من PaymentRepository)
+  final List<Map<String, dynamic>> _dispatches = [];
 
   @override
-  void dispose() {
-    _notesController.dispose();
-    super.dispose();
-  }
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('تسجيل القبض')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            children: [
+              // اختيار التخريدة
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'اختر التخريدة',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<int?>(
+                        value: _selectedDispatchId,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          hintText: 'اختر التخريدة',
+                        ),
+                        items: _dispatches
+                            .map((d) => DropdownMenuItem(
+                                  value: d['id'] as int?,
+                                  label: Text(
+                                    'تخريدة ${d['date']} - ${d['cartons']} كرتون',
+                                  ),
+                                ))
+                            .toList(),
+                        onChanged: (v) {
+                          setState(() => _selectedDispatchId = v);
+                          _calculateTotal();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
 
-  Future<void> _loadDispatches(String farmId) async {
-    final all = await ref.read(dispatchProvider.notifier).getAll(farmId: farmId);
-    if (!mounted) return;
-    setState(() {
-      _dispatches.clear();
-      _dispatches.addAll(all.where((d) => d.paymentStatus != PaymentStatus.paid));
-    });
-  }
+              // سعر الكرتون
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'سعر الكرتون',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        initialValue: _buffers['price'],
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          hintText: 'أدخل سعر الكرتون',
+                          suffixText: 'د.ع',
+                        ),
+                        onChanged: (v) {
+                          setState(() {
+                            _buffers['price'] = v;
+                            _pricePerCarton = double.tryParse(v) ?? 0;
+                            _calculateTotal();
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
 
-  void _onNumpadKey(String key) {
-    setState(() {
-      var buf = _buffers[_activeField] ?? '';
+              // الإجمالي
+              if (_totalDue > 0)
+                Card(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'الإجمالي المستحق:',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          '${_totalDue.toStringAsFixed(0)} د.ع',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Color(AppConstants.colorSuccess),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 16),
 
-      switch (key) {
-        case 'clear':
-          buf = '';
-          break;
-        case 'backspace':
-          buf = buf.isEmpty ? '' : buf.substring(0, buf.length - 1);
-          break;
-        case '.':
-          if (!buf.contains('.')) buf = buf.isEmpty ? '0.' : '$buf.';
-          break;
-        default:
-          final dotIndex = buf.indexOf('.');
-          final decimalDigits =
-              dotIndex == -1 ? 0 : buf.length - dotIndex - 1;
-          if (decimalDigits < 2) buf += key;
-      }
+              // المبلغ المقبوض
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'المبلغ المقبوض',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        initialValue: _buffers['amount'],
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          hintText: 'أدخل المبلغ المقبوض',
+                          suffixText: 'د.ع',
+                        ),
+                        onChanged: (v) {
+                          setState(() {
+                            _buffers['amount'] = v;
+                            _amountPaid = double.tryParse(v) ?? 0;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
 
-      _buffers[_activeField] = buf;
-      _pricePerCarton = double.tryParse(_buffers['price']!) ?? 0;
-      _amountPaid = double.tryParse(_buffers['amount']!) ?? 0;
-    });
-  }
+              // زر الحفظ
+              SizedBox(
+                height: AppConstants.buttonMinHeight,
+                child: ElevatedButton.icon(
+                  onPressed: _savePayment,
+                  icon: const Icon(Icons.save),
+                  label: const Text('حفظ الدفع'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(AppConstants.colorSuccess),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
 
-  double get _totalDue {
-    if (_selectedDispatchId == null) return 0;
-    final dispatch = _dispatches.firstWhere(
-      (d) => d.id == _selectedDispatchId,
-      orElse: () => _dispatches.first,
+              // تنبيه أمني
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.warning_amber, color: Colors.orange),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '⚠️ ميزة تسجيل القبض قيد التطوير. سيتم ربطها بـ PaymentRepository قريباً.',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
-    return _pricePerCarton * (dispatch.cartons + dispatch.trays / AppConstants.traysPerCarton);
   }
 
-  Future<void> _save() async {
-    final user = ref.read(authProvider).currentUser;
-    if (user == null) return;
-    if (_selectedCustomerId == null) {
-      _showError('اختر الزبون');
+  void _calculateTotal() {
+    if (_selectedDispatchId == null || _pricePerCarton <= 0) {
+      setState(() => _totalDue = 0);
       return;
     }
+    final dispatch = _dispatches.firstWhere(
+      (d) => d['id'] == _selectedDispatchId,
+      orElse: () => {'cartons': 0},
+    );
+    final cartons = dispatch['cartons'] as int? ?? 0;
+    setState(() => _totalDue = cartons * _pricePerCarton);
+  }
+
+  void _savePayment() {
     if (_selectedDispatchId == null) {
-      _showError('اختر الفاتورة');
+      _showError('اختر تخريدة أولاً');
       return;
     }
     if (_pricePerCarton <= 0) {
@@ -111,131 +254,29 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
     }
 
     // TODO: حفظ الدفع عبر PaymentRepository (يُكمل مع الويب)
-    _showSuccess('تم تسجيل القبض بنجاح');
+    // مثال:
+    // await ref.read(paymentProvider.notifier).createPayment(
+    //   dispatchId: _selectedDispatchId!,
+    //   pricePerCarton: _pricePerCarton,
+    //   amountPaid: _amountPaid,
+    // );
+    
+    _showSuccess('تم تسجيل القبض بنجاح (مؤقتاً)');
     setState(() {
       _buffers['price'] = '';
       _buffers['amount'] = '';
       _pricePerCarton = 0;
       _amountPaid = 0;
+      _totalDue = 0;
       _selectedDispatchId = null;
     });
   }
 
-  void _showError(String message) => AppSnack.error(context, message);
+  void _showError(String message) => ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(message), backgroundColor: Colors.red),
+  );
 
-  void _showSuccess(String message) => AppSnack.success(context, message);
-
-  @override
-  Widget build(BuildContext context) {
-    final user = ref.watch(authProvider).currentUser;
-    final farmId = user?.farmId ?? '';
-    final customersAsync = ref.watch(customersProvider(farmId));
-    final customers = customersAsync.value ?? const <CustomerModel>[];
-
-    if (_dispatches.isEmpty && !_dispatchesRequested && farmId.isNotEmpty) {
-      _dispatchesRequested = true;
-      _loadDispatches(farmId);
-    }
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('قبض المبالغ')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            DatePickerField(
-              value: _selectedDate,
-              label: 'التاريخ',
-              onChanged: (date) => setState(() => _selectedDate = date),
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              initialValue: _selectedCustomerId,
-              decoration: const InputDecoration(labelText: 'الزبون'),
-              items: customers.map((c) {
-                return DropdownMenuItem(value: c.id, child: Text(c.name));
-              }).toList(),
-              onChanged: (v) => setState(() => _selectedCustomerId = v),
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              initialValue: _selectedDispatchId,
-              decoration: const InputDecoration(labelText: 'الفاتورة'),
-              items: _dispatches.map((d) {
-                return DropdownMenuItem(
-                  value: d.id,
-                  child: Text(
-                    '${Formatters.formatDate(d.date)} - ${Formatters.formatNumber(d.cartons)} كرتون',
-                  ),
-                );
-              }).toList(),
-              onChanged: (v) => setState(() => _selectedDispatchId = v),
-            ),
-            const SizedBox(height: 24),
-            _buildMoneyField('سعر الكرتون', 'price'),
-            const SizedBox(height: 12),
-            _buildMoneyField('المبلغ المقبوض', 'amount'),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(AppConstants.colorSuccess).withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('الإجمالي المستحق:', style: TextStyle(fontSize: 16)),
-                  Text(
-                    Formatters.formatCurrency(_totalDue),
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(AppConstants.colorSuccess),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<PaymentMethod>(
-              initialValue: _paymentMethod,
-              decoration: const InputDecoration(labelText: 'طريقة الدفع'),
-              items: PaymentMethod.values.map((m) {
-                final label = switch (m) {
-                  PaymentMethod.cash => 'نقداً',
-                  PaymentMethod.transfer => 'تحويل بنكي',
-                  PaymentMethod.check => 'شيك',
-                  PaymentMethod.credit => 'آجل',
-                };
-                return DropdownMenuItem(value: m, child: Text(label));
-              }).toList(),
-              onChanged: (v) => setState(() => _paymentMethod = v ?? PaymentMethod.cash),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _notesController,
-              decoration: const InputDecoration(labelText: 'ملاحظات (اختياري)'),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 24),
-            CustomNumpad(onKeyTap: _onNumpadKey, showDecimal: true),
-            const SizedBox(height: 24),
-            PrimaryActionButton(label: 'حفظ القبض', onPressed: _save),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMoneyField(String label, String fieldKey) {
-    final buf = _buffers[fieldKey] ?? '';
-    return NumberTile(
-      label: label,
-      value: buf.isEmpty ? '0' : buf,
-      active: _activeField == fieldKey,
-      onTap: () => setState(() => _activeField = fieldKey),
-    );
-  }
+  void _showSuccess(String message) => ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(message), backgroundColor: Colors.green),
+  );
 }

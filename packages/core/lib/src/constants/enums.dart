@@ -87,3 +87,35 @@ enum InventoryUnit {
   final String label;
   const InventoryUnit(this.label);
 }
+
+/// حالة طلب السلفة
+enum AdvanceRequestStatus {
+  pending, // قيد الانتظار
+  approved, // موافق عليه
+  rejected, // مرفوض
+  paid; // تم الصرف
+
+  String get label {
+    switch (this) {
+      case AdvanceRequestStatus.pending:
+        return 'قيد الانتظار';
+      case AdvanceRequestStatus.approved:
+        return 'موافق عليه';
+      case AdvanceRequestStatus.rejected:
+        return 'مرفوض';
+      case AdvanceRequestStatus.paid:
+        return 'تم الصرف';
+    }
+  }
+}
+
+/// نوع مصروف الرواتب
+enum SalaryExpenseType {
+  baseSalary('الراتب الأساسي'),
+  advance('سلفة'),
+  bonus('مكافأة'),
+  deduction('خصم');
+
+  final String label;
+  const SalaryExpenseType(this.label);
+}

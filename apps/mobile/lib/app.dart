@@ -17,6 +17,8 @@ import 'features/payments/presentation/payments_screen.dart';
 import 'features/reports/presentation/reports_screen.dart';
 import 'features/settings/presentation/settings_screen.dart';
 import 'features/settings/providers/theme_provider.dart';
+import 'features/workers/presentation/my_salary_screen.dart';
+import 'features/workers/presentation/workers_list_screen.dart';
 
 /// التطبيق الرئيسي
 class PoultryApp extends ConsumerWidget {
@@ -55,6 +57,8 @@ class PoultryApp extends ConsumerWidget {
         '/settings': (_) => const SettingsScreen(),
         '/payments': (_) => const PaymentsScreen(),
         '/reports': (_) => const ReportsScreen(),
+        '/my-salary': (_) => const MySalaryScreen(),
+        '/workers': (_) => const WorkersListScreen(),
       },
     );
   }

@@ -1,5 +1,4 @@
 import 'dart:convert';
-
 import 'package:core/core.dart';
 import 'package:domain/domain.dart';
 import '../datasources/local/daos/session_dao.dart';
@@ -35,8 +34,10 @@ class AuthRepositoryImpl implements AuthRepository {
 
       return LoginResult.success(user);
     } on AuthException catch (e) {
+      print('خطأ مصادقة: ${e.message}');
       return LoginResult.failure(e.message);
     } catch (e) {
+      print('خطأ غير متوقع في تسجيل الدخول: $e');
       return LoginResult.failure('خطأ غير متوقع: $e');
     }
   }
@@ -55,7 +56,9 @@ class AuthRepositoryImpl implements AuthRepository {
       // تحديث النسخة المخزنة لأجل المرات القادمة بدون إنترنت
       try {
         await _sessionDao.saveUserJson(jsonEncode(remote.toJson()));
-      } catch (_) {}
+      } catch (e) {
+        print('فشل تحديث بيانات المستخدم المحفوظة: $e');
+      }
       return remote;
     }
 
@@ -64,7 +67,9 @@ class AuthRepositoryImpl implements AuthRepository {
     if (cached != null) {
       try {
         return UserModel.fromJson(cached);
-      } catch (_) {}
+      } catch (e) {
+        print('فشل تحليل بيانات المستخدم المحفوظة: $e');
+      }
     }
     return null;
   }
@@ -75,7 +80,8 @@ class AuthRepositoryImpl implements AuthRepository {
       final response = await _remoteDatasource.getUserById(uid);
       if (response == null) return null;
       return UserModel.fromJson(response);
-    } catch (_) {
+    } catch (e) {
+      print('فشل جلب بيانات المستخدم من السيرفر: $e');
       return null;
     }
   }
