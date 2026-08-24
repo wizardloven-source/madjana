@@ -1,75 +1,44 @@
 ```
-# Compiled and build artifacts
-*.pyc
-__pycache__/
-*.o
-*.obj
-*.class
-*.dll
-*.so
-*.a
-*.exe
-*.out
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Environment
+.env
+.env.local
+.env.*
+
+# Editors
+.vscode/
+.idea/
 
 # Dependencies
 node_modules/
 venv/
 .venv/
-.env
-.env.local
-*.env.*
-
-# Build directories
-dist/
-build/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.julia/
+zig*/
 target/
 .gradle/
 
-# Python specific
+# Compiled and build artifacts
 *.pyc
-__pycache__/
-*.pyo
-*.pyd
-.Python
+*.class
+*.o
+*.exe
+*.dll
 *.so
-.PyInstaller/
-.pytest_cache/
-.mypy_cache/
-.coverage
+*.a
+*.obj
+*.out
+dist/
+build/
 coverage/
-
-# Dart/Flutter specific
-.dart_tool/
-.packages
-.pub-cache/
-pubspec.lock
-*.g.dart
-*.freezed.dart
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Logs
-*.log
-*.tmp
-
-# OS generated files
-.DS_Store
-Thumbs.db
-ehthumbs.db
-Icon?
-.directory
-.Trashes
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Compressed files
+htmlcov/
 *.zip
 *.gz
 *.tar
@@ -92,4 +61,8 @@ Icon?
 *.tar.bz2
 *.tar.xz
 *.tar.zst
+
+# System files
+.DS_Store
+Thumbs.db
 ```

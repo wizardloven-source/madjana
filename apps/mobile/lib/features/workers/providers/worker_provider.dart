@@ -1,6 +1,7 @@
 import 'package:core/core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/worker_repository_impl.dart';
+import '../../auth/providers/auth_provider.dart';
 
 /// Provider لمستودع العمال
 final workerRepositoryProvider = Provider<WorkerRepository>((ref) {
@@ -17,16 +18,23 @@ final allWorkersProvider = FutureProvider<List<WorkerModel>>((ref) async {
 /// Provider لكشوف الراتب للعامل الحالي
 final mySalarySlipsProvider = FutureProvider<List<SalarySlipModel>>((ref) async {
   final repo = ref.watch(workerRepositoryProvider);
-  // TODO: الحصول على workerId من الجلسة
-  // هذا مجرد مثال - يجب تحديثه بالبيانات الفعلية
-  return [];
+  final authState = ref.watch(authProvider);
+  final workerId = authState.currentUser?.uid;
+  
+  if (workerId == null) return [];
+  
+  return repo.getSalarySlipsByWorkerId(workerId);
 });
 
 /// Provider لطلبات السلف للعامل الحالي
 final myAdvanceRequestsProvider = FutureProvider<List<AdvanceRequestModel>>((ref) async {
   final repo = ref.watch(workerRepositoryProvider);
-  // TODO: الحصول على workerId من الجلسة
-  return [];
+  final authState = ref.watch(authProvider);
+  final workerId = authState.currentUser?.uid;
+  
+  if (workerId == null) return [];
+  
+  return repo.getAdvanceRequestsByWorkerId(workerId);
 });
 
 /// Provider لكشوف الراتب غير المدفوعة
