@@ -1,37 +1,30 @@
 ```
-# Dependencies
-node_modules/
-.pub/
-.dart_tool/
-
 # Build artifacts
 build/
-dist/
-*.so
-*.dylib
-*.dll
+*.dart.js
+*.map
+
+# Dependencies
+.pub/
+.dart_tool/
+packages/
 
 # Logs
 *.log
+**/logs
 
-# Environment variables
+# Environment
 .env
 .env.local
 *.env.*
 
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
-*.tmp
 
-# OS generated files
+# OS
 .DS_Store
 Thumbs.db
 ```
