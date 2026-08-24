@@ -1,0 +1,52 @@
+```
+# Environment variables
+.env
+.env.local
+.env.*
+
+# Build artifacts
+*.dart_tool/
+*.build/
+build/
+
+# Dependencies
+**/.dart_tool/
+**/build/
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Distribution / packaging
+*.tar.gz
+*.zip
+
+# Temporary files
+*.tmp
+*.temp
+
+# Flutter/Dart specific
+.dart_tool/
+.packages
+.pubspec.lock
+
+# Mobile app specific build directories
+ios/build/
+android/app/build/
+android/.gradle/
+**/generated/
+```
