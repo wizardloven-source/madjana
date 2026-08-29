@@ -1,55 +1,54 @@
 ```
-# Supabase migrations
-supabase/migrations/*.sql
-
-# Mobile app build artifacts
-apps/mobile/build/
-apps/mobile/.dart_tool/
-apps/mobile/ios/Pods/
-apps/mobile/ios/.symlinks/
-apps/mobile/android/.gradle/
-apps/mobile/android/build/
-
-# Flutter/Dart specific
-.dart_tool/
-.packages
-flutter/
-bin/cache/
-
-# General build artifacts
-build/
-dist/
-target/
+# Compiled and build artifacts
+*.pyc
+__pycache__/
 *.o
 *.obj
 *.class
-*.pyc
-__pycache__/
+*.exe
+*.dll
+*.so
+*.a
+*.out
 
 # Dependencies
 node_modules/
-.venv/
 venv/
+.venv/
 .env
 .env.local
 .env.*
+
+# Build directories
+dist/
+build/
+target/
+.gradle/
+
+# Python specific
+.mypy_cache/
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# Dart/Flutter specific
+.dart_tool/
+.packages
+.pub-cache/
+pubspec.lock
 
 # Editors
 .vscode/
 .idea/
 *.swp
 *.swo
-*.tmp
 
-# Logs
-*.log
-
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# OS
+# System files
 .DS_Store
 Thumbs.db
+
+# Logs and temp files
+*.log
+*.tmp
 ```
