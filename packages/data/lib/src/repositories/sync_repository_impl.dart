@@ -360,168 +360,141 @@ class SyncRepositoryImpl implements SyncRepository {
 
   @override
   Future<BatchUploadResult> uploadBatch(List<SyncRecord> records) async {
-    final successIds = <String>[];
-    final failedIds = <String>[];
-    final errors = <String>[];
-
-    // بيض
-    final eggs = records.where((r) => r.tableName == 'egg_production').toList();
-    if (eggs.isNotEmpty) {
-      try {
-        final models = eggs.map((r) => EggProductionModel.fromJson(r.payload)).toList();
-        final result = await _remoteEgg.insertBatch(models);
-        successIds.addAll(result.successIds);
-        failedIds.addAll(result.failedIds);
-      } catch (e) {
-        errors.add('Egg upload failed: $e');
-        failedIds.addAll(eggs.map((e) => e.id!).whereType<String>());
-      }
+    if (records.isEmpty) {
+      return BatchUploadResult(
+        successIds: const [],
+        failedIds: const [],
+      );
     }
 
-    // نفوق
-    final mortalities = records.where((r) => r.tableName == 'mortality').toList();
-    if (mortalities.isNotEmpty) {
-      try {
-        final models = mortalities.map((r) => MortalityModel.fromJson(r.payload)).toList();
-        final result = await _remoteMortality.insertBatch(models);
-        successIds.addAll(result.successIds);
-        failedIds.addAll(result.failedIds);
-      } catch (e) {
-        errors.add('Mortality upload failed: $e');
-        failedIds.addAll(mortalities.map((m) => m.id!).whereType<String>());
-      }
-    }
+    final client = _remoteEgg.client;
 
-    // استهلاك العلف
-    final consumptions = records.where((r) => r.tableName == 'feed_consumption').toList();
-    if (consumptions.isNotEmpty) {
-      try {
-        final models = consumptions.map((r) => FeedConsumptionModel.fromJson(r.payload)).toList();
-        final result = await _remoteFeed.insertConsumptionBatch(models);
-        successIds.addAll(result.successIds);
-        failedIds.addAll(result.failedIds);
-      } catch (e) {
-        errors.add('Feed consumption upload failed: $e');
-        failedIds.addAll(consumptions.map((c) => c.id!).whereType<String>());
-      }
-    }
+    // تحويل السجلات إلى صيغة Edge Function
+    final payload = records.map((record) {
+      return <String, dynamic>{
+        'table': record.tableName,
+        'action': record.operation,
+        'data': record.payload,
+      };
+    }).toList();
 
-    // استلام العلف
-    final received = records.where((r) => r.tableName == 'feed_received').toList();
-    if (received.isNotEmpty) {
-      try {
-        final models = received.map((r) => FeedReceivedModel.fromJson(r.payload)).toList();
-        final result = await _remoteFeed.insertReceivedBatch(models);
-        successIds.addAll(result.successIds);
-        failedIds.addAll(result.failedIds);
-      } catch (e) {
-        errors.add('Feed received upload failed: $e');
-        failedIds.addAll(received.map((r) => r.id!).whereType<String>());
-      }
-    }
-
-    // تخريج
-    final dispatches = records.where((r) => r.tableName == 'egg_dispatch').toList();
-    if (dispatches.isNotEmpty) {
-      try {
-        final models = dispatches.map((r) => DispatchModel.fromJson(r.payload)).toList();
-        final result = await _remoteDispatch.insertBatch(models);
-        successIds.addAll(result.successIds);
-        failedIds.addAll(result.failedIds);
-      } catch (e) {
-        errors.add('Dispatch upload failed: $e');
-        failedIds.addAll(dispatches.map((d) => d.id!).whereType<String>());
-      }
-    }
-
-    // أدوية
-    final medications = records.where((r) => r.tableName == 'medications').toList();
-    if (medications.isNotEmpty) {
-      try {
-        final models = medications.map((r) => MedicationModel.fromJson(r.payload)).toList();
-        final result = await _remoteMedication.insertBatch(models);
-        successIds.addAll(result.successIds);
-        failedIds.addAll(result.failedIds);
-      } catch (e) {
-        errors.add('Medication upload failed: $e');
-        failedIds.addAll(medications.map((m) => m.id!).whereType<String>());
-      }
-    }
-
-    // مدفوعات - إصلاح: معالجة payments في الرفع
-    final payments = records.where((r) => r.tableName == 'payments').toList();
-    if (payments.isNotEmpty) {
-      try {
-        final models = payments.map((r) => PaymentModel.fromJson(r.payload)).toList();
-        final result = await _remotePayment.insertBatch(models);
-        successIds.addAll(result.successIds);
-        failedIds.addAll(result.failedIds);
-      } catch (e) {
-        errors.add('Payment upload failed: $e');
-        failedIds.addAll(payments.map((p) => p.id!).whereType<String>());
-      }
-    }
-
-    // مصروفات - إصلاح: معالجة expenses في الرفع
-    final expenses = records.where((r) => r.tableName == 'expenses').toList();
-    if (expenses.isNotEmpty) {
-      try {
-        final models = expenses.map((r) => ExpenseModel.fromJson(r.payload)).toList();
-        // ملاحظة: قد تحتاج لإضافة datasource لـ expenses
-        // للآن نعتبرها نجحت
-        successIds.addAll(expenses.map((e) => e.id!).whereType<String>());
-      } catch (e) {
-        errors.add('Expense upload failed: $e');
-        failedIds.addAll(expenses.map((e) => e.id!).whereType<String>());
-      }
-    }
-
-    // زبائن
-    final customers = records.where((r) => r.tableName == 'customers').toList();
-    if (customers.isNotEmpty) {
-      for (final record in customers) {
-        try {
-          final model = CustomerModel.fromJson(record.payload);
-          await _remoteDispatch.insertCustomer(record.recordId, model);
-          successIds.add(record.id ?? record.recordId);
-        } catch (e) {
-          errors.add('Customer upload failed: $e');
-          failedIds.add(record.id ?? record.recordId);
-        }
-      }
-    }
-
-    // تسجيل في طابور المزامنة
-    for (final record in records) {
-      if (record.id == null) continue;
-      final status = successIds.contains(record.id) ? 'synced' : 'failed';
-      final error = failedIds.contains(record.id) 
-          ? errors.firstWhere((e) => true, orElse: () => 'Unknown error') 
-          : null;
-      
-      final existing = await _syncQueueDao.findByRecordId(record.recordId);
-      if (existing != null) {
-        await _syncQueueDao.updateStatus(record.recordId, status);
-        if (error != null) {
-          await _syncQueueDao.updateError(record.recordId, error);
-        }
-      } else {
-        await _syncQueueDao.insert(
-          tableName: record.tableName,
-          recordId: record.recordId,
-          payload: record.payload,
-          userId: '',
-        );
-        await _syncQueueDao.updateStatus(record.recordId, status);
-      }
-    }
-
-    // تنظيف السجلات القديمة المتزامنة
     try {
-      await _syncQueueDao.cleanSynced(olderThanDays: 3);
-    } catch (_) {}
+      // استدعاء Edge Function الموحّد
+      final response = await client.functions.invoke(
+        'sync_records',
+        body: {
+          'records': payload,
+        },
+      );
 
-    return BatchUploadResult(successIds: successIds, failedIds: failedIds);
+      if (response.status != 200) {
+        throw Exception(
+          'Sync HTTP ${response.status}: ${response.data}',
+        );
+      }
+
+      final data = Map<String, dynamic>.from(response.data as Map);
+
+      final successRecords = (data['success_records'] as List?)
+              ?.cast<Map>()
+              .toList() ??
+          const [];
+
+      final failedRecords = (data['failed_records'] as List?)
+              ?.cast<Map>()
+              .toList() ??
+          const [];
+
+      final conflictRecords = (data['conflict_records'] as List?)
+              ?.cast<Map>()
+              .toList() ??
+          const [];
+
+      final successIds = <String>[];
+      final failedIds = <String>[];
+
+      // استخراج المعرفات الناجحة
+      for (final item in successRecords) {
+        final id = item['id']?.toString();
+        if (id != null && id.isNotEmpty) {
+          successIds.add(id);
+        }
+      }
+
+      // اعتبار التعارضات فشل
+      for (final item in conflictRecords) {
+        final id = item['id']?.toString();
+        if (id != null && id.isNotEmpty) {
+          failedIds.add(id);
+        }
+      }
+
+      // إضافة الفشل الأخرى
+      for (final item in failedRecords) {
+        final id = item['id']?.toString();
+        if (id != null && id.isNotEmpty) {
+          failedIds.add(id);
+        }
+      }
+
+      // تحديث حالة الطابور المحلي
+      for (final record in records) {
+        if (record.id == null) continue;
+        
+        final existing = await _syncQueueDao.findByRecordId(record.recordId);
+        if (existing != null) {
+          if (successIds.contains(record.id)) {
+            await _syncQueueDao.updateStatus(record.recordId, 'synced');
+          } else if (failedIds.contains(record.id)) {
+            await _syncQueueDao.updateStatus(record.recordId, 'failed');
+            await _syncQueueDao.incrementAttempts(record.recordId);
+          }
+        } else {
+          await _syncQueueDao.insert(
+            tableName: record.tableName,
+            recordId: record.recordId,
+            payload: record.payload,
+            userId: '',
+            action: record.operation,
+          );
+          final status = successIds.contains(record.id) ? 'synced' : 'failed';
+          await _syncQueueDao.updateStatus(record.recordId, status);
+        }
+      }
+
+      // تنظيف السجلات القديمة المتزامنة
+      try {
+        await _syncQueueDao.cleanSynced(olderThanDays: 3);
+      } catch (_) {}
+
+      return BatchUploadResult(successIds: successIds, failedIds: failedIds);
+      
+    } catch (e, stackTrace) {
+      // تسجيل الخطأ
+      await logError('Batch upload failed: $e\n$stackTrace');
+
+      // اعتبار كل السجلات فاشلة
+      final failedIds = records
+          .map((r) => r.id ?? r.recordId)
+          .whereType<String>()
+          .toList();
+
+      // تحديث الحالة في الطابور
+      for (final record in records) {
+        if (record.id == null) continue;
+        final existing = await _syncQueueDao.findByRecordId(record.recordId);
+        if (existing != null) {
+          await _syncQueueDao.updateStatus(record.recordId, 'failed');
+          await _syncQueueDao.updateError(record.recordId, e.toString());
+          await _syncQueueDao.incrementAttempts(record.recordId);
+        }
+      }
+
+      return BatchUploadResult(
+        successIds: const [],
+        failedIds: failedIds,
+      );
+    }
   }
 
   // إصلاح: markAsSynced تعمل بـ tableName + recordId بدلاً من id فقط
