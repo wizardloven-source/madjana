@@ -1,31 +1,4 @@
 ```
-# Dart/Flutter specific
-.dart_tool/
-.packages
-.pub-cache/
-pubspec.lock
-
-# Build artifacts
-build/
-*.g.dart
-
-# Logs
-*.log
-**/logs
-
-# Environment variables
-.env
-.env.local
-*.env.*
-
-# IDE files
-.vscode/
-.idea/
-*.iml
-*.ipr
-*.iws
-
-# OS generated files
-.DS_Store
-Thumbs.db
+# Temporary files
+.supabase/.temp/
 ```
