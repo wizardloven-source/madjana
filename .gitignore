@@ -1,48 +1,31 @@
 ```
-# Environment
-.env
-.env.local
-.env.*
-
-# Dependencies
-node_modules/
-.venv/
-venv/
-__pycache__/
-.mypy_cache/
-.pytest_cache/
-target/
-.gradle/
+# Dart/Flutter specific
+.dart_tool/
+.packages
+.pub-cache/
+pubspec.lock
 
 # Build artifacts
-dist/
 build/
-*.pyc
-*.class
-*.o
-*.obj
-*.out
-*.dll
-*.so
-*.a
-*.exe
-
-# Editors
-.vscode/
-.idea/
-*.swp
-*.swo
-*.tmp
+*.g.dart
 
 # Logs
 *.log
+**/logs
 
-# Coverage
-coverage/
-htmlcov/
-.coverage
+# Environment variables
+.env
+.env.local
+*.env.*
 
-# System
+# IDE files
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# OS generated files
 .DS_Store
 Thumbs.db
 ```
