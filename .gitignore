@@ -1,36 +1,48 @@
 ```
-# Compiled and build artifacts
-*.pyc
-__pycache__/
+# Supabase migrations
+supabase/migrations/*.sql
+
+# Mobile app build artifacts
+apps/mobile/build/
+apps/mobile/.dart_tool/
+apps/mobile/ios/Pods/
+apps/mobile/ios/.symlinks/
+apps/mobile/android/.gradle/
+apps/mobile/android/build/
+
+# Flutter/Dart specific
+.dart_tool/
+.packages
+flutter/
+bin/cache/
+
+# General build artifacts
+build/
+dist/
+target/
 *.o
 *.obj
 *.class
-*.exe
-*.dll
-*.so
-*.a
-*.out
+*.pyc
+__pycache__/
 
 # Dependencies
 node_modules/
-venv/
 .venv/
+venv/
 .env
 .env.local
 .env.*
 
-# Build directories
-dist/
-build/
-target/
-*.log
-*.tmp
-*.swp
-*.swo
-
 # Editors
 .vscode/
 .idea/
+*.swp
+*.swo
+*.tmp
+
+# Logs
+*.log
 
 # Coverage
 coverage/
@@ -40,60 +52,4 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
-
-# Compressed files
-*.zip
-*.gz
-*.tar
-*.tgz
-*.bz2
-*.xz
-*.7z
-*.rar
-*.zst
-*.lz4
-*.lzh
-*.cab
-*.arj
-*.rpm
-*.deb
-*.Z
-*.lz
-*.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
-
-# Python specific
-*.pyc
-__pycache__/
-*.pyo
-*.pyd
-.Python
-*.so
-*.egg-info/
-.eggs/
-.mypy_cache/
-.pytest_cache/
-.tox/
-.coverage
-
-# Dart/Flutter specific
-.dart_tool/
-.packages
-.pub-cache/
-.pub/
-build/
-*.g.dart
-*.freezed.dart
-
-# Gradle
-.gradle/
-
-# Temporary files
-*.tmp
-*~
-.\#*
-\#*\#
 ```

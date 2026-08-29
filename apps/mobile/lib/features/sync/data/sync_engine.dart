@@ -134,7 +134,7 @@ class SyncEngine {
               if (record.id == null) continue;
 
               if (result.successIds.contains(record.id)) {
-                await repository.markAsSynced(record.id!);
+                await repository.markAsSyncedById(record.tableName, record.recordId);
                 _consecutiveFailures = 0;
               } else if (result.isConflict(record.id!)) {
                 await _resolveConflict(record);
@@ -142,8 +142,9 @@ class SyncEngine {
                 // فشل غير محدد — زيادة عدد المحاولات
                 final attempts = record.attempts + 1;
                 if (attempts >= _maxAttempts) {
-                  await repository.markAsFailed(
-                    record.id!, 
+                  await repository.markAsFailedById(
+                    record.tableName,
+                    record.recordId,
                     'Exceeded max attempts ($_maxAttempts)',
                   );
                   _consecutiveFailures++;
@@ -185,21 +186,21 @@ class SyncEngine {
       if (remoteRecord == null) {
         // السجل غير موجود في السحابة — رفعه إجبارياً
         await repository.forceUpload(record);
-        await repository.markAsSynced(record.id!);
+        await repository.markAsSyncedById(record.tableName, record.recordId);
         return;
       }
 
       if (record.updatedAt.isAfter(remoteUpdatedAt(remoteRecord))) {
         await repository.forceUpload(record);
-        await repository.markAsSynced(record.id!);
+        await repository.markAsSyncedById(record.tableName, record.recordId);
       } else {
         await repository.replaceLocalWithRemote(record, remoteRecord);
-        await repository.markAsSynced(record.id!);
+        await repository.markAsSyncedById(record.tableName, record.recordId);
       }
     } catch (e, stackTrace) {
       final error = 'Conflict resolution failed: $e';
       await repository.logError(error);
-      await repository.markAsFailed(record.id!, error);
+      await repository.markAsFailedById(record.tableName, record.recordId, error);
     }
   }
 
