@@ -1,12 +1,7 @@
 import 'package:flutter/material.dart';
 
-/// ثيم التطبيق الحديث - Material 3
-///
-/// مبني على ColorScheme.fromSeed لتناسق كامل بين الألوان
-/// الوضع الليلي مفعّل افتراضياً حسب متطلبات PRD
 class AppTheme {
-  /// لون البذرة: أخضر تركوازي يناسب قطاع الدواجن والزراعة
-  static const Color seedColor = Color(0xFF00897B);
+  static const Color seedColor = Color(0xFF2E7D32);
 
   static ThemeData darkTheme() => _build(Brightness.dark);
   static ThemeData lightTheme() => _build(Brightness.light);
@@ -22,9 +17,8 @@ class AppTheme {
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor:
-          isDark ? const Color(0xFF101418) : const Color(0xFFF6F8F9),
+          isDark ? const Color(0xFF0F1114) : const Color(0xFFF5F7FA),
 
-      // شريط علوي نظيف بلا ظل
       appBarTheme: AppBarTheme(
         centerTitle: true,
         elevation: 0,
@@ -35,29 +29,25 @@ class AppTheme {
           fontSize: 17,
           fontWeight: FontWeight.bold,
           color: scheme.onSurface,
-          fontFamily: null,
         ),
       ),
 
-      // بطاقات مسطحة بحواف كبيرة
       cardTheme: CardThemeData(
         elevation: 0,
-        color: isDark ? const Color(0xFF181D22) : Colors.white,
+        color: isDark ? const Color(0xFF1A1F25) : Colors.white,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(
-            color: scheme.outlineVariant.withValues(alpha: 0.5),
-            width: 1,
+            color: scheme.outlineVariant.withValues(alpha: 0.4),
           ),
         ),
       ),
 
-      // حقول إدخال ممتلئة بحواف ناعمة
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor:
-            scheme.surfaceContainerHighest.withValues(alpha: isDark ? 0.35 : 0.6),
+            scheme.surfaceContainerHighest.withValues(alpha: isDark ? 0.35 : 0.5),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
@@ -82,7 +72,6 @@ class AppTheme {
         ),
       ),
 
-      // الأزرار الرئيسية
       filledButtonTheme: FilledButtonThemeData(
         style: _button(scheme.primary, scheme.onPrimary),
       ),
@@ -94,27 +83,27 @@ class AppTheme {
             borderRadius: BorderRadius.circular(14),
           ),
           side: BorderSide(color: scheme.outline),
-          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          textStyle:
+              const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
         ),
       ),
 
-      // تنبيهات عائمة بحواف كبيرة
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         elevation: 4,
       ),
 
-      // فواصل خفيفة
       dividerTheme: DividerThemeData(
-        color: scheme.outlineVariant.withValues(alpha: 0.5),
+        color: scheme.outlineVariant.withValues(alpha: 0.4),
         thickness: 1,
         space: 1,
       ),
 
-      // حواف الحوارات
       dialogTheme: DialogThemeData(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         backgroundColor: isDark ? const Color(0xFF1C2227) : Colors.white,
       ),
 
@@ -122,9 +111,11 @@ class AppTheme {
         backgroundColor: isDark ? const Color(0xFF161B20) : Colors.white,
         surfaceTintColor: Colors.transparent,
         showDragHandle: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
       ),
 
-      // انتقالات صفحات سلسة
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
           TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
@@ -136,7 +127,7 @@ class AppTheme {
   }
 
   static Color scaffold(bool isDark) =>
-      isDark ? const Color(0xFF101418) : const Color(0xFFF6F8F9);
+      isDark ? const Color(0xFF0F1114) : const Color(0xFFF5F7FA);
 
   static ButtonStyle _button(Color bg, Color fg) => ButtonStyle(
         minimumSize: const WidgetStatePropertyAll(Size(0, 52)),

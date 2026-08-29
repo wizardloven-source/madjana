@@ -66,6 +66,11 @@ abstract class SyncRepository {
   /// يُرجع عدد السجلات المسحوبة/المحدّثة.
   Future<int> pullRemoteRecords(String farmId);
 
+  /// دورة مزامنة كاملة: رفع المعلّق ثم سحب سجلات الأجهزة الأخرى.
+  ///
+  /// يُرجع عدد السجلات المسحوبة/المحدّثة.
+  Future<int> syncNow(String farmId);
+
   /// تعليم سجل كمزامن
   Future<void> markAsSynced(String id);
 

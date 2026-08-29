@@ -5,9 +5,6 @@ import 'package:core/core.dart';
 import '../../../core/providers.dart';
 import '../../auth/providers/auth_provider.dart';
 
-/// ط´ط§ط´ط© ط¥ط¯ط§ط±ط© ط§ظ„ط¥ط´ط¹ط§ط±ط§طھ:
-/// - ط§ظ„ظ…ط¯ظٹط± ظٹظ†ط´ط¦ ط¥ط´ط¹ط§ط±ط§طھ ط¯ط§ط¦ظ…ط© ط£ظˆ ط¹ط§ط¯ظٹط© ظ„ظ…ط¯ط¬ظ†طھظ‡
-/// - طھط¸ظ‡ط± ظ„ظ„ط¹ط§ظ…ظ„ظٹظ† ظپظٹ طھط·ط¨ظٹظ‚ ط§ظ„ظ…ظˆط¨ط§ظٹظ„
 class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
 
@@ -70,7 +67,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     final title = _titleCtrl.text.trim();
     if (title.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ط§ظƒطھط¨ ط¹ظ†ظˆط§ظ† ط§ظ„ط¥ط´ط¹ط§ط±')),
+        const SnackBar(content: Text('اكتب عنوان الإشعار')),
       );
       return;
     }
@@ -101,14 +98,14 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('طھظ… ط¥ظ†ط´ط§ط، ط§ظ„ط¥ط´ط¹ط§ط±')),
+          const SnackBar(content: Text('تم إنشاء الإشعار')),
         );
       }
       await _load();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('ظپط´ظ„ ط§ظ„ط¥ظ†ط´ط§ط،: $e')),
+          SnackBar(content: Text('فشل الإنشاء: $e')),
         );
       }
     }
@@ -123,7 +120,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('ظپط´ظ„ ط§ظ„طھط­ط¯ظٹط«: $e')),
+          SnackBar(content: Text('فشل التحديث: $e')),
         );
       }
     }
@@ -133,16 +130,16 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('ط­ط°ظپ ط§ظ„ط¥ط´ط¹ط§ط±طں'),
+        title: const Text('حذف الإشعار'),
         content: Text(notice.title),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('ط¥ظ„ط؛ط§ط،'),
+            child: const Text('إلغاء'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('ط­ط°ظپ'),
+            child: const Text('حذف'),
           ),
         ],
       ),
@@ -160,7 +157,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('ظپط´ظ„ ط§ظ„ط­ط°ظپ: $e')),
+          SnackBar(content: Text('فشل الحذف: $e')),
         );
       }
     }
@@ -187,185 +184,222 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
 
     return Padding(
       padding: const EdgeInsets.all(24),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ظ„ظˆط­ط© ط§ظ„ط¥ظ†ط´ط§ط،
-          SizedBox(
-            width: 340,
-            child: Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.campaign,
-                            color: Theme.of(context).colorScheme.primary),
-                        const SizedBox(width: 8),
-                        const Text('ط¥ط´ط¹ط§ط± ط¬ط¯ظٹط¯',
-                            style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _titleCtrl,
-                      decoration: const InputDecoration(labelText: 'ط§ظ„ط¹ظ†ظˆط§ظ† *'),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _bodyCtrl,
-                      maxLines: 3,
-                      decoration:
-                          const InputDecoration(labelText: 'ط§ظ„طھظپط§طµظٹظ„'),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: _flockId,
-                      decoration: const InputDecoration(
-                          labelText: 'ط§ظ„ظ…ط¯ط¬ظ†ط© (ط§ط®طھظٹط§ط±ظٹ â€” ظٹط¸ظ‡ط± ظ„ظ„ظƒظ„ ط¥ط°ط§ طھط±ظƒطھ ظپط§ط±ط؛ط§ظ‹)'),
-                      items: [
-                        const DropdownMenuItem(
-                            value: null, child: Text('ط¬ظ…ظٹط¹ ط§ظ„ظ…ط¯ط§ط¬ظ† / ط§ظ„ظƒظ„')),
-                        ..._flocks.map((f) => DropdownMenuItem(
-                              value: f.id,
-                              child: Text(f.displayName),
-                            )),
-                      ],
-                      onChanged: (v) => setState(() => _flockId = v),
-                    ),
-                    const SizedBox(height: 12),
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(value: 'info', label: Text('ط¹ط§ط¯ظٹ')),
-                        ButtonSegment(value: 'warning', label: Text('طھط­ط°ظٹط±')),
-                        ButtonSegment(value: 'danger', label: Text('ظ‡ط§ظ…')),
-                      ],
-                      selected: {_level},
-                      onSelectionChanged: (v) =>
-                          setState(() => _level = v.first),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('ط¥ط´ط¹ط§ط± ط¯ط§ط¦ظ…'),
-                      subtitle: const Text(
-                          'ظٹط¨ظ‚ظ‰ ط¸ط§ظ‡ط±ط§ظ‹ ظپظٹ ط§ظ„ط±ط¦ظٹط³ظٹط© ط­طھظ‰ طھط¹ط·ظ„ظ‡ ط¨ظ†ظپط³ظƒ'),
-                      value: _persistent,
-                      onChanged: (v) => setState(() => _persistent = v),
-                    ),
-                    const SizedBox(height: 8),
-                    FilledButton.icon(
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2))
-                          : const Icon(Icons.send),
-                      label: const Text('ظ†ط´ط± ط§ظ„ط¥ط´ط¹ط§ط±'),
-                      onPressed: _saving ? null : _create,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 24),
-
-          // ظ‚ط§ط¦ظ…ط© ط§ظ„ط¥ط´ط¹ط§ط±ط§طھ
           Expanded(
-            child: Card(
-              elevation: 2,
-              child: _notices.isEmpty
-                  ? const Center(child: Text('ظ„ط§ طھظˆط¬ط¯ ط¥ط´ط¹ط§ط±ط§طھ ط¨ط¹ط¯'))
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _notices.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (context, i) {
-                        final notice = _notices[i];
-                        final color = _levelColor(notice.level);
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // قائمة الإشعارات (الجانب الأيمن في RTL = المحتوى الرئيسي)
+                Expanded(
+                  flex: 3,
+                  child: Card(
+                    child: _notices.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.notifications_none,
+                                    size: 48,
+                                    color: Theme.of(context).colorScheme.outline),
+                                const SizedBox(height: 12),
+                                Text('لا توجد إشعارات بعد',
+                                    style: TextStyle(
+                                        color: Theme.of(context).colorScheme.outline)),
+                              ],
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.all(12),
+                            itemCount: _notices.length,
+                            separatorBuilder: (_, _) => const Divider(height: 1),
+                            itemBuilder: (context, i) {
+                              final notice = _notices[i];
+                              final color = _levelColor(notice.level);
 
-                        return ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: color.withValues(alpha: 0.15),
-                            child: Icon(Icons.notifications_outlined,
-                                color: color),
-                          ),
-                          title: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  notice.title,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color:
-                                        notice.isActive ? null : Colors.grey,
-                                    decoration: notice.isActive
-                                        ? null
-                                        : TextDecoration.lineThrough,
-                                  ),
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: color.withValues(alpha: 0.15),
+                                  child: Icon(Icons.notifications_outlined,
+                                      color: color),
                                 ),
-                              ),
-                              if (notice.isPersistent)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: color.withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Text('ط¯ط§ط¦ظ…',
+                                title: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        notice.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: notice.isActive
+                                              ? null
+                                              : Colors.grey,
+                                          decoration: notice.isActive
+                                              ? null
+                                              : TextDecoration.lineThrough,
+                                        ),
+                                      ),
+                                    ),
+                                    if (notice.isPersistent) ...[
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: color.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: Text('دائم',
+                                            style: TextStyle(
+                                                fontSize: 11, color: color)),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (notice.body != null &&
+                                        notice.body!.isNotEmpty)
+                                      Text(notice.body!,
+                                          maxLines: 3,
+                                          overflow: TextOverflow.ellipsis),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      dateFormat.format(
+                                          notice.createdAt ?? DateTime.now()),
                                       style: TextStyle(
-                                          fontSize: 11, color: color)),
+                                          fontSize: 11, color: Colors.grey[600]),
+                                    ),
+                                  ],
                                 ),
-                            ],
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      tooltip: notice.isActive
+                                          ? 'تعطيل'
+                                          : 'تنشيط',
+                                      icon: Icon(notice.isActive
+                                          ? Icons.visibility_off_outlined
+                                          : Icons.visibility_outlined),
+                                      onPressed: () => _toggleActive(notice),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'حذف',
+                                      icon: Icon(Icons.delete_outline,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .error),
+                                      onPressed: () => _delete(notice),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
                           ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (notice.body != null &&
-                                  notice.body!.isNotEmpty)
-                                Text(notice.body!),
-                              const SizedBox(height: 2),
-                              Text(
-                                dateFormat.format(
-                                    notice.createdAt ?? DateTime.now()),
-                                style: TextStyle(
-                                    fontSize: 11, color: Colors.grey[600]),
-                              ),
-                            ],
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                tooltip: notice.isActive
-                                    ? 'طھط¹ط·ظٹظ„'
-                                    : 'طھظ†ط´ظٹط·',
-                                icon: Icon(notice.isActive
-                                    ? Icons.visibility_off_outlined
-                                    : Icons.visibility_outlined),
-                                onPressed: () => _toggleActive(notice),
-                              ),
-                              IconButton(
-                                tooltip: 'ط­ط°ظپ',
-                                icon: Icon(Icons.delete_outline,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .error),
-                                onPressed: () => _delete(notice),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
+                  ),
+                ),
+
+                const SizedBox(width: 24),
+
+                // نموذج الإنشاء (الجانب الأيسر في RTL)
+                SizedBox(
+                  width: 340,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.campaign,
+                                    color:
+                                        Theme.of(context).colorScheme.primary),
+                                const SizedBox(width: 8),
+                                const Text('إشعار جديد',
+                                    style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: _titleCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: 'العنوان *'),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _bodyCtrl,
+                              maxLines: 3,
+                              decoration:
+                                  const InputDecoration(labelText: 'التفاصيل'),
+                            ),
+                            const SizedBox(height: 12),
+                            DropdownButtonFormField<String>(
+                              value: _flockId,
+                              decoration: const InputDecoration(
+                                  labelText: 'المدجنة (اختياري)'),
+                              items: [
+                                const DropdownMenuItem(
+                                    value: null,
+                                    child: Text('جميع المداجن / الكل')),
+                                ..._flocks.map((f) => DropdownMenuItem(
+                                      value: f.id,
+                                      child: Text(f.displayName),
+                                    )),
+                              ],
+                              onChanged: (v) =>
+                                  setState(() => _flockId = v),
+                            ),
+                            const SizedBox(height: 12),
+                            SegmentedButton<String>(
+                              segments: const [
+                                ButtonSegment(
+                                    value: 'info', label: Text('عادي')),
+                                ButtonSegment(
+                                    value: 'warning', label: Text('تحذير')),
+                                ButtonSegment(
+                                    value: 'danger', label: Text('هام')),
+                              ],
+                              selected: {_level},
+                              onSelectionChanged: (v) =>
+                                  setState(() => _level = v.first),
+                            ),
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('إشعار دائم'),
+                              subtitle: const Text(
+                                  'يظهر دائماً في الصفحة الرئيسية حتى بعد نقر المستخدم'),
+                              value: _persistent,
+                              onChanged: (v) =>
+                                  setState(() => _persistent = v),
+                            ),
+                            const SizedBox(height: 8),
+                            FilledButton.icon(
+                              icon: _saving
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))
+                                  : const Icon(Icons.send),
+                              label: const Text('نشر الإشعار'),
+                              onPressed: _saving ? null : _create,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

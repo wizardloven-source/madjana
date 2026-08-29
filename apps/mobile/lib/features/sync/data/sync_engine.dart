@@ -22,6 +22,12 @@ class SyncEngine {
   String? farmId;
   DateTime? _lastPull;
 
+  /// الحد الأقصى لمحاولات الرفع قبل تعليم كفاشل
+  static const int _maxAttempts = 10;
+
+  /// هل المزامنة التلقائية مفعلة
+  bool autoSyncEnabled = true;
+
   SyncEngine({
     required this.repository,
     required this.connectivity,
@@ -85,25 +91,34 @@ class SyncEngine {
     _isSyncing = true;
 
     try {
+      // السحب من السحابة يعمل دائماً (حتى مع تعطيل الرفع)
       await _pullOnce();
 
+      // الرفع يعمل فقط إذا كانت المزامنة التلقائية مفعلة
+      if (!autoSyncEnabled) return;
+
       final pendingCount = await repository.getPendingCount();
-      if (pendingCount == 0) {
-        _isSyncing = false;
-        return;
-      }
+      if (pendingCount == 0) return;
 
       final records = await repository.getPendingRecords(limit: 50);
 
       final result = await repository.uploadBatch(records);
 
       for (final record in records) {
+        if (record.id == null) continue;
+
         if (result.successIds.contains(record.id)) {
           await repository.markAsSynced(record.id!);
         } else if (result.isConflict(record.id!)) {
           await _resolveConflict(record);
         } else {
-          await repository.incrementAttempts(record.id!);
+          // فشل غير محدد — زيادة عدد المحاولات
+          final attempts = record.attempts + 1;
+          if (attempts >= _maxAttempts) {
+            await repository.markAsFailed(record.id!, ' exceeded max attempts ($_maxAttempts)');
+          } else {
+            await repository.incrementAttempts(record.id!);
+          }
         }
       }
     } catch (e) {
@@ -121,10 +136,17 @@ class SyncEngine {
         record.recordId,
       );
 
-      if (remoteRecord != null && record.updatedAt.isAfter(remoteUpdatedAt(remoteRecord))) {
+      if (remoteRecord == null) {
+        // السجل غير موجود في السحابة — رفعه إجبارياً
         await repository.forceUpload(record);
         await repository.markAsSynced(record.id!);
-      } else if (remoteRecord != null) {
+        return;
+      }
+
+      if (record.updatedAt.isAfter(remoteUpdatedAt(remoteRecord))) {
+        await repository.forceUpload(record);
+        await repository.markAsSynced(record.id!);
+      } else {
         await repository.replaceLocalWithRemote(record, remoteRecord);
         await repository.markAsSynced(record.id!);
       }
@@ -147,7 +169,8 @@ class SyncEngine {
 
   /// إيقاف المحرك
   Future<void> stop() async {
-    _syncTimer?.cancel();
+    _stopPeriodicSync();
     await _connectivitySubscription?.cancel();
+    _connectivitySubscription = null;
   }
 }

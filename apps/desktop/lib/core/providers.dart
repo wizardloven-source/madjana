@@ -18,6 +18,7 @@ final eggProductionDaoProvider = Provider<EggProductionDao>((ref) => EggProducti
 final mortalityDaoProvider = Provider<MortalityDao>((ref) => MortalityDao());
 final feedDaoProvider = Provider<FeedDao>((ref) => FeedDao());
 final dispatchDaoProvider = Provider<DispatchDao>((ref) => DispatchDao());
+final dispatchRequestDaoProvider = Provider<DispatchRequestDao>((ref) => DispatchRequestDao());
 final medicationDaoProvider = Provider<MedicationDao>((ref) => MedicationDao());
 final customerDaoProvider = Provider<CustomerDao>((ref) => CustomerDao());
 final flockDaoProvider = Provider<FlockDao>((ref) => FlockDao());
@@ -27,6 +28,8 @@ final paymentDaoProvider = Provider<PaymentDao>((ref) => PaymentDao());
 final expenseDaoProvider = Provider<ExpenseDao>((ref) => ExpenseDao());
 final inventoryDaoProvider = Provider<InventoryDao>((ref) => InventoryDao());
 final settingsDaoProvider = Provider<SettingsDao>((ref) => SettingsDao());
+final openingBalanceDaoProvider = Provider<OpeningBalanceDao>((ref) => OpeningBalanceDao());
+final userDaoProvider = Provider<UserDao>((ref) => UserDao());
 
 // ─────────────── المصادر البعيدة ───────────────
 final supabaseAuthDatasourceProvider = Provider<SupabaseAuthDatasource>(
@@ -61,6 +64,15 @@ final supabaseInventoryDatasourceProvider = Provider<SupabaseInventoryDatasource
 );
 final supabaseFarmDatasourceProvider = Provider<SupabaseFarmDatasource>(
   (ref) => SupabaseFarmDatasource(ref.watch(supabaseClientProvider)),
+);
+final supabasePaymentDatasourceProvider = Provider<SupabasePaymentDatasource>(
+  (ref) => SupabasePaymentDatasource(ref.watch(supabaseClientProvider)),
+);
+final supabaseOpeningBalanceDatasourceProvider = Provider<SupabaseOpeningBalanceDatasource>(
+  (ref) => SupabaseOpeningBalanceDatasource(ref.watch(supabaseClientProvider)),
+);
+final supabaseNotificationDatasourceProvider = Provider<SupabaseNotificationDatasource>(
+  (ref) => SupabaseNotificationDatasource(ref.watch(supabaseClientProvider)),
 );
 
 // ─────────────── المستودعات ───────────────
@@ -111,6 +123,7 @@ final paymentRepositoryProvider = Provider<PaymentRepository>(
   (ref) => PaymentRepositoryImpl(
     paymentDao: ref.watch(paymentDaoProvider),
     dispatchDao: ref.watch(dispatchDaoProvider),
+    remoteDatasource: ref.watch(supabasePaymentDatasourceProvider),
   ),
 );
 
@@ -121,9 +134,17 @@ final flockRepositoryProvider = Provider<FlockRepository>(
   ),
 );
 
+final openingBalanceRepositoryProvider = Provider<OpeningBalanceRepository>(
+  (ref) => OpeningBalanceRepositoryImpl(
+    localDao: ref.watch(openingBalanceDaoProvider),
+    remoteDatasource: ref.watch(supabaseOpeningBalanceDatasourceProvider),
+  ),
+);
+
 final userAdminRepositoryProvider = Provider<UserAdminRepository>(
   (ref) => UserAdminRepositoryImpl(
     remoteDatasource: ref.watch(supabaseUserAdminDatasourceProvider),
+    userDao: ref.watch(userDaoProvider),
   ),
 );
 
@@ -162,11 +183,19 @@ final syncRepositoryProvider = Provider<SyncRepository>(
     feedDao: ref.watch(feedDaoProvider),
     dispatchDao: ref.watch(dispatchDaoProvider),
     medicationDao: ref.watch(medicationDaoProvider),
+    customerDao: ref.watch(customerDaoProvider),
     syncQueueDao: ref.watch(syncQueueDaoProvider),
     remoteEgg: ref.watch(supabaseEggDatasourceProvider),
     remoteMortality: ref.watch(supabaseMortalityDatasourceProvider),
     remoteFeed: ref.watch(supabaseFeedDatasourceProvider),
     remoteDispatch: ref.watch(supabaseDispatchDatasourceProvider),
     remoteMedication: ref.watch(supabaseMedicationDatasourceProvider),
+    remotePayment: ref.watch(supabasePaymentDatasourceProvider),
+  ),
+);
+
+final notificationRepositoryProvider = Provider<NotificationRepository>(
+  (ref) => NotificationRepositoryImpl(
+    remoteDatasource: ref.watch(supabaseNotificationDatasourceProvider),
   ),
 );

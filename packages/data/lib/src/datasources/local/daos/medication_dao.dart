@@ -93,6 +93,48 @@ class MedicationDao {
     return maps.map(_fromMap).toList();
   }
 
+  /// استبدال سجل دواء محلي بالنسخة السحابية (حل التعارض)
+  Future<void> replaceWithRemote(MedicationModel model) async {
+    final db = await LocalDatabase.database;
+    await db.update(
+      _table,
+      {
+        'farm_id': model.farmId,
+        'date': model.date.toIso8601String().split('T').first,
+        'type': model.type.name,
+        'medicine_name': model.medicineName,
+        'dosage': model.dosage,
+        'administration_route': model.administrationRoute.name,
+        'treatment_days': model.treatmentDays,
+        'withdrawal_days': model.withdrawalDays,
+        'notes': model.notes,
+        'worker_id': model.workerId,
+        'sync_status': SyncStatus.synced.name,
+      },
+      where: 'id = ?',
+      whereArgs: [model.id],
+    );
+  }
+
+  Future<void> insertOrUpdateCatalogItem(MedicineModel medicine) async {
+    final db = await LocalDatabase.database;
+    await db.insert(
+      _catalogTable,
+      {
+        'id': medicine.id,
+        'name': medicine.name,
+        'type': medicine.type.name,
+        'withdrawal_days': medicine.withdrawalDays,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deleteCatalogItem(String id) async {
+    final db = await LocalDatabase.database;
+    await db.delete(_catalogTable, where: 'id = ?', whereArgs: [id]);
+  }
+
   // ===================== الكتالوج =====================
   Future<List<MedicineModel>> getCatalog() async {
     final db = await LocalDatabase.database;

@@ -16,6 +16,7 @@ class EggProductionModel {
   final String workerId;
   final SyncStatus syncStatus;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
 
   /// رقم العنبر داخل المدجنة (1..sections_count) — اختياري
   final int? sectionNo;
@@ -34,6 +35,7 @@ class EggProductionModel {
     required this.workerId,
     this.syncStatus = SyncStatus.pending,
     this.createdAt,
+    this.updatedAt,
     this.sectionNo,
   });
 
@@ -73,6 +75,9 @@ class EggProductionModel {
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
           : null,
+      updatedAt: json['updated_at'] != null
+          ? DateTime.parse(json['updated_at'] as String)
+          : null,
     );
   }
 
@@ -100,6 +105,10 @@ class EggProductionModel {
     int? looseEggs,
     int? brokenEggs,
     int? dirtyEggs,
+    double? trayWeightKg,
+    int? sectionNo,
+    DateTime? createdAt,
+    DateTime? updatedAt,
     SyncStatus? syncStatus,
   }) {
     return EggProductionModel(
@@ -112,10 +121,12 @@ class EggProductionModel {
       looseEggs: looseEggs ?? this.looseEggs,
       brokenEggs: brokenEggs ?? this.brokenEggs,
       dirtyEggs: dirtyEggs ?? this.dirtyEggs,
-      trayWeightKg: trayWeightKg,
+      trayWeightKg: trayWeightKg ?? this.trayWeightKg,
+      sectionNo: sectionNo ?? this.sectionNo,
       workerId: workerId,
       syncStatus: syncStatus ?? this.syncStatus,
-      createdAt: createdAt,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 }

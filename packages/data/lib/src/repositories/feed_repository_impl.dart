@@ -65,7 +65,7 @@ class FeedRepositoryImpl implements FeedRepository {
       if (record.id == null) continue;
       await _localDao.updateConsumptionSyncStatus(
         record.id!,
-        successIds.contains(record.id)
+        successIds.successIds.contains(record.id)
             ? SyncStatus.synced
             : SyncStatus.failed,
       );
@@ -78,7 +78,7 @@ class FeedRepositoryImpl implements FeedRepository {
         if (record.id == null) continue;
         await _localDao.updateReceivedSyncStatus(
           record.id!,
-          receivedIds.contains(record.id)
+          receivedIds.successIds.contains(record.id)
               ? SyncStatus.synced
               : SyncStatus.failed,
         );
@@ -110,5 +110,15 @@ class FeedRepositoryImpl implements FeedRepository {
         consumed.fold<double>(0, (sum, r) => sum + r.quantityKg);
 
     return totalReceived - totalConsumed;
+  }
+
+  @override
+  Future<void> deleteConsumptionRecord(String id) async {
+    await _localDao.deleteConsumption(id);
+    try {
+      await _remoteDatasource.deleteConsumption(id);
+    } catch (_) {
+      // سيتم مزامنتها لاحقاً
+    }
   }
 }

@@ -27,17 +27,46 @@ class DispatchRepositoryImpl implements DispatchRepository {
   Future<String> addCustomer(CustomerModel customer) async {
     final localId = await _customerDao.insert(customer);
     try {
-      final remoteId = await _remoteDatasource.insertCustomer(customer);
-      return remoteId;
+      await _remoteDatasource.insertCustomer(localId, customer);
+      await _customerDao.updateSyncStatus(localId, SyncStatus.synced);
     } catch (_) {
-      // Offline-first: نستخدم المعرّف المحلي ونزامن لاحقاً
-      return localId;
+      // Offline-first: يبقى pend في طابور المزامنة ويرتفع لاحقاً تلقائياً
     }
+    return localId;
   }
 
   @override
   Future<List<CustomerModel>> getCustomers(String farmId) {
     return _customerDao.getByFarm(farmId);
+  }
+
+  @override
+  Future<List<CustomerModel>> syncCustomersFromRemote(String farmId) async {
+    final remote = await _remoteDatasource.getCustomers(farmId);
+    for (final customer in remote) {
+      await _customerDao.upsertFromRemote(customer);
+    }
+    return _customerDao.getByFarm(farmId);
+  }
+
+  @override
+  Future<void> updateCustomer(CustomerModel customer) async {
+    await _customerDao.update(customer);
+    try {
+      await _remoteDatasource.updateCustomer(customer);
+    } catch (_) {
+      // يبقى محلياً وينتظر المزامنة القادمة
+    }
+  }
+
+  @override
+  Future<void> deleteCustomer(String id) async {
+    await _customerDao.deleteById(id);
+    try {
+      await _remoteDatasource.deleteCustomer(id);
+    } catch (_) {
+      // يبقى محذوفاً محلياً على الأقل
+    }
   }
 
   @override
@@ -63,7 +92,7 @@ class DispatchRepositoryImpl implements DispatchRepository {
       if (record.id == null) continue;
       await _localDao.updateSyncStatus(
         record.id!,
-        successIds.contains(record.id)
+        successIds.successIds.contains(record.id)
             ? SyncStatus.synced
             : SyncStatus.failed,
       );

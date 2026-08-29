@@ -32,7 +32,7 @@ enum PaymentStatus { unpaid, partial, paid }
 enum PaymentMethod { cash, transfer, check, credit }
 
 /// نوع العلف
-enum FeedType { starter, grower, layer }
+enum FeedType { main, starter, grower, layer }
 
 /// طريقة إدخال العلف
 enum FeedEntryMode { bags, kg, ton }

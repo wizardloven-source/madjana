@@ -55,8 +55,10 @@ class InventoryDao {
 
   Future<void> deleteItem(String id) async {
     final db = await LocalDatabase.database;
-    await db.delete(_txTable, where: 'item_id = ?', whereArgs: [id]);
-    await db.delete(_itemsTable, where: 'id = ?', whereArgs: [id]);
+    await db.transaction((txn) async {
+      await txn.delete(_txTable, where: 'item_id = ?', whereArgs: [id]);
+      await txn.delete(_itemsTable, where: 'id = ?', whereArgs: [id]);
+    });
   }
 
   /// تعديل الكمية وتسجيل الحركة في معاملة واحدة

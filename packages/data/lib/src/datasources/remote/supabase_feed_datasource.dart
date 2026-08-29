@@ -23,28 +23,39 @@ class SupabaseFeedDatasource {
   }
 
   /// رفع مجموعة استهلاك
-  Future<List<String>> insertConsumptionBatch(
+  Future<BatchUploadResult> insertConsumptionBatch(
     List<FeedConsumptionModel> records,
   ) async {
     final successIds = <String>[];
+    final failedIds = <String>[];
     for (final r in records) {
       try {
         await insertConsumption(r);
         successIds.add(r.id ?? '');
-      } catch (_) {}
+      } catch (_) {
+        failedIds.add(r.id ?? '');
+      }
     }
-    return successIds;
+    return BatchUploadResult(successIds: successIds, failedIds: failedIds);
   }
 
   /// رفع مجموعة استلام
-  Future<List<String>> insertReceivedBatch(List<FeedReceivedModel> records) async {
+  Future<BatchUploadResult> insertReceivedBatch(List<FeedReceivedModel> records) async {
     final successIds = <String>[];
+    final failedIds = <String>[];
     for (final r in records) {
       try {
         await insertReceived(r);
         successIds.add(r.id ?? '');
-      } catch (_) {}
+      } catch (_) {
+        failedIds.add(r.id ?? '');
+      }
     }
-    return successIds;
+    return BatchUploadResult(successIds: successIds, failedIds: failedIds);
+  }
+
+  /// حذف سجل استهلاك من السحابة
+  Future<void> deleteConsumption(String id) async {
+    await _client.from('feed_consumption').delete().eq('id', id);
   }
 }

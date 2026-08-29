@@ -50,6 +50,7 @@ class ExpenseModel {
         'category': category.name,
         'description': description,
         'amount': amount,
+        'sync_status': syncStatus.name,
         if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
       };
 

@@ -103,6 +103,29 @@ class DispatchDao {
     );
   }
 
+  /// استبدال سجل تخريج محلي بالنسخة السحابية (حل التعارض)
+  Future<void> replaceWithRemote(DispatchModel model) async {
+    final db = await LocalDatabase.database;
+    await db.update(
+      _table,
+      {
+        'farm_id': model.farmId,
+        'date': model.date.toIso8601String().split('T').first,
+        'customer_id': model.customerId,
+        'cartons': model.cartons,
+        'trays': model.trays,
+        'total_eggs': model.totalEggs,
+        'tray_weight_kg': model.trayWeightKg,
+        'notes': model.notes,
+        'payment_status': model.paymentStatus.name,
+        'worker_id': model.workerId,
+        'sync_status': SyncStatus.synced.name,
+      },
+      where: 'id = ?',
+      whereArgs: [model.id],
+    );
+  }
+
   DispatchModel _fromMap(Map<String, dynamic> map) {
     return DispatchModel(
       id: map['id'] as String,

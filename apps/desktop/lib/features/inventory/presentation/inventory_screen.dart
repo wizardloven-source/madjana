@@ -77,7 +77,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<InventoryUnit>(
-                  initialValue: unit,
+                  value: unit,
                   decoration: const InputDecoration(labelText: 'الوحدة'),
                   items: InventoryUnit.values
                       .map((u) => DropdownMenuItem(
@@ -275,7 +275,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
           else
             Expanded(
               child: SingleChildScrollView(
-                child: DataTable(
+                scrollDirection: Axis.vertical,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
                   columns: const [
                     DataColumn(label: Text('العنصر')),
                     DataColumn(label: Text('الكمية')),
@@ -329,6 +332,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                       ])),
                     ]);
                   }).toList(),
+                  ),
                 ),
               ),
             ),

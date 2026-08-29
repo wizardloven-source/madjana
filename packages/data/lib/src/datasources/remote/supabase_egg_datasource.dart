@@ -41,6 +41,11 @@ class SupabaseEggDatasource {
     );
   }
 
+  /// حذف سجل من السحابة
+  Future<void> delete(String id) async {
+    await _client.from('egg_production').delete().eq('id', id);
+  }
+
   /// جلب سجلات من السحابة (للتقارير)
   Future<List<EggProductionModel>> getRecords({
     String? farmId,

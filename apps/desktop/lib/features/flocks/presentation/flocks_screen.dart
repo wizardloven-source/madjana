@@ -5,6 +5,8 @@ import 'package:core/core.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/providers.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../onboarding/presentation/old_flock_wizard_screen.dart';
+import '../../onboarding/presentation/new_flock_wizard_screen.dart';
 
 /// شاشة إدارة القطعان - للمدير
 class FlocksScreen extends ConsumerStatefulWidget {
@@ -103,7 +105,7 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
-                  initialValue: sectionsCount,
+                  value: sectionsCount,
                   decoration: const InputDecoration(
                     labelText: 'عدد العنابر',
                     helperText:
@@ -240,6 +242,26 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
                     onPressed: () => _showFlockDialog(),
                     icon: const Icon(Icons.add),
                     label: const Text('قطيع جديد'),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const NewFlockWizardScreen(),
+                      ),
+                    ),
+                    icon: const Icon(Icons.playlist_add_check),
+                    label: const Text('معالج فوج جديد'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const OldFlockWizardScreen(),
+                      ),
+                    ),
+                    icon: const Icon(Icons.history),
+                    label: const Text('معالج قطيع قديم'),
                   ),
                 ],
               ),

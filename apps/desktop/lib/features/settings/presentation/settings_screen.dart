@@ -122,18 +122,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (!await source.exists()) {
         throw Exception('ملف القاعدة غير موجود');
       }
-      // إغلاق الاتصال لضمان نسخة متسقة ثم فتحه من جديد
+      // إغلاق الاتصال لضمان نسخة متسقة
       await LocalDatabase.close();
       final dir = await _getBackupDir();
       final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
       final target = p.join(dir.path, 'poultry_farm_$stamp.db');
       await source.copy(target);
 
+      // إعادة فتح قاعدة البيانات بعد النسخ
+      await LocalDatabase.database;
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('تم إنشاء نسخة احتياطية: ${p.basename(target)}')));
       setState(() {}); // لتحديث قائمة النسخ
     } catch (e) {
+      // التأكد من إعادة فتح القاعدة حتى في حالة الخطأ
+      try { await LocalDatabase.database; } catch (_) {}
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('فشل النسخ: $e')));
@@ -163,14 +168,102 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final dbPath = await LocalDatabase.databasePath();
       await LocalDatabase.close();
       await backup.copy(dbPath);
+
+      // إعادة فتح قاعدة البيانات بالنسخة المستعادة
+      await LocalDatabase.database;
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text(
               'تمت الاستعادة. أعد تشغيل التطبيق لتطبيق البيانات المستعادة.')));
     } catch (e) {
+      // التأكد من إعادة فتح القاعدة حتى في حالة الخطأ
+      try { await LocalDatabase.database; } catch (_) {}
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('فشلت الاستعادة: $e')));
+    }
+  }
+
+  Future<void> _deleteBackup(File backup) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف النسخة الاحتياطية'),
+        content: Text(
+            'هل تريد حذف "${p.basename(backup.path)}"؟\nلا يمكن التراجع عن هذا الإجراء.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    try {
+      await backup.delete();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تم حذف "${p.basename(backup.path)}"')));
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('فشل الحذف: $e')));
+    }
+  }
+
+  Future<void> _deleteOldBackups() async {
+    try {
+      final dir = await _getBackupDir();
+      final files = _listBackups(dir);
+      if (files.length <= 1) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('لا توجد نسخ قديمة للحذف')));
+        return;
+      }
+
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('حذف النسخ القديمة'),
+          content: Text(
+              'سيتم حذف ${files.length - 1} نسخة احتياطية (الأقدم).\nالنسخة الأحدث فقط ستبقى.\n\nهل تريد المتابعة؟'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('إلغاء')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('حذف'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+
+      var deleted = 0;
+      for (final f in files.skip(1)) {
+        await f.delete();
+        deleted++;
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تم حذف $deleted نسخة احتياطية')));
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('فشل الحذف: $e')));
     }
   }
 
@@ -280,6 +373,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     icon: const Icon(Icons.backup_outlined),
                     label: const Text('إنشاء نسخة احتياطية الآن'),
                   ),
+                  const SizedBox(height: 12),
+                  FilledButton.tonalIcon(
+                    onPressed: _deleteOldBackups,
+                    icon: const Icon(Icons.delete_sweep_outlined),
+                    label: const Text('حذف النسخ الاحتياطية القديمة'),
+                    style: FilledButton.styleFrom(
+                        foregroundColor: Colors.red.shade700),
+                  ),
                   const SizedBox(height: 16),
                   FutureBuilder<Directory>(
                     future: _getBackupDir(),
@@ -304,9 +405,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 subtitle: Text(DateFormat(
                                         'yyyy/MM/dd - HH:mm')
                                     .format(f.statSync().modified)),
-                                trailing: FilledButton.tonal(
-                                  onPressed: () => _restoreBackup(f),
-                                  child: const Text('استعادة'),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    FilledButton.tonal(
+                                      onPressed: () => _restoreBackup(f),
+                                      child: const Text('استعادة'),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    IconButton(
+                                      tooltip: 'حذف النسخة',
+                                      icon: const Icon(Icons.delete_outline,
+                                          color: Colors.red, size: 20),
+                                      onPressed: () => _deleteBackup(f),
+                                    ),
+                                  ],
                                 ),
                               )),
                         ],

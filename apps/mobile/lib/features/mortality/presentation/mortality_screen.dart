@@ -34,6 +34,26 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
   final _otherController = TextEditingController();
   final _notesController = TextEditingController();
 
+  // سجلات اليوم
+  List<MortalityModel> _todayRecords = [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadTodayRecords());
+  }
+
+  Future<void> _loadTodayRecords() async {
+    final user = ref.read(authProvider).currentUser;
+    final farmId = user?.farmId ?? '';
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final records = await ref
+        .read(mortalityProvider.notifier)
+        .getRecords(farmId: farmId, fromDate: todayStart, toDate: now);
+    if (mounted) setState(() => _todayRecords = records);
+  }
+
   @override
   void dispose() {
     _otherController.dispose();
@@ -84,9 +104,19 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
       return;
     }
 
-    final user = ref.read(authProvider).currentUser!;
+    final user = ref.read(authProvider).currentUser;
+    if (user == null || user.farmId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+    final farmId = user.farmId!;
+
     final record = MortalityModel(
-      farmId: user.farmId!,
+      farmId: farmId,
       flockId: _selectedFlockId!,
       date: _selectedDate,
       count: _count,
@@ -111,6 +141,7 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
         _showSuccess('تم الحفظ بنجاح');
       }
       _clearFields();
+      _loadTodayRecords();
     } else {
       _showError(result.error ?? 'فشل الحفظ');
     }
@@ -273,6 +304,71 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
               onPressed: _save,
               color: const Color(AppConstants.colorDanger),
             ),
+
+            // سجلات اليوم
+            if (_todayRecords.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              const Text('سجلات اليوم', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              ..._todayRecords.map((record) => Dismissible(
+                key: ValueKey(record.id),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(left: 20),
+                  color: Colors.red,
+                  child: const Icon(Icons.delete, color: Colors.white),
+                ),
+                confirmDismiss: (direction) async {
+                  return await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('حذف السجل'),
+                      content: const Text('هل تريد حذف سجل النفوق؟'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('حذف'),
+                          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                onDismissed: (direction) async {
+                  if (record.id != null) {
+                    await ref.read(mortalityProvider.notifier).deleteRecord(record.id!);
+                    _loadTodayRecords();
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red.withValues(alpha: 0.2)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.pets, color: Colors.red),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${Formatters.formatNumber(record.count)} طائر', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text('سبب: ${record.reason.label}${record.reasonOther != null ? ' (${record.reasonOther})' : ''}',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )),
+            ],
           ],
         ),
       ),

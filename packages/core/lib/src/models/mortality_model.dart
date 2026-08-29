@@ -39,6 +39,7 @@ class MortalityModel {
       count: json['count'] as int,
       reason: MortalityReason.values.firstWhere(
         (e) => e.name == json['reason'],
+        orElse: () => MortalityReason.other,
       ),
       reasonOther: json['reason_other'] as String?,
       notes: json['notes'] as String?,

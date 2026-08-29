@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,17 +11,26 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // تحميل المفاتيح من ملف .env
-  await dotenv.load(fileName: '.env');
+  try {
+    await dotenv.load(fileName: '.env');
+  } catch (_) {}
 
-  // تهيئة Supabase (مع تجاهل الأخطاء إذا كانت المفاتيح غير جاهزة)
+  // تهيئة Supabase
   try {
     await SupabaseConfig.initialize();
-  } catch (_) {
-    // التطبيق يعمل وضع Offline-only حتى ضبط الإعدادات
+  } catch (e) {
+    debugPrint('Supabase init error: $e');
   }
 
-  // تهيئة قاعدة البيانات المحلية
-  await LocalDatabase.database;
+  // تهيئة قاعدة البيانات المحلية (مع حماية من التلف)
+  try {
+    await LocalDatabase.database;
+  } catch (_) {
+    try {
+      await LocalDatabase.close();
+      await LocalDatabase.database;
+    } catch (_) {}
+  }
 
   runApp(const ProviderScope(child: PoultryApp()));
 }

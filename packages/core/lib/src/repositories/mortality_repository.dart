@@ -22,6 +22,9 @@ abstract class MortalityRepository {
   /// مزامنة السجلات المعلقة
   Future<void> syncPendingRecords();
 
+  /// حذف سجل
+  Future<void> deleteRecord(String id);
+
   /// رفع صورة إلى السحابة
   Future<String?> uploadImage(File imageFile, String recordId);
 }

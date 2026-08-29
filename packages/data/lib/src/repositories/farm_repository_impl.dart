@@ -21,12 +21,22 @@ class FarmRepositoryImpl implements FarmRepository {
 
   @override
   Future<FarmModel> getFarm(String farmId) async {
-    return _remoteDatasource.getFarm(farmId);
+    try {
+      return await _remoteDatasource.getFarm(farmId)
+          .timeout(const Duration(seconds: 10), onTimeout: () {
+        throw Exception('انتهت مهلة الاتصال');
+      });
+    } catch (e) {
+      return FarmModel(id: farmId, name: 'المدجنة');
+    }
   }
 
   @override
   Future<void> updateFarm(FarmModel farm) async {
-    await _remoteDatasource.update(farm);
+    try {
+      await _remoteDatasource.update(farm)
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {}
   }
 
   // ─────────────── الإعدادات المحلية ───────────────

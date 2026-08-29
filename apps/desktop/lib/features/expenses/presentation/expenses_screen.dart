@@ -97,7 +97,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<ExpenseCategory>(
-                  initialValue: category,
+                  value: category,
                   decoration: const InputDecoration(labelText: 'الفئة'),
                   items: ExpenseCategory.values
                       .map((c) => DropdownMenuItem(

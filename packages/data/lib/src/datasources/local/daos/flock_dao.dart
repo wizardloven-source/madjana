@@ -25,18 +25,21 @@ class FlockDao {
 
   Future<void> saveAll(List<FlockModel> flocks) async {
     final db = await LocalDatabase.database;
-    await db.delete(_table);
-    for (final f in flocks) {
-      await db.insert(_table, {
-        'id': f.id,
-        'farm_id': f.farmId,
-        'breed': f.breed,
-        'start_date': f.startDate.toIso8601String().split('T').first,
-        'initial_count': f.initialCount,
-        'current_count': f.currentCount,
-        'status': f.status.name,
-      });
-    }
+    await db.transaction((txn) async {
+      await txn.delete(_table);
+      for (final f in flocks) {
+        await txn.insert(_table, {
+          'id': f.id,
+          'farm_id': f.farmId,
+          'breed': f.breed,
+          'start_date': f.startDate.toIso8601String().split('T').first,
+          'initial_count': f.initialCount,
+          'current_count': f.currentCount,
+          'status': f.status.name,
+          'sections_count': f.sectionsCount,
+        });
+      }
+    });
   }
 
   /// إضافة قطيع واحد
@@ -50,6 +53,7 @@ class FlockDao {
       'initial_count': flock.initialCount,
       'current_count': flock.currentCount,
       'status': flock.status.name,
+      'sections_count': flock.sectionsCount,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -86,6 +90,7 @@ class FlockDao {
         (e) => e.name == map['status'],
         orElse: () => FlockStatus.active,
       ),
+      sectionsCount: map['sections_count'] as int? ?? 1,
     );
   }
 }

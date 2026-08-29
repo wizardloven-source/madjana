@@ -27,7 +27,9 @@ dependencies:
   
   # قاعدة البيانات المحلية
   sqflite: ^2.3.0
+  sqflite_common_ffi: ^2.3.0  # ✅ أضفت هذا
   path_provider: ^2.1.1
+  path: ^1.9.0  # ✅ أضفت هذا (مستخدم في LocalDatabase)
   
   # Supabase
   supabase_flutter: ^2.3.4
@@ -48,6 +50,7 @@ dependencies:
   
   # التخزين المحلي
   shared_preferences: ^2.2.2
+  csv: ^6.0.0
   flutter_secure_storage: ^9.0.0
   
   # التشفير

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../sync/providers/sync_provider.dart';
+import '../providers/auto_sync_provider.dart';
 import '../providers/theme_provider.dart';
 
 /// شاشة الإعدادات
@@ -19,12 +20,36 @@ class SettingsScreen extends ConsumerWidget {
     final user = ref.watch(authProvider).currentUser;
     final syncState = ref.watch(syncProvider);
     final isDarkMode = ref.watch(themeProvider);
+    final autoSync = ref.watch(autoSyncProvider);
+    final isConnected = syncState.connectionStatus != SyncConnectionStatus.disconnected;
 
     return Scaffold(
       appBar: AppBar(title: const Text('الإعدادات')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // مؤشر حالة الاتصال
+          if (!isConnected)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+              ),
+              child: Row(
+                children: const [
+                  Icon(Icons.wifi_off, color: Colors.orange, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text('غير متصل بالإنترنت — البيانات ستُحفظ محلياً',
+                        style: TextStyle(color: Colors.orange)),
+                  ),
+                ],
+              ),
+            ),
+
           // معلومات المستخدم
           Container(
             padding: const EdgeInsets.all(16),
@@ -81,9 +106,10 @@ class SettingsScreen extends ConsumerWidget {
             icon: Icons.sync,
             title: 'المزامنة التلقائية',
             subtitle: 'رفع البيانات تلقائياً عند توفر الإنترنت',
-            trailing: const Switch(
-              value: true,
-              onChanged: null, // TODO: ربط بـ Provider
+            trailing: Switch(
+              value: autoSync,
+              onChanged: (v) =>
+                  ref.read(autoSyncProvider.notifier).toggle(v),
             ),
           ),
           const Divider(),

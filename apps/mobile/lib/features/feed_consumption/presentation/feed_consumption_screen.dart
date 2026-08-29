@@ -27,6 +27,9 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
   int _bagsCount = 0;
   double _quantityKg = 0;
 
+  // سجلات اليوم
+  List<FeedConsumptionModel> _todayRecords = [];
+
   @override
   void initState() {
     super.initState();
@@ -36,7 +39,19 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
       if (user?.farmId != null) {
         setState(() => _selectedFarmId = user!.farmId);
       }
+      _loadTodayRecords();
     });
+  }
+
+  Future<void> _loadTodayRecords() async {
+    final user = ref.read(authProvider).currentUser;
+    final farmId = user?.farmId ?? '';
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final records = await ref
+        .read(feedConsumptionProvider.notifier)
+        .getAll(farmId: farmId, fromDate: todayStart, toDate: now);
+    if (mounted) setState(() => _todayRecords = records);
   }
 
   /// القيمة الحالية في الحقل النشط
@@ -95,9 +110,19 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
       return;
     }
 
-    final user = ref.read(authProvider).currentUser!;
+    final user = ref.read(authProvider).currentUser;
+    if (user == null || user.farmId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+    final farmId = user.farmId!;
+
     final record = FeedConsumptionModel(
-      farmId: user.farmId!,
+      farmId: farmId,
       date: _selectedDate,
       entryMode: _entryMode,
       bagsCount: _bagsCount,
@@ -115,6 +140,7 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
         _bagsCount = 0;
         _quantityKg = 0;
       });
+      _loadTodayRecords();
     } else {
       _showError(result.error ?? 'فشل الحفظ');
     }
@@ -244,6 +270,70 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
                 ),
               ),
             ),
+
+            // سجلات اليوم
+            if (_todayRecords.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              const Text('سجلات اليوم', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              ..._todayRecords.map((record) => Dismissible(
+                key: ValueKey(record.id),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(left: 20),
+                  color: Colors.red,
+                  child: const Icon(Icons.delete, color: Colors.white),
+                ),
+                confirmDismiss: (direction) async {
+                  return await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('حذف السجل'),
+                      content: const Text('هل تريد حذف سجل استهلاك العلف؟'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('حذف'),
+                          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                onDismissed: (direction) async {
+                  if (record.id != null) {
+                    await ref.read(feedConsumptionProvider.notifier).deleteRecord(record.id!);
+                    _loadTodayRecords();
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.withValues(alpha: 0.2)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.grain, color: Colors.orange),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(Formatters.formatWeight(record.quantityKg), style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text('أكياس: ${record.bagsCount}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )),
+            ],
           ],
         ),
       ),

@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/providers/auth_provider.dart';
+import 'features/customers/presentation/customers_screen.dart';
 import 'features/dispatch/presentation/dispatch_screen.dart';
+import 'features/flock/presentation/flock_management_screen.dart';
 import 'features/egg_production/presentation/egg_production_screen.dart';
 import 'features/feed_consumption/presentation/feed_consumption_screen.dart';
 import 'features/feed_received/presentation/feed_received_screen.dart';
@@ -55,6 +57,8 @@ class PoultryApp extends ConsumerWidget {
         '/settings': (_) => const SettingsScreen(),
         '/payments': (_) => const PaymentsScreen(),
         '/reports': (_) => const ReportsScreen(),
+        '/flock-management': (_) => const FlockManagementScreen(),
+        '/customers': (_) => const CustomersScreen(),
       },
     );
   }

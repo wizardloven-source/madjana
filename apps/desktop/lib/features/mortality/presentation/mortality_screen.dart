@@ -1,12 +1,14 @@
 ﻿import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/csv_exporter.dart';
 import '../../../core/providers.dart';
+import '../../../core/shell_state.dart';
 import '../../../shared/widgets/period_filter.dart';
 import '../../auth/providers/auth_provider.dart';
 
-/// شاشة النفوق (عرض وتقرير للمدير)
+/// شاشة النفوق (عرض + إدخال للمدير)
 class MortalityScreen extends ConsumerStatefulWidget {
   const MortalityScreen({super.key});
 
@@ -16,6 +18,7 @@ class MortalityScreen extends ConsumerStatefulWidget {
 
 class _MortalityScreenState extends ConsumerState<MortalityScreen> {
   List<MortalityModel> _records = [];
+  List<FlockModel> _flocks = [];
   bool _loading = true;
   DateTime _fromDate = DateTime.now().subtract(const Duration(days: 30));
   DateTime _toDate = DateTime.now();
@@ -30,6 +33,11 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
+    try {
+      _flocks = await ref.read(flockRepositoryProvider).getFlocks(_farmId, includeEnded: true);
+    } catch (_) {
+      _flocks = [];
+    }
     final records = await ref.read(mortalityRepositoryProvider).getAllRecords(
           farmId: _farmId,
           fromDate: _fromDate,
@@ -46,6 +54,46 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
       m.reason == MortalityReason.other
           ? (m.reasonOther ?? 'أخرى')
           : m.reason.label;
+
+  String _breedName(String flockId) {
+    for (final f in _flocks) {
+      if (f.id == flockId) return f.breed;
+    }
+    return '-';
+  }
+
+  Future<void> _showAddDialog() async {
+    if (_flocks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('أضف قطيعاً أولاً من شاشة القطعان')),
+      );
+      return;
+    }
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _MortalityDialog(flocks: _flocks, farmId: _farmId),
+    );
+    if (result != null && mounted) {
+      final workerId = ref.read(authProvider).currentUser?.uid ?? 'manager';
+      final record = MortalityModel(
+        farmId: _farmId,
+        flockId: result['flock_id'] as String,
+        date: result['date'] as DateTime,
+        count: result['count'] as int,
+        reason: result['reason'] as MortalityReason,
+        reasonOther: result['reason_other'] as String?,
+        notes: result['notes'] as String?,
+        workerId: workerId,
+      );
+      await ref.read(mortalityRepositoryProvider).saveLocal(record);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حفظ سجل النفوق بنجاح')),
+        );
+        _load();
+      }
+    }
+  }
 
   Future<void> _exportCsv() async {
     try {
@@ -145,6 +193,12 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
                 icon: const Icon(Icons.file_download_outlined),
                 label: const Text('تصدير CSV'),
               ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: _showAddDialog,
+                icon: const Icon(Icons.add),
+                label: const Text('إضافة سجل'),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -187,6 +241,154 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// نافذة إدخال سجل النفوق
+class _MortalityDialog extends StatefulWidget {
+  final List<FlockModel> flocks;
+  final String farmId;
+  const _MortalityDialog({required this.flocks, required this.farmId});
+  @override
+  State<_MortalityDialog> createState() => _MortalityDialogState();
+}
+
+class _MortalityDialogState extends State<_MortalityDialog> {
+  String? _flockId;
+  DateTime _date = DateTime.now();
+  final _countCtrl = TextEditingController();
+  MortalityReason _reason = MortalityReason.unknown;
+  final _otherCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _countCtrl.dispose();
+    _otherCtrl.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('إضافة سجل نفوق'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DropdownButtonFormField<String>(
+                value: _flockId,
+                decoration: const InputDecoration(
+                  labelText: 'المدجنة',
+                  border: OutlineInputBorder(),
+                ),
+                items: widget.flocks
+                    .where((f) => f.status == FlockStatus.active)
+                    .map((f) => DropdownMenuItem(value: f.id, child: Text(f.breed)))
+                    .toList(),
+                onChanged: (v) => setState(() => _flockId = v),
+              ),
+              const SizedBox(height: 12),
+              InkWell(
+                onTap: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: _date,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                  );
+                  if (d != null) setState(() => _date = d);
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'التاريخ',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.calendar_today),
+                  ),
+                  child: Text(Formatters.formatDate(_date)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _countCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  labelText: 'عدد النفوق',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<MortalityReason>(
+                value: _reason,
+                decoration: const InputDecoration(
+                  labelText: 'السبب',
+                  border: OutlineInputBorder(),
+                ),
+                items: MortalityReason.values
+                    .map((r) => DropdownMenuItem(value: r, child: Text(r.label)))
+                    .toList(),
+                onChanged: (v) => setState(() => _reason = v ?? MortalityReason.unknown),
+              ),
+              if (_reason == MortalityReason.other) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _otherCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'حدد السبب',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: _notesCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'ملاحظات',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (_flockId == null) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('اختر المدجنة')),
+              );
+              return;
+            }
+            final count = int.tryParse(_countCtrl.text) ?? 0;
+            if (count <= 0) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('أدخل عدد صحيح')),
+              );
+              return;
+            }
+            Navigator.pop(context, {
+              'flock_id': _flockId!,
+              'date': _date,
+              'count': count,
+              'reason': _reason,
+              'reason_other': _reason == MortalityReason.other ? _otherCtrl.text : null,
+              'notes': _notesCtrl.text.isEmpty ? null : _notesCtrl.text,
+            });
+          },
+          child: const Text('حفظ'),
+        ),
+      ],
     );
   }
 }

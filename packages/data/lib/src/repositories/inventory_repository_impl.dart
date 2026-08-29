@@ -35,27 +35,26 @@ class InventoryRepositoryImpl implements InventoryRepository {
 
   @override
   Future<void> saveItem(InventoryItemModel item) async {
+    await _localDao.saveItem(item);
     try {
       if (item.id != null) {
         await _remoteDatasource.updateItem(item);
       } else {
         final saved = await _remoteDatasource.insertItem(item);
         await _localDao.saveItem(InventoryItemModel.fromJson(saved));
-        return;
       }
-      await _localDao.saveItem(item);
     } catch (_) {
-      throw Exception('تعذّر حفظ العنصر - تأكد من الاتصال بالإنترنت');
+      // Offline: saved locally, will sync later
     }
   }
 
   @override
   Future<void> deleteItem(String id) async {
+    await _localDao.deleteItem(id);
     try {
       await _remoteDatasource.deleteItem(id);
-      await _localDao.deleteItem(id);
     } catch (_) {
-      throw Exception('تعذّر حذف العنصر - تأكد من الاتصال بالإنترنت');
+      // Offline: deleted locally
     }
   }
 
@@ -66,10 +65,9 @@ class InventoryRepositoryImpl implements InventoryRepository {
     required double quantity,
     String? note,
   }) async {
-    // الكمية الحالية من الكاش المحلي (المحدث بعد كل قراءة)
     final current = await _localDao.getById(itemId);
     if (current == null) {
-      throw Exception('العنصر غير موجود - حدّث القائمة أولاً');
+      throw Exception('العنصر غير موجود');
     }
 
     final newQuantity =
@@ -87,15 +85,16 @@ class InventoryRepositoryImpl implements InventoryRepository {
       note: note,
     );
 
-    try {
-      await _remoteDatasource.insertTransaction(tx, newQuantity: newQuantity);
-    } catch (_) {
-      throw Exception('تعذّر تسجيل الحركة - تأكد من الاتصال بالإنترنت');
-    }
-
     final result =
         current.copyWith(quantity: newQuantity, notes: note ?? current.notes);
     await _localDao.saveItem(result);
+
+    try {
+      await _remoteDatasource.insertTransaction(tx, newQuantity: newQuantity);
+    } catch (_) {
+      // Offline: saved locally
+    }
+
     return result;
   }
 

@@ -49,6 +49,7 @@ class FeedConsumptionModel {
       date: DateTime.parse(json['date'] as String),
       entryMode: FeedEntryMode.values.firstWhere(
         (e) => e.name == json['entry_mode'],
+        orElse: () => FeedEntryMode.bags,
       ),
       bagsCount: json['bags_count'] as int? ?? 0,
       quantityKg: (json['quantity_kg'] as num).toDouble(),

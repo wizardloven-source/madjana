@@ -32,11 +32,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      // جلسة محفوظة → الانتقال للرئيسية مباشرة
-      if (ref.read(authProvider).isLoggedIn) {
-        Navigator.of(context).pushReplacementNamed('/home');
-        return;
-      }
       // استرجاع آخر رقم هاتف نجح به الدخول
       final prefs = await SharedPreferences.getInstance();
       final savedPhone = prefs.getString(_phoneKey);
@@ -73,6 +68,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _login() async {
     if (_isLoading) return;
+    if (!mounted) return;
     FocusScope.of(context).unfocus();
 
     final phone = _phoneController.text.trim();
@@ -92,26 +88,38 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _errorText = null;
     });
 
-    final result = await ref.read(authProvider.notifier).login(
-          phone: phone,
-          pin: _pin,
-          rememberMe: _rememberMe,
-        );
+    try {
+      final result = await ref.read(authProvider.notifier).login(
+            phone: phone,
+            pin: _pin,
+            rememberMe: _rememberMe,
+          );
 
-    if (!mounted) return;
-    setState(() => _isLoading = false);
+      if (!mounted) return;
 
-    if (result.success) {
-      // حفظ رقم الهاتف للجلسات القادمة
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_phoneKey, phone);
-      if (mounted) Navigator.of(context).pushReplacementNamed('/home');
-    } else {
-      HapticFeedback.heavyImpact();
-      setState(() {
-        _errorText = result.error ?? 'فشل تسجيل الدخول';
-        _pin = '';
-      });
+      if (result.success) {
+        // حفظ رقم الهاتف للجلسات القادمة
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_phoneKey, phone);
+        } catch (_) {}
+        // _RootGate سيُحوّل تلقائياً للرئيسية عند تغيير الحالة
+      } else {
+        HapticFeedback.heavyImpact();
+        setState(() {
+          _errorText = result.error ?? 'فشل تسجيل الدخول';
+          _pin = '';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorText = 'خطأ غير متوقع: $e';
+          _pin = '';
+          _isLoading = false;
+        });
+      }
     }
   }
 

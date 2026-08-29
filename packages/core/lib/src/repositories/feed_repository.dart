@@ -36,4 +36,7 @@ abstract class FeedRepository {
 
   /// حساب مخزون العلف الحالي (مستلم - مستهلك)
   Future<double> getCurrentFeedStock(String farmId);
+
+  /// حذف سجل استهلاك
+  Future<void> deleteConsumptionRecord(String id);
 }

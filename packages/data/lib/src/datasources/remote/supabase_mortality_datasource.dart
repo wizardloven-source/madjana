@@ -36,14 +36,22 @@ class SupabaseMortalityDatasource {
   }
 
   /// رفع مجموعة سجلات
-  Future<List<String>> insertBatch(List<MortalityModel> records) async {
+  Future<BatchUploadResult> insertBatch(List<MortalityModel> records) async {
     final successIds = <String>[];
+    final failedIds = <String>[];
     for (final record in records) {
       try {
         final id = await insert(record);
         successIds.add(record.id ?? id);
-      } catch (_) {}
+      } catch (_) {
+        failedIds.add(record.id ?? '');
+      }
     }
-    return successIds;
+    return BatchUploadResult(successIds: successIds, failedIds: failedIds);
+  }
+
+  /// حذف سجل من السحابة
+  Future<void> delete(String id) async {
+    await _client.from('mortality').delete().eq('id', id);
   }
 }

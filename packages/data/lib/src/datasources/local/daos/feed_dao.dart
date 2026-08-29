@@ -110,12 +110,57 @@ class FeedDao {
     return Sqflite.firstIntValue(result) ?? 0;
   }
 
+  /// استبدال سجل استهلاك محلي بالنسخة السحابية (حل التعارض)
+  Future<void> replaceConsumptionWithRemote(FeedConsumptionModel model) async {
+    final db = await LocalDatabase.database;
+    await db.update(
+      'feed_consumption',
+      {
+        'farm_id': model.farmId,
+        'date': model.date.toIso8601String().split('T').first,
+        'quantity_kg': model.quantityKg,
+        'bags_count': model.bagsCount,
+        'entry_mode': model.entryMode.name,
+        'worker_id': model.workerId,
+        'sync_status': SyncStatus.synced.name,
+      },
+      where: 'id = ?',
+      whereArgs: [model.id],
+    );
+  }
+
+  /// استبدال سجل استلام محلي بالنسخة السحابية (حل التعارض)
+  Future<void> replaceReceivedWithRemote(FeedReceivedModel model) async {
+    final db = await LocalDatabase.database;
+    await db.update(
+      'feed_received',
+      {
+        'farm_id': model.farmId,
+        'date': model.date.toIso8601String().split('T').first,
+        'quantity': model.quantity,
+        'quantity_kg': model.quantityKg,
+        'entry_mode': model.entryMode.name,
+        'feed_type': model.feedType.name,
+        'supplier': model.supplier,
+        'invoice_number': model.invoiceNumber,
+        'price_per_kg': model.pricePerKg,
+        'notes': model.notes,
+        'sync_status': SyncStatus.synced.name,
+      },
+      where: 'id = ?',
+      whereArgs: [model.id],
+    );
+  }
+
   FeedConsumptionModel _consumptionFromMap(Map<String, dynamic> map) {
     return FeedConsumptionModel(
       id: map['id'] as String,
       farmId: map['farm_id'] as String,
       date: DateTime.parse(map['date'] as String),
-      entryMode: FeedEntryMode.values.firstWhere((e) => e.name == map['entry_mode']),
+      entryMode: FeedEntryMode.values.firstWhere(
+        (e) => e.name == map['entry_mode'],
+        orElse: () => FeedEntryMode.bags,
+      ),
       bagsCount: map['bags_count'] as int? ?? 0,
       quantityKg: (map['quantity_kg'] as num).toDouble(),
       workerId: map['worker_id'] as String,
@@ -124,6 +169,12 @@ class FeedDao {
         orElse: () => SyncStatus.pending,
       ),
     );
+  }
+
+  /// حذف سجل استهلاك
+  Future<void> deleteConsumption(String id) async {
+    final db = await LocalDatabase.database;
+    await db.delete('feed_consumption', where: 'id = ?', whereArgs: [id]);
   }
 
   // ===================== استلام العلف =====================
@@ -221,10 +272,14 @@ class FeedDao {
       date: DateTime.parse(map['date'] as String),
       entryMode: FeedEntryMode.values.firstWhere(
         (e) => e.name == map['entry_mode'],
+        orElse: () => FeedEntryMode.bags,
       ),
       quantity: (map['quantity'] as num).toDouble(),
       quantityKg: (map['quantity_kg'] as num).toDouble(),
-      feedType: FeedType.values.firstWhere((e) => e.name == map['feed_type']),
+      feedType: FeedType.values.firstWhere(
+        (e) => e.name == map['feed_type'],
+        orElse: () => FeedType.main,
+      ),
       supplier: map['supplier'] as String?,
       invoiceNumber: map['invoice_number'] as String?,
       notes: map['notes'] as String?,

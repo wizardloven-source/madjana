@@ -26,6 +26,10 @@ abstract class MobileSyncRepository {
   Future<void> forceUpload(SyncRecord record);
 
   Future<void> logError(String error);
+
+  Future<int> getSyncedCount();
+
+  Future<int> getFailedCount();
 }
 
 /// تنفيذ الواجهة بالتفويض إلى طبقة البيانات
@@ -72,4 +76,10 @@ class MobileSyncRepositoryImpl implements MobileSyncRepository {
 
   @override
   Future<void> logError(String error) => _delegate.logError(error);
+
+  @override
+  Future<int> getSyncedCount() => _delegate.getSyncedCount();
+
+  @override
+  Future<int> getFailedCount() => _delegate.getFailedCount();
 }

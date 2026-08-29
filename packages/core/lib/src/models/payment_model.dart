@@ -45,6 +45,7 @@ class PaymentModel {
       amountPaid: (json['amount_paid'] as num).toDouble(),
       paymentMethod: PaymentMethod.values.firstWhere(
         (e) => e.name == json['payment_method'],
+        orElse: () => PaymentMethod.cash,
       ),
       dueDate: json['due_date'] != null
           ? DateTime.tryParse(json['due_date'] as String)

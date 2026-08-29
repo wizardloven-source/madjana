@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:core/core.dart';
 import 'package:crypto/crypto.dart';
@@ -35,7 +36,9 @@ class SupabaseAuthDatasource {
       final rows = await _client.rpc(
         'find_user_by_phone',
         params: {'p_phone': phone},
-      );
+      ).timeout(const Duration(seconds: 10), onTimeout: () {
+        throw AuthException('انتهت مهلة الاتصال بالسيرفر');
+      });
       final list = (rows as List?) ?? const [];
       if (list.isEmpty) {
         throw AuthException('رقم الهاتف غير مسجل');
@@ -47,7 +50,9 @@ class SupabaseAuthDatasource {
       await _client.auth.signInWithPassword(
         email: _authEmail(uid),
         password: _hashPin(pin),
-      );
+      ).timeout(const Duration(seconds: 10), onTimeout: () {
+        throw AuthException('انتهت مهلة تسجيل الدخول');
+      });
 
       return UserModel.fromJson({
         'uid': uid,
@@ -71,15 +76,26 @@ class SupabaseAuthDatasource {
       throw AuthException('خطأ في الاتصال: ${e.message}');
     } catch (e) {
       if (e is AuthException) rethrow;
-      throw AuthException('فشل تسجيل الدخول: $e');
+      final msg = e.toString();
+      if (msg.contains('SocketException') || msg.contains('errno = 7')) {
+        throw AuthException('لا يوجد اتصال بالإنترنت — تحقق من الشبكة وأعد المحاولة');
+      }
+      if (msg.contains('TimeoutException') || msg.contains('timeout')) {
+        throw AuthException('انتهت مهلة الاتصال — تحقق من سرعة الإنترنت');
+      }
+      throw AuthException('فشل الاتصال بالسيرفر: $msg');
     }
   }
 
   /// جلب مستخدم بالمعرّف
   Future<Map<String, dynamic>?> getUserById(String uid) async {
     try {
-      final data =
-          await _client.from('users').select().eq('id', uid).maybeSingle();
+      final data = await _client
+          .from('users')
+          .select()
+          .eq('id', uid)
+          .maybeSingle()
+          .timeout(const Duration(seconds: 8), onTimeout: () => null);
       if (data == null) return null;
       return {
         'uid': data['id'],

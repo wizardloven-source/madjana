@@ -44,6 +44,7 @@ class ExpenseDao {
       'amount': expense.amount,
       'sync_status': expense.syncStatus.name,
       'created_at': (expense.createdAt ?? DateTime.now()).toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
     });
     return id;
   }
@@ -58,6 +59,7 @@ class ExpenseDao {
         'description': expense.description,
         'amount': expense.amount,
         'sync_status': expense.syncStatus.name,
+        'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
       whereArgs: [id],

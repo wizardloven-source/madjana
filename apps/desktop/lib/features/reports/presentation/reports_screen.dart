@@ -334,9 +334,13 @@ class _SectionCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(label, style: const TextStyle(color: Colors.grey)),
+                    Expanded(
+                      child: Text(label,
+                          style: const TextStyle(color: Colors.grey),
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                    const SizedBox(width: 12),
                     Text(
                       value,
                       style: TextStyle(

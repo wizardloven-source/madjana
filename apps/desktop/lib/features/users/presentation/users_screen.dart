@@ -111,7 +111,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
                 ],
                 const SizedBox(height: 12),
                 DropdownButtonFormField<UserRole>(
-                  initialValue: role,
+                  value: role,
                   decoration: const InputDecoration(labelText: 'الدور'),
                   items: const [
                     DropdownMenuItem(value: UserRole.worker, child: Text('عامل')),
@@ -248,11 +248,18 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
             alignment: WrapAlignment.spaceBetween,
             children: [
               Chip(label: Text('عدد المستخدمين: ${_users.length}')),
-              FilledButton.icon(
-                onPressed: () => _showUserDialog(),
-                icon: const Icon(Icons.person_add_alt),
-                label: const Text('مستخدم جديد'),
-              ),
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                IconButton(
+                  tooltip: 'تحديث',
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _load,
+                ),
+                FilledButton.icon(
+                  onPressed: () => _showUserDialog(),
+                  icon: const Icon(Icons.person_add_alt),
+                  label: const Text('مستخدم جديد'),
+                ),
+              ]),
             ],
           ),
           const SizedBox(height: 16),

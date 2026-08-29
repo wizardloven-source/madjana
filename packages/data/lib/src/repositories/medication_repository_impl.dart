@@ -40,6 +40,16 @@ class MedicationRepositoryImpl implements MedicationRepository {
   }
 
   @override
+  Future<void> saveMedicine(MedicineModel medicine) async {
+    await _localDao.insertOrUpdateCatalogItem(medicine);
+  }
+
+  @override
+  Future<void> deleteMedicine(String id) async {
+    await _localDao.deleteCatalogItem(id);
+  }
+
+  @override
   Future<List<MedicationModel>> getAll({
     String? farmId,
     DateTime? fromDate,
@@ -62,7 +72,7 @@ class MedicationRepositoryImpl implements MedicationRepository {
       if (record.id == null) continue;
       await _localDao.updateSyncStatus(
         record.id!,
-        successIds.contains(record.id)
+        successIds.successIds.contains(record.id)
             ? SyncStatus.synced
             : SyncStatus.failed,
       );

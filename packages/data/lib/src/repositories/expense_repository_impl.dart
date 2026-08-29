@@ -43,28 +43,32 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
 
   @override
   Future<void> save(ExpenseModel expense) async {
-    try {
-      if (expense.id != null) {
-        await _remoteDatasource.update(expense.id!, expense);
-      } else {
+    if (expense.id == null) {
+      final localId = await _localDao.insert(expense.copyWith(syncStatus: SyncStatus.pending));
+      try {
         final saved = await _remoteDatasource.insert(expense);
-        await _localDao.insert(ExpenseModel.fromJson(saved)
-            .copyWith(syncStatus: SyncStatus.synced));
-        return;
+        await _localDao.update(localId, ExpenseModel.fromJson(saved).copyWith(syncStatus: SyncStatus.synced));
+      } catch (_) {
+        // Offline: saved locally with pending status
       }
-      await _localDao.insert(expense.copyWith(syncStatus: SyncStatus.synced));
-    } catch (_) {
-      throw Exception('تعذّر حفظ المصروف - تأكد من الاتصال بالإنترنت');
+    } else {
+      await _localDao.update(expense.id!, expense.copyWith(syncStatus: SyncStatus.pending));
+      try {
+        await _remoteDatasource.update(expense.id!, expense);
+        await _localDao.update(expense.id!, expense.copyWith(syncStatus: SyncStatus.synced));
+      } catch (_) {
+        // Offline: saved locally with pending status
+      }
     }
   }
 
   @override
   Future<void> delete(String id) async {
+    await _localDao.delete(id);
     try {
       await _remoteDatasource.delete(id);
-      await _localDao.delete(id);
     } catch (_) {
-      throw Exception('تعذّر حذف المصروف - تأكد من الاتصال بالإنترنت');
+      // Offline: deleted locally, will sync later
     }
   }
 

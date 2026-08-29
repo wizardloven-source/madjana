@@ -26,6 +26,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   List<FlockModel> _flocks = [];
   List<InventoryItemModel> _inventoryItems = [];
   List<FeedConsumptionModel> _consumptionWeek = [];
+  List<OpeningBalanceModel> _openingBalances = [];
   double _outstanding = 0;
   double _collected = 0;
   double _feedStock = 0;
@@ -50,9 +51,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     // مزامنة البيانات أولاً: رفع المعلّق + سحب سجلات الأجهزة الأخرى
     try {
-      await ref.read(syncRepositoryProvider).getPendingRecords();
-      final pulled =
-          await ref.read(syncRepositoryProvider).pullRemoteRecords(farmId);
+      final syncRepo = ref.read(syncRepositoryProvider);
+      final pulled = await syncRepo.syncNow(farmId);
       if (pulled > 0 && mounted) {
         ref.read(dataRefreshTickProvider.notifier).state++;
       }
@@ -103,6 +103,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       _currentEggStock = allEggs.fold<int>(0, (s, e) => s + e.totalEggs) -
           _dispatches.fold<int>(0, (s, d) => s + d.totalEggs);
       if (_currentEggStock < 0) _currentEggStock = 0;
+
+      // الأرصدة الافتتاحية للقطعان القديمة
+      try {
+        _openingBalances =
+            await ref.read(openingBalanceRepositoryProvider).getForFarm(farmId);
+        final openingNet = _openingBalances.fold<int>(
+          0,
+          (s, b) => s + b.eggsProduced - b.eggsDispatched,
+        );
+        _currentEggStock += openingNet;
+        if (_currentEggStock < 0) _currentEggStock = 0;
+      } catch (_) {
+        _openingBalances = [];
+      }
 
       // طلبات الموافقة المعلقة من السحابة
       try {
@@ -476,6 +490,57 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ),
           const SizedBox(height: 24),
 
+          // الأرصدة الافتتاحية للقطعان القديمة
+          if (_openingBalances.isNotEmpty) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.savings_outlined,
+                            color: Theme.of(context).colorScheme.primary),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'أرصدة القطعان القديمة (أُدخلت عند التجهيز)',
+                          style: TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                        const Spacer(),
+                        TextButton.icon(
+                          onPressed: () =>
+                              ref.read(shellTabProvider.notifier).state = 1,
+                          icon: const Icon(Icons.chevron_left),
+                          label: const Text('إدارة القطعان'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 8,
+                      children: _openingBalances.map((b) {
+                        final flock = _flocks
+                            .where((f) => f.id == b.flockId)
+                            .toList();
+                        final name =
+                            flock.isNotEmpty ? flock.first.breed : 'قطيع';
+                        return _OpeningBalanceChip(
+                          flockName: name,
+                          balance: b,
+                          currency: 'ل.س',
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+
           // رسم بياني + أحدث العمليات
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -782,6 +847,65 @@ class _EggChart extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// شريحة عرض أرصدة قطيع قديم
+class _OpeningBalanceChip extends StatelessWidget {
+  final String flockName;
+  final OpeningBalanceModel balance;
+  final String currency;
+  const _OpeningBalanceChip({
+    required this.flockName,
+    required this.balance,
+    required this.currency,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = <(IconData, String, String)>[
+      (Icons.egg_alt, 'إنتاج', Formatters.formatNumber(balance.eggsProduced)),
+      (Icons.local_shipping, 'تخريج',
+          Formatters.formatNumber(balance.eggsDispatched)),
+      (Icons.grass, 'علف',
+          '${Formatters.formatNumber(balance.feedConsumedKg.toInt())} كغ'),
+      (Icons.heart_broken, 'نفوق',
+          Formatters.formatNumber(balance.mortalityCount)),
+      (Icons.payments, 'مدفوعات',
+          Formatters.formatCurrency(balance.totalPayments)),
+      (Icons.savings, 'إيرادات',
+          Formatters.formatCurrency(balance.totalRevenues)),
+    ];
+    return Container(
+      width: 240,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(flockName,
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          for (final (icon, label, value) in entries)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: [
+                  Icon(icon, size: 14, color: Colors.grey.shade600),
+                  const SizedBox(width: 6),
+                  Text('$label: ', style: const TextStyle(fontSize: 12)),
+                  Text(value,
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.bold)),
+                ],
+              ),
             ),
         ],
       ),

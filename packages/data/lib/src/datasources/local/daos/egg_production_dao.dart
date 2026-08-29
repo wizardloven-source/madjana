@@ -96,12 +96,18 @@ class EggProductionDao {
     await db.update(
       _table,
       {
+        'farm_id': model.farmId,
+        'flock_id': model.flockId,
+        'date': model.date.toIso8601String().split('T').first,
         'cartons': model.cartons,
         'trays': model.trays,
         'loose_eggs': model.looseEggs,
         'broken_eggs': model.brokenEggs,
         'dirty_eggs': model.dirtyEggs,
         'total_eggs': model.totalEggs,
+        'tray_weight_kg': model.trayWeightKg,
+        'section_no': model.sectionNo,
+        'worker_id': model.workerId,
         'sync_status': SyncStatus.synced.name,
         'updated_at': DateTime.now().toIso8601String(),
       },
@@ -153,6 +159,12 @@ class EggProductionDao {
     return maps.map(_fromMap).toList();
   }
 
+  /// حذف سجل
+  Future<void> delete(String id) async {
+    final db = await LocalDatabase.database;
+    await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+  }
+
   /// تحويل Map إلى Model
   EggProductionModel _fromMap(Map<String, dynamic> map) {
     return EggProductionModel(
@@ -173,6 +185,9 @@ class EggProductionDao {
         orElse: () => SyncStatus.pending,
       ),
       createdAt: DateTime.parse(map['created_at'] as String),
+      updatedAt: map['updated_at'] != null
+          ? DateTime.tryParse(map['updated_at'] as String)
+          : null,
     );
   }
 }

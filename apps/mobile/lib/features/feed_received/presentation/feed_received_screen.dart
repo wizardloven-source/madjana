@@ -50,20 +50,46 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
     };
   }
 
+  String _decimalBuffer = '';
+  bool _hasDecimal = false;
+
   void _onNumpadKey(String key) {
     setState(() {
       if (key == 'clear') {
         _quantity = 0;
+        _decimalBuffer = '';
+        _hasDecimal = false;
       } else if (key == 'backspace') {
-        _quantity = (_quantity ~/ 10).toDouble();
+        if (_hasDecimal && _decimalBuffer.isNotEmpty) {
+          _decimalBuffer = _decimalBuffer.substring(0, _decimalBuffer.length - 1);
+          if (_decimalBuffer.isEmpty) {
+            _hasDecimal = false;
+            _quantity = _quantity.toInt().toDouble();
+          } else {
+            _quantity = double.tryParse('${_quantity.toInt()}.$_decimalBuffer') ?? _quantity.toInt().toDouble();
+          }
+        } else if (_quantity > 0) {
+          final fullStr = _quantity.toInt().toString();
+          if (fullStr.length > 1) {
+            _quantity = double.parse(fullStr.substring(0, fullStr.length - 1));
+          } else {
+            _quantity = 0;
+          }
+        }
       } else if (key == '.') {
-        // السماح بالفاصلة فقط في وضع الكيلو والطن
-        if (_entryMode != FeedEntryMode.bags &&
-            !_quantity.toString().contains('.')) {
-          _quantity = _quantity.toDouble();
+        if (_entryMode != FeedEntryMode.bags && !_hasDecimal) {
+          _hasDecimal = true;
+          _decimalBuffer = '';
         }
       } else {
-        _quantity = (_quantity.toInt() * 10 + int.parse(key)).toDouble();
+        if (_hasDecimal) {
+          if (_decimalBuffer.length < 2) {
+            _decimalBuffer += key;
+            _quantity = double.tryParse('${_quantity.toInt()}.$_decimalBuffer') ?? _quantity;
+          }
+        } else {
+          _quantity = (_quantity.toInt() * 10 + int.parse(key)).toDouble();
+        }
       }
     });
   }
@@ -82,9 +108,19 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
       return;
     }
 
-    final user = ref.read(authProvider).currentUser!;
+    final user = ref.read(authProvider).currentUser;
+    if (user == null || user.farmId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+    final farmId = user.farmId!;
+
     final result = await ref.read(feedReceivedProvider.notifier).save(
-          farmId: user.farmId!,
+          farmId: farmId,
           date: _selectedDate,
           entryMode: _entryMode,
           quantity: _quantity,
@@ -228,6 +264,7 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
                   FeedType.starter => 'بادئ',
                   FeedType.grower => 'نامي',
                   FeedType.layer => 'بيّاض',
+                  FeedType.main => 'علف رئيسي',
                 };
                 return DropdownMenuItem(value: type, child: Text(label));
               }).toList(),

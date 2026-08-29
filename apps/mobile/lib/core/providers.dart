@@ -20,12 +20,17 @@ final eggProductionDaoProvider = Provider<EggProductionDao>((ref) => EggProducti
 final mortalityDaoProvider = Provider<MortalityDao>((ref) => MortalityDao());
 final feedDaoProvider = Provider<FeedDao>((ref) => FeedDao());
 final dispatchDaoProvider = Provider<DispatchDao>((ref) => DispatchDao());
+final dispatchRequestDaoProvider = Provider<DispatchRequestDao>((ref) => DispatchRequestDao());
 final medicationDaoProvider = Provider<MedicationDao>((ref) => MedicationDao());
 final customerDaoProvider = Provider<CustomerDao>((ref) => CustomerDao());
 final flockDaoProvider = Provider<FlockDao>((ref) => FlockDao());
 final sessionDaoProvider = Provider<SessionDao>((ref) => SessionDao());
+final settingsDaoProvider = Provider<SettingsDao>((ref) => SettingsDao());
 final syncQueueDaoProvider = Provider<SyncQueueDao>((ref) => SyncQueueDao());
 final notesDaoProvider = Provider<NotesDao>((ref) => NotesDao());
+final paymentDaoProvider = Provider<PaymentDao>((ref) => PaymentDao());
+final userDaoProvider = Provider<UserDao>((ref) => UserDao());
+
 
 // ─────────────── المصادر البعيدة ───────────────
 final supabaseAuthDatasourceProvider = Provider<SupabaseAuthDatasource>(
@@ -46,12 +51,23 @@ final supabaseDispatchDatasourceProvider = Provider<SupabaseDispatchDatasource>(
 final supabaseMedicationDatasourceProvider = Provider<SupabaseMedicationDatasource>(
   (ref) => SupabaseMedicationDatasource(ref.watch(supabaseClientProvider)),
 );
+final supabaseFlockDatasourceProvider = Provider<SupabaseFlockDatasource>(
+  (ref) => SupabaseFlockDatasource(ref.watch(supabaseClientProvider)),
+);
+final supabasePaymentDatasourceProvider = Provider<SupabasePaymentDatasource>(
+  (ref) => SupabasePaymentDatasource(ref.watch(supabaseClientProvider)),
+);
+
+final supabaseNotificationDatasourceProvider = Provider<SupabaseNotificationDatasource>(
+  (ref) => SupabaseNotificationDatasource(ref.watch(supabaseClientProvider)),
+);
 
 // ─────────────── المستودعات ───────────────
 final authRepositoryProvider = Provider<AuthRepository>(
   (ref) => AuthRepositoryImpl(
     remoteDatasource: ref.watch(supabaseAuthDatasourceProvider),
     sessionDao: ref.watch(sessionDaoProvider),
+    settingsDao: SettingsDao(),
   ),
 );
 
@@ -91,6 +107,21 @@ final medicationRepositoryProvider = Provider<MedicationRepository>(
   ),
 );
 
+final flockRepositoryProvider = Provider<FlockRepository>(
+  (ref) => FlockRepositoryImpl(
+    localDao: ref.watch(flockDaoProvider),
+    remoteDatasource: ref.watch(supabaseFlockDatasourceProvider),
+  ),
+);
+
+final paymentRepositoryProvider = Provider<PaymentRepository>(
+  (ref) => PaymentRepositoryImpl(
+    paymentDao: ref.watch(paymentDaoProvider),
+    dispatchDao: ref.watch(dispatchDaoProvider),
+    remoteDatasource: ref.watch(supabasePaymentDatasourceProvider),
+  ),
+);
+
 // ─────────────── المزامنة ───────────────
 final connectivityServiceProvider = Provider<ConnectivityService>(
   (ref) => ConnectivityServiceImpl(),
@@ -103,12 +134,14 @@ final syncRepositoryProvider = Provider<SyncRepository>(
     feedDao: ref.watch(feedDaoProvider),
     dispatchDao: ref.watch(dispatchDaoProvider),
     medicationDao: ref.watch(medicationDaoProvider),
+    customerDao: ref.watch(customerDaoProvider),
     syncQueueDao: ref.watch(syncQueueDaoProvider),
     remoteEgg: ref.watch(supabaseEggDatasourceProvider),
     remoteMortality: ref.watch(supabaseMortalityDatasourceProvider),
     remoteFeed: ref.watch(supabaseFeedDatasourceProvider),
     remoteDispatch: ref.watch(supabaseDispatchDatasourceProvider),
     remoteMedication: ref.watch(supabaseMedicationDatasourceProvider),
+    remotePayment: ref.watch(supabasePaymentDatasourceProvider),
   ),
 );
 
@@ -117,3 +150,9 @@ final mobileSyncRepositoryProvider = Provider<MobileSyncRepository>(
   (ref) => MobileSyncRepositoryImpl(ref.watch(syncRepositoryProvider)),
 );
 final remindersDaoProvider = Provider<RemindersDao>((ref) => RemindersDao());
+
+final notificationRepositoryProvider = Provider<NotificationRepository>(
+  (ref) => NotificationRepositoryImpl(
+    remoteDatasource: ref.watch(supabaseNotificationDatasourceProvider),
+  ),
+);

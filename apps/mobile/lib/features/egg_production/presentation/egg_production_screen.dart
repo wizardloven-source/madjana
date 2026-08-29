@@ -34,6 +34,9 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
   // الحقل النشط حالياً للـ Numpad
   String _activeField = 'cartons';
 
+  // سجلات اليوم
+  List<EggProductionModel> _todayRecords = [];
+
   int get _totalEggs => EggCalculator.calculateTotal(
         cartons: _cartons,
         trays: _trays,
@@ -93,6 +96,23 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
     });
   }
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadTodayRecords());
+  }
+
+  Future<void> _loadTodayRecords() async {
+    final user = ref.read(authProvider).currentUser;
+    final farmId = user?.farmId ?? '';
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final records = await ref
+        .read(eggProductionProvider.notifier)
+        .getRecords(farmId: farmId, fromDate: todayStart, toDate: now);
+    if (mounted) setState(() => _todayRecords = records);
+  }
+
   Future<void> _save() async {
     if (_selectedFlockId == null) {
       _showError('اختر المدجنة');
@@ -103,8 +123,18 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
       return;
     }
 
-    final user = ref.read(authProvider).currentUser!;
-    final flocks = ref.read(flocksProvider(user.farmId ?? '')).value ??
+    final user = ref.read(authProvider).currentUser;
+    if (user == null || user.farmId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+    final farmId = user.farmId!;
+
+    final flocks = ref.read(flocksProvider(farmId)).value ??
         const <FlockModel>[];
     final flock =
         flocks.where((f) => f.id == _selectedFlockId).firstOrNull;
@@ -116,7 +146,7 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
     }
 
     final record = EggProductionModel(
-      farmId: user.farmId!,
+      farmId: farmId,
       flockId: _selectedFlockId!,
       date: _selectedDate,
       cartons: _cartons,
@@ -137,6 +167,7 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
       if (mounted) {
         _showSuccess('تم الحفظ بنجاح');
         _clearFields();
+        _loadTodayRecords();
       }
     } else {
       _showError(result.error ?? 'فشل الحفظ');
@@ -144,11 +175,21 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
   }
 
   Future<void> _copyFromYesterday() async {
-    final user = ref.read(authProvider).currentUser!;
+    final user = ref.read(authProvider).currentUser;
+    if (user == null || user.farmId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+    final farmId = user.farmId!;
+
     final yesterday = DateTime.now().subtract(const Duration(days: 1));
     final record = await ref
         .read(eggProductionProvider.notifier)
-        .getRecordByDate(user.farmId!, yesterday);
+        .getRecordByDate(farmId, yesterday);
 
     if (record != null) {
       setState(() {
@@ -338,6 +379,71 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
 
             // زر الحفظ
             PrimaryActionButton(label: 'حفظ', onPressed: _save),
+
+            // سجلات اليوم
+            if (_todayRecords.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              const Text('سجلات اليوم', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              ..._todayRecords.map((record) => Dismissible(
+                key: ValueKey(record.id),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(left: 20),
+                  color: Colors.red,
+                  child: const Icon(Icons.delete, color: Colors.white),
+                ),
+                confirmDismiss: (direction) async {
+                  return await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('حذف السجل'),
+                      content: const Text('هل تريد حذف سجل إنتاج البيض؟'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('حذف'),
+                          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                onDismissed: (direction) async {
+                  if (record.id != null) {
+                    await ref.read(eggProductionProvider.notifier).deleteRecord(record.id!);
+                    _loadTodayRecords();
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.withValues(alpha: 0.2)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.egg, color: Colors.blue),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${Formatters.formatNumber(record.totalEggs)} بيضة', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text('كراتين: ${record.cartons} | صحون: ${record.trays} | منفردة: ${record.looseEggs}',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )),
+            ],
           ],
         ),
       ),

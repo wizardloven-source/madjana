@@ -12,15 +12,18 @@ class SupabaseMedicationDatasource {
   }
 
   /// رفع مجموعة سجلات
-  Future<List<String>> insertBatch(List<MedicationModel> records) async {
+  Future<BatchUploadResult> insertBatch(List<MedicationModel> records) async {
     final successIds = <String>[];
+    final failedIds = <String>[];
     for (final r in records) {
       try {
         await insert(r);
         successIds.add(r.id ?? '');
-      } catch (_) {}
+      } catch (_) {
+        failedIds.add(r.id ?? '');
+      }
     }
-    return successIds;
+    return BatchUploadResult(successIds: successIds, failedIds: failedIds);
   }
 
   /// جلب كتالوج الأدوية

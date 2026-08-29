@@ -229,23 +229,32 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       return;
     }
 
+    final user = ref.read(authProvider).currentUser;
+    if (user == null || user.farmId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+    final farmId = user.farmId!;
+
     // ═══ التحقق من مخزون البيض قبل الحفظ ═══
-    final user0 = ref.read(authProvider).currentUser!;
-    final stock = await _currentStock(user0.farmId!);
+    final stock = await _currentStock(farmId);
     if (_totalEggs > stock) {
       final sendRequest = await _askManagerApproval(
         stock: stock,
         requested: _totalEggs,
       );
       if (sendRequest == true) {
-        await _sendApprovalRequest(farmId: user0.farmId!, stock: stock);
+        await _sendApprovalRequest(farmId: farmId, stock: stock);
       }
       return; // لا حفظ في الحالتين — يحتاج موافقة أو إلغاء
     }
 
-    final user = ref.read(authProvider).currentUser!;
     final result = await ref.read(dispatchProvider.notifier).save(
-          farmId: user.farmId!,
+          farmId: farmId,
           date: _selectedDate,
           customerId: _selectedCustomerId!,
           cartons: _cartons,

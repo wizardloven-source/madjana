@@ -107,7 +107,10 @@ class MortalityDao {
     final db = await LocalDatabase.database;
     await db.update(
       _table,
-      {'sync_status': status.name},
+      {
+        'sync_status': status.name,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -119,12 +122,17 @@ class MortalityDao {
     await db.update(
       _table,
       {
+        'farm_id': model.farmId,
+        'flock_id': model.flockId,
+        'date': model.date.toIso8601String().split('T').first,
         'count': model.count,
         'reason': model.reason.name,
         'reason_other': model.reasonOther,
         'notes': model.notes,
         'image_url': model.imageUrl,
+        'worker_id': model.workerId,
         'sync_status': SyncStatus.synced.name,
+        'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
       whereArgs: [model.id],
@@ -140,6 +148,12 @@ class MortalityDao {
     return Sqflite.firstIntValue(result) ?? 0;
   }
 
+  /// حذف سجل
+  Future<void> delete(String id) async {
+    final db = await LocalDatabase.database;
+    await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+  }
+
   MortalityModel _fromMap(Map<String, dynamic> map) {
     return MortalityModel(
       id: map['id'] as String,
@@ -147,7 +161,10 @@ class MortalityDao {
       flockId: map['flock_id'] as String,
       date: DateTime.parse(map['date'] as String),
       count: map['count'] as int,
-      reason: MortalityReason.values.firstWhere((e) => e.name == map['reason']),
+      reason: MortalityReason.values.firstWhere(
+        (e) => e.name == map['reason'],
+        orElse: () => MortalityReason.other,
+      ),
       reasonOther: map['reason_other'] as String?,
       notes: map['notes'] as String?,
       imageUrl: map['image_url'] as String?,

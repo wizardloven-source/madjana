@@ -1,12 +1,14 @@
 ﻿import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/csv_exporter.dart';
 import '../../../core/providers.dart';
+import '../../../core/shell_state.dart';
 import '../../../shared/widgets/period_filter.dart';
 import '../../auth/providers/auth_provider.dart';
 
-/// شاشة إنتاج البيض (عرض وتقرير للمدير)
+/// شاشة إنتاج البيض (عرض + إدخال للمدير)
 ///
 /// - فترة سريعة + فترة مخصصة
 /// - فلترة حسب المدجنة
@@ -94,6 +96,41 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
     if (d != null) {
       setState(() => _toDate = d);
       _load();
+    }
+  }
+
+  Future<void> _showAddDialog() async {
+    if (_flocks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('أضف قطيعاً أولاً من شاشة القطعان')),
+      );
+      return;
+    }
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _EggProductionDialog(flocks: _flocks, farmId: _farmId),
+    );
+    if (result != null && mounted) {
+      final workerId = ref.read(authProvider).currentUser?.uid ?? 'manager';
+      final record = EggProductionModel(
+        farmId: _farmId,
+        flockId: result['flock_id'] as String,
+        date: result['date'] as DateTime,
+        cartons: result['cartons'] as int,
+        trays: result['trays'] as int,
+        looseEggs: result['loose'] as int,
+        brokenEggs: result['broken'] as int,
+        dirtyEggs: result['dirty'] as int,
+        sectionNo: result['section'] as int?,
+        workerId: workerId,
+      );
+      await ref.read(eggProductionRepositoryProvider).saveLocal(record);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حفظ سجل الإنتاج بنجاح')),
+        );
+        _load();
+      }
     }
   }
 
@@ -185,7 +222,7 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
               SizedBox(
                 width: 220,
                 child: DropdownButtonFormField<String>(
-                  initialValue: _flockFilter,
+                  value: _flockFilter,
                   isDense: true,
                   decoration: const InputDecoration(
                     labelText: 'المدجنة',
@@ -238,6 +275,12 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
                 icon: const Icon(Icons.file_download_outlined),
                 label: const Text('تصدير CSV'),
               ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: _showAddDialog,
+                icon: const Icon(Icons.add),
+                label: const Text('إضافة سجل'),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -287,10 +330,224 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
                               ),
                           ],
                         ),
-                      ),
+                       ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// نافذة إدخال سجل إنتاج بيض
+class _EggProductionDialog extends StatefulWidget {
+  final List<FlockModel> flocks;
+  final String farmId;
+  const _EggProductionDialog({required this.flocks, required this.farmId});
+  @override
+  State<_EggProductionDialog> createState() => _EggProductionDialogState();
+}
+
+class _EggProductionDialogState extends State<_EggProductionDialog> {
+  String? _flockId;
+  DateTime _date = DateTime.now();
+  final _cartonsCtrl = TextEditingController();
+  final _traysCtrl = TextEditingController();
+  final _looseCtrl = TextEditingController(text: '0');
+  final _brokenCtrl = TextEditingController(text: '0');
+  final _dirtyCtrl = TextEditingController(text: '0');
+  int? _sectionNo;
+
+  @override
+  void dispose() {
+    _cartonsCtrl.dispose();
+    _traysCtrl.dispose();
+    _looseCtrl.dispose();
+    _brokenCtrl.dispose();
+    _dirtyCtrl.dispose();
+    super.dispose();
+  }
+
+  int get _total {
+    final c = int.tryParse(_cartonsCtrl.text) ?? 0;
+    final t = int.tryParse(_traysCtrl.text) ?? 0;
+    final l = int.tryParse(_looseCtrl.text) ?? 0;
+    return EggCalculator.calculateTotal(cartons: c, trays: t, looseEggs: l);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('إضافة إنتاج بيض'),
+      content: SizedBox(
+        width: 440,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DropdownButtonFormField<String>(
+                value: _flockId,
+                decoration: const InputDecoration(
+                  labelText: 'المدجنة',
+                  border: OutlineInputBorder(),
+                ),
+                items: widget.flocks
+                    .where((f) => f.status == FlockStatus.active)
+                    .map((f) => DropdownMenuItem(value: f.id, child: Text(f.breed)))
+                    .toList(),
+                onChanged: (v) => setState(() => _flockId = v),
+              ),
+              const SizedBox(height: 12),
+              InkWell(
+                onTap: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: _date,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                  );
+                  if (d != null) setState(() => _date = d);
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'التاريخ',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.calendar_today),
+                  ),
+                  child: Text(Formatters.formatDate(_date)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _cartonsCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'كراتين',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _traysCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'أطباق',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _looseCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'مفرد',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _brokenCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'مكسور',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _dirtyCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'أرضي',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  labelText: 'رقم العنبر (اختياري)',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (v) => _sectionNo = int.tryParse(v),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'الإجمالي: $_total بيضة',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (_flockId == null) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('اختر المدجنة')),
+              );
+              return;
+            }
+            if (_total == 0) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('أدخل كمية البيض')),
+              );
+              return;
+            }
+            Navigator.pop(context, {
+              'flock_id': _flockId!,
+              'date': _date,
+              'cartons': int.tryParse(_cartonsCtrl.text) ?? 0,
+              'trays': int.tryParse(_traysCtrl.text) ?? 0,
+              'loose': int.tryParse(_looseCtrl.text) ?? 0,
+              'broken': int.tryParse(_brokenCtrl.text) ?? 0,
+              'dirty': int.tryParse(_dirtyCtrl.text) ?? 0,
+              'section': _sectionNo,
+            });
+          },
+          child: const Text('حفظ'),
+        ),
+      ],
     );
   }
 }

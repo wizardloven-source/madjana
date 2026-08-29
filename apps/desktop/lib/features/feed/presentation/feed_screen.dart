@@ -1,8 +1,10 @@
 ﻿import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/csv_exporter.dart';
 import '../../../core/providers.dart';
+import '../../../core/shell_state.dart';
 import '../../../shared/widgets/period_filter.dart';
 import '../../auth/providers/auth_provider.dart';
 
@@ -53,6 +55,41 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       _stock = stock;
       _loading = false;
     });
+  }
+
+  Future<void> _showAddConsumptionDialog() async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => const _FeedConsumptionDialog(),
+    );
+    if (result != null && mounted) {
+      final workerId = ref.read(authProvider).currentUser?.uid ?? 'manager';
+      final mode = result['mode'] as FeedEntryMode;
+      FeedConsumptionModel record;
+      if (mode == FeedEntryMode.bags) {
+        record = FeedConsumptionModel.fromBags(
+          farmId: _farmId,
+          date: result['date'] as DateTime,
+          bags: result['bags'] as int,
+          workerId: workerId,
+        );
+      } else {
+        record = FeedConsumptionModel(
+          farmId: _farmId,
+          date: result['date'] as DateTime,
+          entryMode: FeedEntryMode.kg,
+          quantityKg: result['quantity_kg'] as double,
+          workerId: workerId,
+        );
+      }
+      await ref.read(feedRepositoryProvider).saveConsumptionLocal(record);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حفظ استهلاك العلف بنجاح')),
+        );
+        _load();
+      }
+    }
   }
 
   @override
@@ -134,6 +171,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                 onPressed: _exportCsv,
                 icon: const Icon(Icons.file_download_outlined),
                 label: const Text('تصدير CSV'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: _showAddConsumptionDialog,
+                icon: const Icon(Icons.add),
+                label: const Text('إضافة استهلاك'),
               ),
             ],
           ),
@@ -354,7 +397,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                   final marker = '[FR:${r.id}]';
                   final expenses = await ref
                       .read(expenseRepositoryProvider)
-                      .getExpenses(farmId: farmId);
+                      .getExpenses(farmId: farmId!);
                   ExpenseModel? existing;
                   for (final e in expenses) {
                     if ((e.description ?? '').contains(marker)) {
@@ -421,6 +464,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         return 'نامي';
       case FeedType.layer:
         return 'بياض';
+      case FeedType.main:
+        return 'علف رئيسي';
     }
   }
 
@@ -470,5 +515,131 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         SnackBar(content: Text('فشل التصدير: $e')),
       );
     }
+  }
+}
+
+/// نافذة إدخال استهلاك علف
+class _FeedConsumptionDialog extends StatefulWidget {
+  const _FeedConsumptionDialog();
+  @override
+  State<_FeedConsumptionDialog> createState() => _FeedConsumptionDialogState();
+}
+
+class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
+  FeedEntryMode _mode = FeedEntryMode.bags;
+  DateTime _date = DateTime.now();
+  final _bagsCtrl = TextEditingController();
+  final _kgCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _bagsCtrl.dispose();
+    _kgCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('إضافة استهلاك علف'),
+      content: SizedBox(
+        width: 380,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              InkWell(
+                onTap: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: _date,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                  );
+                  if (d != null) setState(() => _date = d);
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'التاريخ',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.calendar_today),
+                  ),
+                  child: Text(Formatters.formatDate(_date)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SegmentedButton<FeedEntryMode>(
+                segments: const [
+                  ButtonSegment(value: FeedEntryMode.bags, label: Text('أكياس')),
+                  ButtonSegment(value: FeedEntryMode.kg, label: Text('كيلوغرام')),
+                ],
+                selected: {_mode},
+                onSelectionChanged: (s) => setState(() => _mode = s.first),
+              ),
+              const SizedBox(height: 12),
+              if (_mode == FeedEntryMode.bags)
+                TextField(
+                  controller: _bagsCtrl,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(
+                    labelText: 'عدد الأكياس',
+                    border: OutlineInputBorder(),
+                    hintText: 'كل كيس 50 كجم',
+                  ),
+                )
+              else
+                TextField(
+                  controller: _kgCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'الكمية بالكيلوغرام',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (_mode == FeedEntryMode.bags) {
+              final bags = int.tryParse(_bagsCtrl.text) ?? 0;
+              if (bags <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('أدخل عدد الأكياس')),
+                );
+                return;
+              }
+              Navigator.pop(context, {
+                'mode': FeedEntryMode.bags,
+                'date': _date,
+                'bags': bags,
+              });
+            } else {
+              final kg = double.tryParse(_kgCtrl.text) ?? 0;
+              if (kg <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('أدخل الكمية')),
+                );
+                return;
+              }
+              Navigator.pop(context, {
+                'mode': FeedEntryMode.kg,
+                'date': _date,
+                'quantity_kg': kg,
+              });
+            }
+          },
+          child: const Text('حفظ'),
+        ),
+      ],
+    );
   }
 }

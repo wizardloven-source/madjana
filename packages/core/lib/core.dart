@@ -13,6 +13,7 @@ export 'src/models/mortality_model.dart';
 export 'src/models/feed_consumption_model.dart';
 export 'src/models/feed_received_model.dart';
 export 'src/models/dispatch_model.dart';
+export 'src/models/dispatch_request_model.dart';
 export 'src/models/customer_model.dart';
 export 'src/models/payment_model.dart';
 export 'src/models/medicine_model.dart';
@@ -20,6 +21,7 @@ export 'src/models/medication_model.dart';
 export 'src/models/expense_model.dart';
 export 'src/models/inventory_model.dart';
 export 'src/models/notification_models.dart';
+export 'src/models/opening_balance_model.dart';
 
 // الأدوات
 export 'src/utils/egg_calculator.dart';
@@ -32,11 +34,13 @@ export 'src/repositories/egg_production_repository.dart';
 export 'src/repositories/mortality_repository.dart';
 export 'src/repositories/feed_repository.dart';
 export 'src/repositories/dispatch_repository.dart';
+export 'src/repositories/notification_repository.dart';
 export 'src/repositories/medication_repository.dart';
 export 'src/repositories/payment_repository.dart';
 export 'src/repositories/sync_repository.dart';
 export 'src/repositories/admin_repositories.dart';
 export 'src/repositories/ops_repositories.dart';
+export 'src/repositories/opening_balance_repository.dart';
 
 // حالات الاستخدام
 export 'src/usecases/save_egg_production_usecase.dart';

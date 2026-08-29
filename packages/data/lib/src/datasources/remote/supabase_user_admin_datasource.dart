@@ -20,14 +20,12 @@ class SupabaseUserAdminDatasource {
       });
 
   Future<List<UserModel>> getUsers(String farmId) async {
-    final data = await _client
-        .from('users')
-        .select()
-        .eq('farm_id', farmId)
-        .order('created_at');
-    return (data as List)
+    final data = await _client.from('users').select().eq('farm_id', farmId);
+    final users = (data as List)
         .map((e) => _fromMap(Map<String, dynamic>.from(e as Map)))
         .toList();
+    users.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return users;
   }
 
   /// إنشاء مستخدم جديد (ينشئ حساب auth مقابل تلقائياً)

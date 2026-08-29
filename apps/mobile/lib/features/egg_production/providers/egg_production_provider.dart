@@ -52,6 +52,10 @@ class EggProductionNotifier extends StateNotifier<bool> {
       toDate: toDate,
     );
   }
+
+  Future<void> deleteRecord(String id) {
+    return _repository.deleteRecord(id);
+  }
 }
 
 final eggProductionProvider =

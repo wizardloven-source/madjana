@@ -1,8 +1,10 @@
 ﻿import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/csv_exporter.dart';
 import '../../../core/providers.dart';
+import '../../../core/shell_state.dart';
 import '../../../shared/widgets/period_filter.dart';
 import '../../auth/providers/auth_provider.dart';
 
@@ -123,6 +125,42 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
 
   String _customerName(String? id) =>
       id == null ? '-' : (_customers[id]?.name ?? '-');
+
+  Future<void> _showAddDispatchDialog() async {
+    if (_customers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('أضف زبائناً أولاً من شاشة الزبائن')),
+      );
+      return;
+    }
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _DispatchEntryDialog(
+        customers: _customers.values.toList(),
+        currentStock: _currentStock,
+      ),
+    );
+    if (result != null && mounted) {
+      final workerId = ref.read(authProvider).currentUser?.uid ?? 'manager';
+      final record = DispatchModel(
+        farmId: _farmId,
+        date: result['date'] as DateTime,
+        customerId: result['customer_id'] as String,
+        cartons: result['cartons'] as int,
+        trays: result['trays'] as int,
+        trayWeightKg: result['tray_weight_kg'] as double?,
+        notes: result['notes'] as String?,
+        workerId: workerId,
+      );
+      await ref.read(dispatchRepositoryProvider).saveLocal(record);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حفظ التخريج بنجاح')),
+        );
+        _load();
+      }
+    }
+  }
 
   Future<void> _exportCsv() async {
     try {
@@ -307,6 +345,12 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                 icon: const Icon(Icons.file_download_outlined),
                 label: const Text('تصدير CSV'),
               ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: _showAddDispatchDialog,
+                icon: const Icon(Icons.add),
+                label: const Text('إضافة تخريج'),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -479,7 +523,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<PaymentMethod>(
-                initialValue: _method,
+                value: _method,
                 decoration: const InputDecoration(
                   labelText: 'طريقة الدفع',
                   prefixIcon: Icon(Icons.account_balance_wallet),
@@ -542,6 +586,201 @@ class _PaymentDialogState extends State<_PaymentDialog> {
             });
           },
           child: const Text('حفظ القبض'),
+        ),
+      ],
+    );
+  }
+}
+
+/// نافذة إدخال تخريج بيض
+class _DispatchEntryDialog extends StatefulWidget {
+  final List<CustomerModel> customers;
+  final int currentStock;
+  const _DispatchEntryDialog({required this.customers, required this.currentStock});
+  @override
+  State<_DispatchEntryDialog> createState() => _DispatchEntryDialogState();
+}
+
+class _DispatchEntryDialogState extends State<_DispatchEntryDialog> {
+  String? _customerId;
+  DateTime _date = DateTime.now();
+  final _cartonsCtrl = TextEditingController();
+  final _traysCtrl = TextEditingController();
+  final _weightCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _cartonsCtrl.dispose();
+    _traysCtrl.dispose();
+    _weightCtrl.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  int get _totalEggs {
+    final c = int.tryParse(_cartonsCtrl.text) ?? 0;
+    final t = int.tryParse(_traysCtrl.text) ?? 0;
+    return EggCalculator.calculateTotal(cartons: c, trays: t, looseEggs: 0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('إضافة تخريج بيض'),
+      content: SizedBox(
+        width: 440,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (widget.currentStock > 0)
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'المخزون الحالي: ${Formatters.formatNumber(widget.currentStock)} بيضة',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _customerId,
+                decoration: const InputDecoration(
+                  labelText: 'الزبون',
+                  border: OutlineInputBorder(),
+                ),
+                items: widget.customers
+                    .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
+                    .toList(),
+                onChanged: (v) => setState(() => _customerId = v),
+              ),
+              const SizedBox(height: 12),
+              InkWell(
+                onTap: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: _date,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                  );
+                  if (d != null) setState(() => _date = d);
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'التاريخ',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.calendar_today),
+                  ),
+                  child: Text(Formatters.formatDate(_date)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _cartonsCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'كراتين',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _traysCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(
+                        labelText: 'أطباق',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _weightCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'وزن الصحن كغ (اختياري)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _notesCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'ملاحظات',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'إجمالي البيض: ${Formatters.formatNumber(_totalEggs)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (_customerId == null) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('اختر الزبون')),
+              );
+              return;
+            }
+            final cartons = int.tryParse(_cartonsCtrl.text) ?? 0;
+            final trays = int.tryParse(_traysCtrl.text) ?? 0;
+            if (cartons == 0 && trays == 0) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('أدخل كمية التخريج')),
+              );
+              return;
+            }
+            if (_totalEggs > widget.currentStock) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('الكمية أكبر من المخزون المتاح')),
+              );
+              return;
+            }
+            Navigator.pop(context, {
+              'customer_id': _customerId!,
+              'date': _date,
+              'cartons': cartons,
+              'trays': trays,
+              'tray_weight_kg': double.tryParse(_weightCtrl.text),
+              'notes': _notesCtrl.text.isEmpty ? null : _notesCtrl.text,
+            });
+          },
+          child: const Text('حفظ'),
         ),
       ],
     );

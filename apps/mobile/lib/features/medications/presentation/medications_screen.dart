@@ -7,11 +7,6 @@ import '../../auth/providers/auth_provider.dart';
 import '../../reference_data/providers/reference_data_provider.dart';
 import '../providers/medications_provider.dart';
 
-/// ط´ط§ط´ط© ط§ظ„ط£ط¯ظˆظٹط©
-/// 
-/// ط§ظ„ظ…ظ…ظٹط²ط§طھ:
-/// - ظ‚ط§ط¦ظ…ط© ط§ظ„ط£ط¯ظˆظٹط© ظ…ظ† medicines_catalog
-/// - طھط­ط°ظٹط± ظپطھط±ط© ط§ظ„ط³ط­ط¨ (withdrawal_days)
 class MedicationsScreen extends ConsumerStatefulWidget {
   const MedicationsScreen({super.key});
 
@@ -50,31 +45,36 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
 
   Future<void> _save() async {
     if (_selectedFarmId == null) {
-      _showError('ط§ط®طھط± ط§ظ„ظ…ط¯ط¬ظ†ط©');
+      _showError('اختر المدجنة');
       return;
     }
     if (_selectedType == null) {
-      _showError('ط§ط®طھط± ظ†ظˆط¹ ط§ظ„ط¥ط¬ط±ط§ط،');
+      _showError('اختر نوع الإجراء');
       return;
     }
     if (_selectedMedicineId == null) {
-      _showError('ط§ط®طھط± ط§ظ„ط¯ظˆط§ط،');
+      _showError('اختر الدواء');
       return;
     }
     if (_dosageController.text.isEmpty) {
-      _showError('ط£ط¯ط®ظ„ ط§ظ„ط¬ط±ط¹ط©');
+      _showError('أدخل الجرعة');
       return;
     }
     if (_selectedRoute == null) {
-      _showError('ط§ط®طھط± ط·ط±ظٹظ‚ط© ط§ظ„ط¥ط¹ط·ط§ط،');
+      _showError('اختر طريق الإعطاء');
       return;
     }
 
-    final user = ref.read(authProvider).currentUser!;
+    final user = ref.read(authProvider).currentUser;
+    if (user == null || user.farmId == null) {
+      _showError('خطأ في بيانات المستخدم');
+      return;
+    }
     final medicines =
         ref.read(medicinesCatalogProvider).value ?? const <MedicineModel>[];
     final selectedMedicine = medicines.firstWhere(
       (m) => m.id == _selectedMedicineId,
+      orElse: () => medicines.isNotEmpty ? medicines.first : MedicineModel(id: '', name: '', type: MedicationType.drug),
     );
 
     final result = await ref.read(medicationsProvider.notifier).save(
@@ -91,15 +91,14 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
         );
 
     if (result.success) {
-      // طھط­ط°ظٹط± ظپطھط±ط© ط§ظ„ط³ط­ط¨
       if (selectedMedicine.withdrawalDays > 0) {
         _showWithdrawalWarning(selectedMedicine.withdrawalDays);
       } else {
-        _showSuccess('طھظ… ط§ظ„ط­ظپط¸ ط¨ظ†ط¬ط§ط­');
+        _showSuccess('تم الحفظ بنجاح');
       }
       _clearFields();
     } else {
-      _showError(result.error ?? 'ظپط´ظ„ ط§ظ„ط­ظپط¸');
+      _showError(result.error ?? 'فشل الحفظ');
     }
   }
 
@@ -112,21 +111,21 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
           children: [
             Icon(Icons.warning, color: Colors.white),
             SizedBox(width: 8),
-            Text('طھظ†ط¨ظٹظ‡ ظپطھط±ط© ط§ظ„ط³ط­ط¨', style: TextStyle(color: Colors.white)),
+            Text('تنبيه فترة السحب', style: TextStyle(color: Colors.white)),
           ],
         ),
         content: Text(
-          'ظ„ط§ ظٹظڈط³ظ…ط­ ط¨ط¨ظٹط¹ ط§ظ„ط¨ظٹط¶ ظ„ظ…ط¯ط© $days ظٹظˆظ…\n'
-          'ظ…ظ† طھط§ط±ظٹط®: ${Formatters.formatDate(_selectedDate)}',
+          'لا يُسمح ببيع البيض لمدة $days يوم\n'
+          'من تاريخ: ${Formatters.formatDate(_selectedDate)}',
           style: const TextStyle(color: Colors.white),
         ),
         actions: [
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              _showSuccess('طھظ… ط§ظ„ط­ظپط¸ ط¨ظ†ط¬ط§ط­');
+              _showSuccess('تم الحفظ بنجاح');
             },
-            child: const Text('ط­ط³ظ†ط§ظ‹', style: TextStyle(color: Colors.white)),
+            child: const Text('حسناً', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -153,49 +152,45 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
     final medicinesAsync = ref.watch(medicinesCatalogProvider);
     final medicines = medicinesAsync.value ?? const <MedicineModel>[];
 
-    // ظپظ„طھط±ط© ط§ظ„ط£ط¯ظˆظٹط© ط­ط³ط¨ ط§ظ„ظ†ظˆط¹ ط§ظ„ظ…ط®طھط§ط±
     final filteredMedicines = _selectedType != null
         ? medicines.where((m) => m.type == _selectedType).toList()
         : medicines;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('ط§ظ„ط£ط¯ظˆظٹط©')),
+      appBar: AppBar(title: const Text('الأدوية')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ط§ظ„طھط§ط±ظٹط®
             DatePickerField(
               value: _selectedDate,
-              label: 'ط§ظ„طھط§ط±ظٹط®',
+              label: 'التاريخ',
               onChanged: (date) => setState(() => _selectedDate = date),
             ),
             const SizedBox(height: 16),
 
-            // ظ†ظˆط¹ ط§ظ„ط¥ط¬ط±ط§ط،
             DropdownButtonFormField<MedicationType>(
               initialValue: _selectedType,
-              decoration: const InputDecoration(labelText: ''),
+              decoration: const InputDecoration(labelText: 'نوع الإجراء'),
               items: MedicationType.values.map((type) {
                 final label = switch (type) {
-                  MedicationType.drug => 'ط¯ظˆط§ط،',
-                  MedicationType.vaccine => 'ظ„ظ‚ط§ط­',
-                  MedicationType.vitamin => 'ظپظٹطھط§ظ…ظٹظ†',
+                  MedicationType.drug => 'دواء',
+                  MedicationType.vaccine => 'لقاح',
+                  MedicationType.vitamin => 'فيتامين',
                 };
                 return DropdownMenuItem(value: type, child: Text(label));
               }).toList(),
               onChanged: (v) => setState(() {
                 _selectedType = v;
-                _selectedMedicineId = null; // ط¥ط¹ط§ط¯ط© طھط¹ظٹظٹظ†
+                _selectedMedicineId = null;
               }),
             ),
             const SizedBox(height: 16),
 
-            // ط§ط³ظ… ط§ظ„ط¯ظˆط§ط، (ظ…ط¹ ط¨ط­ط«)
             DropdownButtonFormField<String>(
               initialValue: _selectedMedicineId,
-              decoration: const InputDecoration(labelText: ''),
+              decoration: const InputDecoration(labelText: 'اسم الدواء (مع بحث)'),
               items: filteredMedicines.map((m) {
                 return DropdownMenuItem(
                   value: m.id,
@@ -213,7 +208,7 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
-                            '${m.withdrawalDays} ظٹظˆظ… ط³ط­ط¨',
+                            '${m.withdrawalDays} يوم سحب',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 10,
@@ -228,23 +223,21 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // ط§ظ„ط¬ط±ط¹ط©
             TextField(
               controller: _dosageController,
-              decoration: const InputDecoration(labelText: ''),
+              decoration: const InputDecoration(labelText: 'الجرعة'),
             ),
             const SizedBox(height: 16),
 
-            // ط·ط±ظٹظ‚ط© ط§ظ„ط¥ط¹ط·ط§ط،
             DropdownButtonFormField<AdministrationRoute>(
               initialValue: _selectedRoute,
-              decoration: const InputDecoration(labelText: ''),
+              decoration: const InputDecoration(labelText: 'طريقة الإعطاء'),
               items: AdministrationRoute.values.map((route) {
                 final label = switch (route) {
-                  AdministrationRoute.water => 'ظ…ط§ط، ط§ظ„ط´ط±ط¨',
-                  AdministrationRoute.spray => 'ط±ط´',
-                  AdministrationRoute.injection => 'ط­ظ‚ظ†',
-                  AdministrationRoute.feed => 'ظپظٹ ط§ظ„ط¹ظ„ظپ',
+                  AdministrationRoute.water => 'ماء الشرب',
+                  AdministrationRoute.spray => 'رش',
+                  AdministrationRoute.injection => 'حقن',
+                  AdministrationRoute.feed => 'في العلف',
                 };
                 return DropdownMenuItem(value: route, child: Text(label));
               }).toList(),
@@ -252,27 +245,24 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // ظ…ط¯ط© ط§ظ„ط¹ظ„ط§ط¬
             TextField(
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: ''),
+              decoration: const InputDecoration(labelText: 'مدة العلاج (أيام)'),
               onChanged: (v) {
                 _treatmentDays = int.tryParse(v);
               },
             ),
             const SizedBox(height: 16),
 
-            // ظ…ظ„ط§ط­ط¸ط§طھ
             TextField(
               controller: _notesController,
-              decoration: const InputDecoration(labelText: ''),
+              decoration: const InputDecoration(labelText: 'ملاحظات'),
               maxLines: 2,
             ),
             const SizedBox(height: 24),
 
-            // ط²ط± ط§ظ„ط­ظپط¸
             PrimaryActionButton(
-              label: 'ط­ظپط¸',
+              label: 'حفظ',
               onPressed: _save,
               color: Colors.purple,
             ),

@@ -8,6 +8,12 @@ abstract class MedicationRepository {
   /// جلب كتالوج الأدوية
   Future<List<MedicineModel>> getMedicinesCatalog();
 
+  /// حفظ/تحديث دواء في الكتالوج
+  Future<void> saveMedicine(MedicineModel medicine);
+
+  /// حذف دواء من الكتالوج
+  Future<void> deleteMedicine(String id);
+
   /// جلب كل السجلات الدوائية
   Future<List<MedicationModel>> getAll({
     String? farmId,

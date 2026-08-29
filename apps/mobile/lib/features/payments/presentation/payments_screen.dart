@@ -7,6 +7,7 @@ import '../../../shared/widgets/modern_ui.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../reference_data/providers/reference_data_provider.dart';
 import '../../dispatch/providers/dispatch_provider.dart';
+import '../../../core/providers.dart';
 
 /// شاشة قبض المبالغ - للمدير فقط
 ///
@@ -31,7 +32,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
 
   // قائمة التخريج المتاحة (غير المدفوعة)
   final List<DispatchModel> _dispatches = [];
-  bool _dispatchesRequested = false;
+  bool _dispatchesLoaded = false;
 
   // مخازن الإدخال النصي لكل حقل (تمنع أخطاء التحويل العشري)
   final Map<String, String> _buffers = {
@@ -40,12 +41,25 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
   };
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadDispatches();
+    });
+  }
+
+  @override
   void dispose() {
     _notesController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadDispatches(String farmId) async {
+  Future<void> _loadDispatches() async {
+    final user = ref.read(authProvider).currentUser;
+    final farmId = user?.farmId ?? '';
+    if (farmId.isEmpty || _dispatchesLoaded) return;
+    _dispatchesLoaded = true;
+
     final all = await ref.read(dispatchProvider.notifier).getAll(farmId: farmId);
     if (!mounted) return;
     setState(() {
@@ -83,10 +97,8 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
 
   double get _totalDue {
     if (_selectedDispatchId == null) return 0;
-    final dispatch = _dispatches.firstWhere(
-      (d) => d.id == _selectedDispatchId,
-      orElse: () => _dispatches.first,
-    );
+    final dispatch = _dispatches.where((d) => d.id == _selectedDispatchId).firstOrNull;
+    if (dispatch == null) return 0;
     return _pricePerCarton * (dispatch.cartons + dispatch.trays / AppConstants.traysPerCarton);
   }
 
@@ -110,15 +122,41 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
       return;
     }
 
-    // TODO: حفظ الدفع عبر PaymentRepository (يُكمل مع الويب)
-    _showSuccess('تم تسجيل القبض بنجاح');
-    setState(() {
-      _buffers['price'] = '';
-      _buffers['amount'] = '';
-      _pricePerCarton = 0;
-      _amountPaid = 0;
-      _selectedDispatchId = null;
-    });
+    try {
+      final payment = PaymentModel(
+        farmId: user.farmId ?? '',
+        dispatchId: _selectedDispatchId,
+        customerId: _selectedCustomerId!,
+        date: _selectedDate,
+        pricePerCarton: _pricePerCarton,
+        totalDue: _totalDue,
+        amountPaid: _amountPaid,
+        paymentMethod: _paymentMethod,
+        notes: _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim(),
+        managerId: user.uid,
+      );
+
+      await ref.read(paymentRepositoryProvider).save(payment);
+
+      if (!mounted) return;
+      _showSuccess('تم تسجيل القبض بنجاح');
+      setState(() {
+        _buffers['price'] = '';
+        _buffers['amount'] = '';
+        _pricePerCarton = 0;
+        _amountPaid = 0;
+        _selectedDispatchId = null;
+        _notesController.clear();
+      });
+      // إعادة تحميل الفواتير لتحديث حالة الدفع
+      _dispatchesLoaded = false;
+      _loadDispatches();
+    } catch (e) {
+      if (!mounted) return;
+      _showError('حدث خطأ أثناء الحفظ');
+    }
   }
 
   void _showError(String message) => AppSnack.error(context, message);
@@ -131,11 +169,6 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
     final farmId = user?.farmId ?? '';
     final customersAsync = ref.watch(customersProvider(farmId));
     final customers = customersAsync.value ?? const <CustomerModel>[];
-
-    if (_dispatches.isEmpty && !_dispatchesRequested && farmId.isNotEmpty) {
-      _dispatchesRequested = true;
-      _loadDispatches(farmId);
-    }
 
     return Scaffold(
       appBar: AppBar(title: const Text('قبض المبالغ')),

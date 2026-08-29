@@ -46,6 +46,10 @@ class FeedConsumptionNotifier extends StateNotifier<bool> {
       toDate: toDate,
     );
   }
+
+  Future<void> deleteRecord(String id) {
+    return _repository.deleteConsumptionRecord(id);
+  }
 }
 
 final feedConsumptionProvider =

@@ -1,5 +1,4 @@
 import 'package:core/core.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 import '../local_database.dart';
 
@@ -77,7 +76,7 @@ class PaymentDao {
       'WHERE ${where.join(' AND ')}',
       args,
     );
-    return (Sqflite.firstIntValue(result) ?? 0).toDouble();
+    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
   }
 
   Future<double> getTotalCollected({
@@ -107,7 +106,7 @@ class PaymentDao {
       'WHERE ${where.isEmpty ? '1=1' : where.join(' AND ')}',
       args,
     );
-    return (Sqflite.firstIntValue(result) ?? 0).toDouble();
+    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
   }
 
   PaymentModel _fromMap(Map<String, dynamic> map) {

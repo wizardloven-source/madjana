@@ -66,6 +66,16 @@ class EggProductionRepositoryImpl implements EggProductionRepository {
     );
   }
 
+  @override
+  Future<void> deleteRecord(String id) async {
+    await _localDao.delete(id);
+    try {
+      await _remoteDatasource.delete(id);
+    } catch (_) {
+      // سيتم مزامنتها لاحقاً
+    }
+  }
+
   /// عدد السجلات المعلقة (لـ UI)
   Future<int> getPendingCount() => _localDao.countPending();
 }

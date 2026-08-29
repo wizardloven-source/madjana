@@ -20,4 +20,7 @@ abstract class EggProductionRepository {
     DateTime? fromDate,
     DateTime? toDate,
   });
+
+  /// حذف سجل
+  Future<void> deleteRecord(String id);
 }

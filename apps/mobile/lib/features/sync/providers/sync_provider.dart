@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers.dart';
 import '../data/sync_repository_impl.dart';
@@ -46,6 +47,7 @@ enum SyncConnectionStatus { connected, disconnected, unknown }
 class SyncNotifier extends StateNotifier<SyncState> {
   final MobileSyncRepository repository;
   final SyncEngine engine;
+  StreamSubscription<bool>? _connectivitySub;
 
   SyncNotifier({required this.repository, required this.engine})
       : super(const SyncState()) {
@@ -58,8 +60,12 @@ class SyncNotifier extends StateNotifier<SyncState> {
     _watchConnectivity();
   }
 
+  void setAutoSync(bool enabled) {
+    engine.autoSyncEnabled = enabled;
+  }
+
   void _watchConnectivity() {
-    engine.connectivity.onConnectivityChanged.listen((connected) {
+    _connectivitySub = engine.connectivity.onConnectivityChanged.listen((connected) {
       state = state.copyWith(
         connectionStatus: connected
             ? SyncConnectionStatus.connected
@@ -73,8 +79,8 @@ class SyncNotifier extends StateNotifier<SyncState> {
 
   Future<void> _refreshCounts() async {
     final pending = await repository.getPendingCount();
-    const synced = 0;
-    const failed = 0;
+    final synced = await repository.getSyncedCount();
+    final failed = await repository.getFailedCount();
 
     state = state.copyWith(
       pendingCount: pending,
@@ -109,6 +115,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
 
   @override
   void dispose() {
+    _connectivitySub?.cancel();
     engine.stop();
     super.dispose();
   }

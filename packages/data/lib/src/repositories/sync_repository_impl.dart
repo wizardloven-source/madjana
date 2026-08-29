@@ -1,6 +1,7 @@
 import 'package:core/core.dart';
 import 'package:domain/domain.dart';
 import 'package:sqflite/sqflite.dart';
+import '../datasources/local/daos/customer_dao.dart';
 import '../datasources/local/daos/dispatch_dao.dart';
 import '../datasources/local/daos/egg_production_dao.dart';
 import '../datasources/local/daos/feed_dao.dart';
@@ -13,6 +14,7 @@ import '../datasources/remote/supabase_egg_datasource.dart';
 import '../datasources/remote/supabase_feed_datasource.dart';
 import '../datasources/remote/supabase_medication_datasource.dart';
 import '../datasources/remote/supabase_mortality_datasource.dart';
+import '../datasources/remote/supabase_payment_datasource.dart';
 
 /// تنفيذ مستودع المزامنة
 ///
@@ -24,6 +26,7 @@ class SyncRepositoryImpl implements SyncRepository {
   final FeedDao _feedDao;
   final DispatchDao _dispatchDao;
   final MedicationDao _medicationDao;
+  final CustomerDao _customerDao;
   final SyncQueueDao _syncQueueDao;
 
   final SupabaseEggDatasource _remoteEgg;
@@ -31,6 +34,7 @@ class SyncRepositoryImpl implements SyncRepository {
   final SupabaseFeedDatasource _remoteFeed;
   final SupabaseDispatchDatasource _remoteDispatch;
   final SupabaseMedicationDatasource _remoteMedication;
+  final SupabasePaymentDatasource _remotePayment;
 
   SyncRepositoryImpl({
     required EggProductionDao eggDao,
@@ -38,23 +42,27 @@ class SyncRepositoryImpl implements SyncRepository {
     required FeedDao feedDao,
     required DispatchDao dispatchDao,
     required MedicationDao medicationDao,
+    required CustomerDao customerDao,
     required SyncQueueDao syncQueueDao,
     required SupabaseEggDatasource remoteEgg,
     required SupabaseMortalityDatasource remoteMortality,
     required SupabaseFeedDatasource remoteFeed,
     required SupabaseDispatchDatasource remoteDispatch,
     required SupabaseMedicationDatasource remoteMedication,
+    required SupabasePaymentDatasource remotePayment,
   })  : _eggDao = eggDao,
         _mortalityDao = mortalityDao,
         _feedDao = feedDao,
         _dispatchDao = dispatchDao,
         _medicationDao = medicationDao,
+        _customerDao = customerDao,
         _syncQueueDao = syncQueueDao,
         _remoteEgg = remoteEgg,
         _remoteMortality = remoteMortality,
         _remoteFeed = remoteFeed,
         _remoteDispatch = remoteDispatch,
-        _remoteMedication = remoteMedication;
+        _remoteMedication = remoteMedication,
+        _remotePayment = remotePayment;
 
   @override
   Future<List<SyncRecord>> getPendingRecords({int limit = 50}) async {
@@ -67,7 +75,7 @@ class SyncRepositoryImpl implements SyncRepository {
         tableName: 'egg_production',
         recordId: e.id!,
         payload: e.toJson(),
-        updatedAt: e.createdAt ?? DateTime.now(),
+        updatedAt: e.updatedAt ?? e.createdAt ?? DateTime.now(),
       ));
     }
 
@@ -78,7 +86,7 @@ class SyncRepositoryImpl implements SyncRepository {
         tableName: 'mortality',
         recordId: m.id!,
         payload: m.toJson(),
-        updatedAt: DateTime.now(),
+        updatedAt: m.date,
       ));
     }
 
@@ -89,7 +97,7 @@ class SyncRepositoryImpl implements SyncRepository {
         tableName: 'feed_consumption',
         recordId: c.id!,
         payload: c.toJson(),
-        updatedAt: DateTime.now(),
+        updatedAt: c.date,
       ));
     }
 
@@ -100,7 +108,7 @@ class SyncRepositoryImpl implements SyncRepository {
         tableName: 'feed_received',
         recordId: r.id!,
         payload: r.toJson(),
-        updatedAt: DateTime.now(),
+        updatedAt: r.date,
       ));
     }
 
@@ -111,7 +119,7 @@ class SyncRepositoryImpl implements SyncRepository {
         tableName: 'egg_dispatch',
         recordId: d.id!,
         payload: d.toJson(),
-        updatedAt: DateTime.now(),
+        updatedAt: d.date,
       ));
     }
 
@@ -122,11 +130,25 @@ class SyncRepositoryImpl implements SyncRepository {
         tableName: 'medications',
         recordId: m.id!,
         payload: m.toJson(),
+        updatedAt: m.date,
+      ));
+    }
+
+    // زبائن لم تُرفع بعد
+    final customers = await _customerDao.getPendingRecords(limit: limit);
+    for (final c in customers) {
+      records.add(SyncRecord(
+        id: c.id,
+        tableName: 'customers',
+        recordId: c.id!,
+        payload: c.toJson(),
         updatedAt: DateTime.now(),
       ));
     }
 
-    return records.take(limit).toList();
+    // كل جدول محدود بـ limit داخلياً، دون قصّ إجمالي قد يحذف الزبائن
+    // (الزبائن تُضاف أخيراً وكانت تُقصّ عند تجاوز الحد الأجمالي)
+    return records;
   }
 
   /// الجداول التشغيلية التي تُسحب من السحابة إلى الجهاز
@@ -138,6 +160,10 @@ class SyncRepositoryImpl implements SyncRepository {
     'egg_dispatch',
     'medications',
     'customers',
+    'expenses',
+    'payments',
+    'flocks',
+    'users',
   ];
 
   @override
@@ -154,7 +180,7 @@ class SyncRepositoryImpl implements SyncRepository {
 
         // أعمدة الجدول المحلي — لتجاهل أي مفاتيح غير موجودة محلياً
         final columns = <String>{};
-        final info = await db.query('PRAGMA table_info($table)');
+        final info = await db.rawQuery('PRAGMA table_info($table)');
         for (final col in info) {
           columns.add(col['name'] as String);
         }
@@ -207,6 +233,23 @@ class SyncRepositoryImpl implements SyncRepository {
   }
 
   @override
+  Future<int> syncNow(String farmId) async {
+    final records = await getPendingRecords();
+    if (records.isNotEmpty) {
+      final result = await uploadBatch(records);
+      for (final record in records) {
+        if (record.id == null) continue;
+        if (result.successIds.contains(record.id)) {
+          await markAsSynced(record.id!);
+        } else {
+          await incrementAttempts(record.id!);
+        }
+      }
+    }
+    return await pullRemoteRecords(farmId);
+  }
+
+  @override
   Future<int> getPendingCount() async {
     var count = await _eggDao.countPending();
     count += await _mortalityDao.countPending();
@@ -214,6 +257,7 @@ class SyncRepositoryImpl implements SyncRepository {
     count += await _feedDao.countPendingReceived();
     count += await _dispatchDao.countPending();
     count += await _medicationDao.countPending();
+    count += await _customerDao.countPending();
     return count;
   }
 
@@ -243,8 +287,9 @@ class SyncRepositoryImpl implements SyncRepository {
     if (mortalities.isNotEmpty) {
       final models =
           mortalities.map((r) => MortalityModel.fromJson(r.payload)).toList();
-      final ids = await _remoteMortality.insertBatch(models);
-      successIds.addAll(ids);
+      final mResult = await _remoteMortality.insertBatch(models);
+      successIds.addAll(mResult.successIds);
+      failedIds.addAll(mResult.failedIds);
     }
 
     // استهلاك العلف
@@ -253,8 +298,9 @@ class SyncRepositoryImpl implements SyncRepository {
     if (consumptions.isNotEmpty) {
       final models =
           consumptions.map((r) => FeedConsumptionModel.fromJson(r.payload)).toList();
-      final ids = await _remoteFeed.insertConsumptionBatch(models);
-      successIds.addAll(ids);
+      final cResult = await _remoteFeed.insertConsumptionBatch(models);
+      successIds.addAll(cResult.successIds);
+      failedIds.addAll(cResult.failedIds);
     }
 
     // استلام العلف
@@ -262,8 +308,9 @@ class SyncRepositoryImpl implements SyncRepository {
     if (received.isNotEmpty) {
       final models =
           received.map((r) => FeedReceivedModel.fromJson(r.payload)).toList();
-      final ids = await _remoteFeed.insertReceivedBatch(models);
-      successIds.addAll(ids);
+      final rResult = await _remoteFeed.insertReceivedBatch(models);
+      successIds.addAll(rResult.successIds);
+      failedIds.addAll(rResult.failedIds);
     }
 
     // تخريج
@@ -272,8 +319,9 @@ class SyncRepositoryImpl implements SyncRepository {
     if (dispatches.isNotEmpty) {
       final models =
           dispatches.map((r) => DispatchModel.fromJson(r.payload)).toList();
-      final ids = await _remoteDispatch.insertBatch(models);
-      successIds.addAll(ids);
+      final dResult = await _remoteDispatch.insertBatch(models);
+      successIds.addAll(dResult.successIds);
+      failedIds.addAll(dResult.failedIds);
     }
 
     // أدوية
@@ -282,24 +330,59 @@ class SyncRepositoryImpl implements SyncRepository {
     if (medications.isNotEmpty) {
       final models =
           medications.map((r) => MedicationModel.fromJson(r.payload)).toList();
-      final ids = await _remoteMedication.insertBatch(models);
-      successIds.addAll(ids);
+      final medResult = await _remoteMedication.insertBatch(models);
+      successIds.addAll(medResult.successIds);
+      failedIds.addAll(medResult.failedIds);
     }
 
-    // تسجيل في طابور المزامنة
-    for (final record in records) {
-      await _syncQueueDao.insert(
-        tableName: record.tableName,
-        recordId: record.recordId,
-        payload: record.payload,
-        userId: '',
-      );
-      if (successIds.contains(record.id)) {
-        await _syncQueueDao.updateStatus(record.recordId, 'synced');
-      } else {
-        await _syncQueueDao.updateStatus(record.recordId, 'failed');
+    // مدفوعات
+    final payments =
+        records.where((r) => r.tableName == 'payments').toList();
+    if (payments.isNotEmpty) {
+      final models =
+          payments.map((r) => PaymentModel.fromJson(r.payload)).toList();
+      final payResult = await _remotePayment.insertBatch(models);
+      successIds.addAll(payResult.successIds);
+      failedIds.addAll(payResult.failedIds);
+    }
+
+    // زبائن (UPSERT بنفس المعرّف)
+    final customers =
+        records.where((r) => r.tableName == 'customers').toList();
+    if (customers.isNotEmpty) {
+      for (final record in customers) {
+        try {
+          final model = CustomerModel.fromJson(record.payload);
+          await _remoteDispatch.insertCustomer(record.recordId, model);
+          successIds.add(record.id ?? record.recordId);
+        } catch (_) {
+          failedIds.add(record.id ?? record.recordId);
+        }
       }
     }
+
+    // تسجيل في طابور المزامنة (upsert لتجنب التكرار)
+    for (final record in records) {
+      if (record.id == null) continue;
+      final status = successIds.contains(record.id) ? 'synced' : 'failed';
+      final existing = await _syncQueueDao.findByRecordId(record.recordId);
+      if (existing != null) {
+        await _syncQueueDao.updateStatus(record.recordId, status);
+      } else {
+        await _syncQueueDao.insert(
+          tableName: record.tableName,
+          recordId: record.recordId,
+          payload: record.payload,
+          userId: '',
+        );
+        await _syncQueueDao.updateStatus(record.recordId, status);
+      }
+    }
+
+    // تنظيف السجلات القديمة المتزامنة
+    try {
+      await _syncQueueDao.cleanSynced(olderThanDays: 3);
+    } catch (_) {}
 
     return BatchUploadResult(successIds: successIds, failedIds: failedIds);
   }
@@ -312,6 +395,7 @@ class SyncRepositoryImpl implements SyncRepository {
     await _feedDao.updateReceivedSyncStatus(id, SyncStatus.synced);
     await _dispatchDao.updateSyncStatus(id, SyncStatus.synced);
     await _medicationDao.updateSyncStatus(id, SyncStatus.synced);
+    await _customerDao.updateSyncStatus(id, SyncStatus.synced);
     await _syncQueueDao.updateStatus(id, 'synced');
   }
 
@@ -323,6 +407,7 @@ class SyncRepositoryImpl implements SyncRepository {
     await _feedDao.updateReceivedSyncStatus(id, SyncStatus.failed);
     await _dispatchDao.updateSyncStatus(id, SyncStatus.failed);
     await _medicationDao.updateSyncStatus(id, SyncStatus.failed);
+    await _customerDao.updateSyncStatus(id, SyncStatus.failed);
     await _syncQueueDao.updateStatus(id, 'failed');
   }
 
@@ -348,7 +433,6 @@ class SyncRepositoryImpl implements SyncRepository {
 
   @override
   Future<void> replaceLocalWithRemote(SyncRecord local, Map<String, dynamic> remote) async {
-    // تحويل السجل السحابي إلى النموذج المحلي
     final table = local.tableName;
     switch (table) {
       case 'egg_production':
@@ -358,6 +442,24 @@ class SyncRepositoryImpl implements SyncRepository {
       case 'mortality':
         final model = MortalityModel.fromJson(remote);
         await _mortalityDao.replaceWithRemote(model);
+        break;
+      case 'feed_consumption':
+        final model = FeedConsumptionModel.fromJson(remote);
+        await _feedDao.replaceConsumptionWithRemote(model);
+        break;
+      case 'feed_received':
+        final model = FeedReceivedModel.fromJson(remote);
+        await _feedDao.replaceReceivedWithRemote(model);
+        break;
+      case 'egg_dispatch':
+        final model = DispatchModel.fromJson(remote);
+        await _dispatchDao.replaceWithRemote(model);
+        break;
+      case 'medications':
+        final model = MedicationModel.fromJson(remote);
+        await _medicationDao.replaceWithRemote(model);
+        break;
+      default:
         break;
     }
   }

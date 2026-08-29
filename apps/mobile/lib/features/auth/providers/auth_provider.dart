@@ -20,11 +20,12 @@ class AuthState {
     UserModel? currentUser,
     bool? isLoading,
     String? error,
+    bool clearError = false,
   }) {
     return AuthState(
       currentUser: currentUser ?? this.currentUser,
       isLoading: isLoading ?? this.isLoading,
-      error: error ?? this.error,
+      error: clearError ? null : (error ?? this.error),
     );
   }
 }
@@ -32,6 +33,7 @@ class AuthState {
 /// Provider للمصادقة
 class AuthNotifier extends StateNotifier<AuthState> {
   final AuthRepository _repository;
+  bool _sessionRestored = false;
 
   AuthNotifier(this._repository)
       : super(const AuthState(isLoading: true)) {
@@ -41,20 +43,29 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// استرجاع الجلسة المحفوظة عند فتح التطبيق
   Future<void> _restoreSession() async {
     try {
-      final hasSession = await _repository.hasActiveSession();
+      final hasSession = await _repository.hasActiveSession()
+          .timeout(const Duration(seconds: 3), onTimeout: () => false);
       if (!hasSession) {
-        // لا توجد جلسة محفوظة → شاشة تسجيل الدخول مباشرة
-        state = const AuthState();
+        if (!_sessionRestored && mounted) {
+          _sessionRestored = true;
+          state = const AuthState();
+        }
         return;
       }
 
-      final user = await _repository.getCurrentUser();
-      state = user != null
-          ? AuthState(currentUser: user)
-          : const AuthState(error: 'انتهت الجلسة، سجّل الدخول مجدداً');
+      final user = await _repository.getCurrentUser()
+          .timeout(const Duration(seconds: 5), onTimeout: () => null);
+      if (!_sessionRestored && mounted) {
+        _sessionRestored = true;
+        state = user != null
+            ? AuthState(currentUser: user)
+            : const AuthState(error: 'انتهت الجلسة، سجّل الدخول مجدداً');
+      }
     } catch (_) {
-      // أي خطأ أثناء الاسترجاع يجب ألا يعلّق شاشة الانتظار
-      state = const AuthState(error: 'تعذر استرجاع الجلسة، سجّل الدخول');
+      if (!_sessionRestored && mounted) {
+        _sessionRestored = true;
+        state = const AuthState(error: 'تعذر استرجاع الجلسة، سجّل الدخول');
+      }
     }
   }
 
@@ -64,30 +75,36 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required String pin,
     bool rememberMe = false,
   }) async {
-    state = state.copyWith(isLoading: true, error: null);
-
-    final result = await _repository.login(
-      phone: phone,
-      pin: pin,
-      rememberMe: rememberMe,
-    );
-
-    if (result.success) {
-      state = AuthState(currentUser: result.user);
-    } else {
-      state = state.copyWith(
-        isLoading: false,
-        error: result.error,
+    try {
+      final result = await _repository.login(
+        phone: phone,
+        pin: pin,
+        rememberMe: rememberMe,
       );
-    }
 
-    return result;
+      if (!mounted) return result;
+
+      if (result.success) {
+        _sessionRestored = true;
+        state = AuthState(currentUser: result.user);
+      }
+      // في حال الخطأ: لا نُغيّر الحالة هنا — الشاشة تُدير `_errorText` محلياً
+
+      return result;
+    } catch (e) {
+      return LoginResult.failure('خطأ غير متوقع: $e');
+    }
   }
 
   /// تسجيل الخروج
   Future<void> logout() async {
-    await _repository.logout();
-    state = const AuthState();
+    try {
+      await _repository.logout();
+    } catch (_) {}
+    _sessionRestored = false;
+    if (mounted) {
+      state = const AuthState();
+    }
   }
 }
 

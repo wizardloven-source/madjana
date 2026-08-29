@@ -62,11 +62,21 @@ class MortalityRepositoryImpl implements MortalityRepository {
 
     for (final record in pending) {
       if (record.id == null) continue;
-      if (successIds.contains(record.id)) {
+      if (successIds.successIds.contains(record.id)) {
         await _localDao.updateSyncStatus(record.id!, SyncStatus.synced);
       } else {
         await _localDao.updateSyncStatus(record.id!, SyncStatus.failed);
       }
+    }
+  }
+
+  @override
+  Future<void> deleteRecord(String id) async {
+    await _localDao.delete(id);
+    try {
+      await _remoteDatasource.delete(id);
+    } catch (_) {
+      // سيتم مزامنتها لاحقاً
     }
   }
 }

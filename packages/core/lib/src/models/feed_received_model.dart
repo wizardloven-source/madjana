@@ -41,11 +41,13 @@ class FeedReceivedModel {
       date: DateTime.parse(json['date'] as String),
       entryMode: FeedEntryMode.values.firstWhere(
         (e) => e.name == json['entry_mode'],
+        orElse: () => FeedEntryMode.bags,
       ),
       quantity: (json['quantity'] as num).toDouble(),
       quantityKg: (json['quantity_kg'] as num).toDouble(),
       feedType: FeedType.values.firstWhere(
         (e) => e.name == json['feed_type'],
+        orElse: () => FeedType.main,
       ),
       supplier: json['supplier'] as String?,
       invoiceNumber: json['invoice_number'] as String?,
@@ -65,6 +67,7 @@ class FeedReceivedModel {
         'supplier': supplier,
         'invoice_number': invoiceNumber,
         'notes': notes,
+        'worker_id': '',
         if (pricePerKg != null) 'price_per_kg': pricePerKg,
       };
 }
