@@ -187,8 +187,12 @@ CREATE TABLE feed_consumption (
     quantity_kg  NUMERIC(10,2) NOT NULL CHECK (quantity_kg > 0),
     worker_id    UUID NOT NULL REFERENCES users(id),
     sync_status  TEXT DEFAULT 'synced',
-    created_at   TIMESTAMPTZ DEFAULT NOW()
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at   TIMESTAMPTZ
 );
+CREATE TRIGGER update_feed_consumption_updated_at BEFORE UPDATE ON feed_consumption 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TABLE feed_received (
     id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -201,8 +205,12 @@ CREATE TABLE feed_received (
     supplier      TEXT,
     invoice_number TEXT,
     notes         TEXT,
-    created_at    TIMESTAMPTZ DEFAULT NOW()
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at    TIMESTAMPTZ
 );
+CREATE TRIGGER update_feed_received_updated_at BEFORE UPDATE ON feed_received 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TABLE egg_dispatch (
     id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -217,8 +225,12 @@ CREATE TABLE egg_dispatch (
                        CHECK (payment_status IN ('unpaid', 'partial', 'paid')),
     worker_id      UUID NOT NULL REFERENCES users(id),
     sync_status    TEXT DEFAULT 'synced',
-    created_at     TIMESTAMPTZ DEFAULT NOW()
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at     TIMESTAMPTZ
 );
+CREATE TRIGGER update_egg_dispatch_updated_at BEFORE UPDATE ON egg_dispatch 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE INDEX idx_egg_dispatch_farm ON egg_dispatch(farm_id);
 CREATE INDEX idx_egg_dispatch_customer ON egg_dispatch(customer_id);
 
@@ -236,8 +248,13 @@ CREATE TABLE payments (
     notes            TEXT,
     manager_id       UUID NOT NULL REFERENCES users(id),
     created_at       TIMESTAMPTZ DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at       TIMESTAMPTZ,
+    sync_status      TEXT DEFAULT 'synced',
     CONSTRAINT check_amount CHECK (amount_paid <= total_due)
 );
+CREATE TRIGGER update_payments_updated_at BEFORE UPDATE ON payments 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TABLE medications (
     id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -253,8 +270,13 @@ CREATE TABLE medications (
     withdrawal_days     INTEGER DEFAULT 0 CHECK (withdrawal_days >= 0),
     notes               TEXT,
     worker_id           UUID NOT NULL REFERENCES users(id),
-    created_at          TIMESTAMPTZ DEFAULT NOW()
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at          TIMESTAMPTZ,
+    sync_status         TEXT DEFAULT 'synced'
 );
+CREATE TRIGGER update_medications_updated_at BEFORE UPDATE ON medications 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TABLE medicines_catalog (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -275,8 +297,13 @@ CREATE TABLE expenses (
     )),
     description TEXT,
     amount      NUMERIC(12,2) NOT NULL CHECK (amount > 0),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at  TIMESTAMPTZ,
+    sync_status TEXT DEFAULT 'synced'
 );
+CREATE TRIGGER update_expenses_updated_at BEFORE UPDATE ON expenses 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE INDEX idx_expenses_farm_date ON expenses(farm_id, date);
 CREATE INDEX idx_expenses_category ON expenses(category);
 
@@ -367,21 +394,24 @@ CREATE TABLE dispatch_requests (
     decided_by  UUID
 );
 
--- طابور مزامنة سحابي (تابع تاريخي؛ التطبيق يستخدم طابوراً محلياً)
-CREATE TABLE sync_queue (
-    id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    table_name TEXT NOT NULL,
-    record_id  UUID NOT NULL,
-    action     TEXT NOT NULL CHECK (action IN ('INSERT', 'UPDATE', 'DELETE')),
-    payload    JSONB NOT NULL,
-    user_id    UUID NOT NULL REFERENCES users(id),
-    attempts   INTEGER DEFAULT 0,
-    last_error TEXT,
-    status     TEXT DEFAULT 'pending'
-                   CHECK (status IN ('pending', 'processing', 'synced', 'failed')),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+-- طابور مزامنة سحابي (لتتبع التغييرات عبر الأجهزة - بروتوكول المزامنة الجديد)
+CREATE TABLE sync_changes (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    table_name      TEXT NOT NULL,
+    record_id       UUID NOT NULL,
+    operation       TEXT NOT NULL CHECK (operation IN ('INSERT', 'UPDATE', 'DELETE')),
+    farm_id         UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    device_id       TEXT,
+    user_id         UUID REFERENCES auth.users(id),
+    payload         JSONB,
+    server_version  BIGINT DEFAULT nextval('global_sync_version'),
+    created_at      TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE INDEX idx_sync_changes_farm_server ON sync_changes(farm_id, server_version);
+CREATE INDEX idx_sync_changes_record ON sync_changes(table_name, record_id);
+
+-- الجدول القديم sync_queue يُحذف لأنه لم يعد مستخدماً
+DROP TABLE IF EXISTS sync_queue;
 
 -- ============================================================
 -- 3) بذر كتالوج الأدوية
@@ -401,6 +431,16 @@ INSERT INTO medicines_catalog (name, type, withdrawal_days, notes) VALUES
 -- 4) Trigger: أي مستخدم يُنشأ في Auth يُنشأ سجله في users تلقائياً
 --    (SECURITY DEFINER ضروري لأن الكتابة تتم من schema auth)
 -- ============================================================
+
+-- دالة تحديث updated_at تلقائياً
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -471,7 +511,7 @@ ALTER TABLE inventory_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dispatch_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE sync_queue ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sync_changes ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================
 -- 7) سياسات المستخدمين والمزارع
@@ -642,11 +682,19 @@ CREATE POLICY dreq_manager_delete ON dispatch_requests
     FOR DELETE TO authenticated
     USING (current_user_role() = 'manager' AND farm_id = current_user_farm_id());
 
--- sync_queue: مغلق تماماً (غير مستخدم من التطبيق)
-DROP POLICY IF EXISTS sync_queue_block ON sync_queue;
-CREATE POLICY sync_queue_block ON sync_queue
+-- sync_changes: سياسة السماح للمخدم فقط بالكتابة (Edge Function)
+DROP POLICY IF EXISTS sync_changes_insert ON sync_changes;
+CREATE POLICY sync_changes_insert ON sync_changes
+    FOR INSERT TO authenticated
+    WITH CHECK (auth.uid()::text = '00000000-0000-0000-0000-000000000000'::text);
+
+DROP POLICY IF EXISTS sync_changes_select ON sync_changes;
+CREATE POLICY sync_changes_select ON sync_changes
     FOR SELECT TO authenticated
-    USING (false);
+    USING (farm_id = current_user_farm_id());
+
+-- الجدول القديم sync_queue: مغلق تماماً (غير مستخدم من التطبيق)
+DROP POLICY IF EXISTS sync_queue_block ON sync_queue;
 
 -- ============================================================
 -- 11) الدوال المساعدة للمصادقة والإدارة (SECURITY DEFINER —

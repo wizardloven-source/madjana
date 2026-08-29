@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 import '../local_database.dart';
 
@@ -6,7 +7,7 @@ import '../local_database.dart';
 class ExpenseDao {
   static const String _table = 'expenses';
   static const _uuid = Uuid();
-
+  
   Future<List<ExpenseModel>> getAll({
     required String farmId,
     DateTime? fromDate,
@@ -30,6 +31,43 @@ class ExpenseDao {
       orderBy: 'date DESC',
     );
     return maps.map(_fromMap).toList();
+  }
+  
+  /// الحصول على السجلات المعلقة للمزامنة
+  Future<List<Map<String, dynamic>>> getPendingRecords({int limit = 50}) async {
+    final db = await LocalDatabase.database;
+    final maps = await db.query(
+      _table,
+      where: 'sync_status = ?',
+      whereArgs: [SyncStatus.pending.name],
+      orderBy: 'updated_at ASC',
+      limit: limit,
+    );
+    return maps;
+  }
+  
+  /// تحديث حالة المزامنة
+  Future<void> updateSyncStatus(String id, SyncStatus status) async {
+    final db = await LocalDatabase.database;
+    await db.update(
+      _table,
+      {
+        'sync_status': status.name,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+  
+  /// عدد السجلات المعلقة
+  Future<int> countPending() async {
+    final db = await LocalDatabase.database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $_table WHERE sync_status = ?',
+      [SyncStatus.pending.name],
+    );
+    return Sqflite.firstIntValue(result) ?? 0;
   }
 
   Future<String> insert(ExpenseModel expense) async {
@@ -85,8 +123,7 @@ class ExpenseDao {
         'description': e.description,
         'amount': e.amount,
         'sync_status': SyncStatus.synced.name,
-        'created_at':
-            (e.createdAt ?? DateTime.now()).toIso8601String(),
+        'created_at': (e.createdAt ?? DateTime.now()).toIso8601String(),
       });
     }
   }
