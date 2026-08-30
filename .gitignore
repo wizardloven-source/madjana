@@ -1,27 +1,46 @@
 ```
-# Dependencies
-.dart_tool/
-.pub/
+# Migration backups and temporary files
+*.sql.bak
+*.sql~
+*.backup
 
-# Build artifacts
-build/
-**/generated_plugin_registrant.dart
-
-# Environment
-.env
-.env.local
-*.env.*
+# General temp files
+*.tmp
+*.temp
+*~
 
 # Logs
 *.log
-**/logs
 
-# OS generated files
+# Environment files
+.env
+.env.local
+*.env
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Dependencies and build artifacts
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+dist/
+build/
+target/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# System files
 .DS_Store
 Thumbs.db
-
-# Temporary files
-*.tmp
-*.temp
-**/temp/
 ```
