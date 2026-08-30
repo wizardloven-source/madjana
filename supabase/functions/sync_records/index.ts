@@ -51,9 +51,13 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { records, user_id } = body as {
-      records: Array<{ table: string; action: string; data: Record<string, unknown> }>;
-      user_id: string;
+    const { records } = body as {
+      records: Array<{ 
+        table_name: string; 
+        operation: string; 
+        record_id: string; 
+        payload: Record<string, unknown> 
+      }>;
     };
 
     if (!Array.isArray(records) || records.length === 0) {
@@ -63,29 +67,52 @@ Deno.serve(async (req) => {
       );
     }
 
-    // تحويل السجلات إلى صيغة تستهلكها sync_records_batch
+    // FIX #1 & #2: إرسال العقد الصحيح مباشرة دون تحويل
+    // SQL يتوقع الآن: table_name, operation, record_id, payload
     const normalized = records.map((r) => ({
-      table: r.table,
-      action: r.action ?? "INSERT",
-      data: r.data,
+      table_name: r.table_name,
+      operation: r.operation,
+      record_id: r.record_id,
+      payload: r.payload,
     }));
 
+    // FIX #3: عدم إرسال user_id مطلقاً - الدالة ستستخدم auth.uid() فقط
     const { data, error } = await supabase.rpc("sync_records_batch", {
       p_records: JSON.stringify(normalized),
-      p_user_id: user_id ?? user.id,
+      // لا نرسل p_user_id أبداً
     });
 
     if (error) {
+      console.error('Sync error:', error);
       return new Response(
         JSON.stringify({ error: error.message }),
         { status: 500, headers: corsHeaders },
       );
     }
 
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    // FIX #2: التحقق من صيغة الاستجابة المتوقعة
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid response from sync function');
+    }
+
+    const typedData = data as {
+      success_ids?: string[];
+      failed_ids?: string[];
+      conflict_ids?: string[];
+    };
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        success_ids: typedData.success_ids || [],
+        failed_ids: typedData.failed_ids || [],
+        conflict_ids: typedData.conflict_ids || [],
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   } catch (e) {
     return new Response(
       JSON.stringify({ error: (e as Error).message ?? "Internal error" }),
