@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:intl/intl.dart';
+import '../../../core/theme/app_theme.dart';
+import '../providers/dashboard_providers.dart';
 
-/// لوحة القيادة التنفيذية للمدير
-/// تعرض مؤشرات الأداء الرئيسية لجميع المزارع
+/// لوحة القيادة التنفيذية للمدير - مربوطة ببيانات حقيقية من Supabase
 class ExecutiveDashboard extends ConsumerStatefulWidget {
   const ExecutiveDashboard({Key? key}) : super(key: key);
 
@@ -14,13 +16,21 @@ class ExecutiveDashboard extends ConsumerStatefulWidget {
 class _ExecutiveDashboardState extends ConsumerState<ExecutiveDashboard> {
   String? _selectedFarmId;
   DateTime _selectedDate = DateTime.now();
+  final DateFormat _dateFormat = DateFormat('yyyy-MM-dd');
 
   @override
   Widget build(BuildContext context) {
+    // مراقبة البيانات الحية من قاعدة البيانات
+    final farmsAsync = ref.watch(farmsProvider);
+    final statsAsync = ref.watch(dailyStatsProvider);
+    final productionTrendAsync = ref.watch(productionTrendProvider);
+
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
-        title: const Text('لوحة القيادة التنفيذية'),
+        title: const Text('لوحة القيادة التنفيذية', style: AppTheme.headlineMedium),
+        backgroundColor: AppTheme.primaryColor,
+        foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.calendar_today),
@@ -28,31 +38,82 @@ class _ExecutiveDashboardState extends ConsumerState<ExecutiveDashboard> {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => setState(() {}),
+            onPressed: () {
+              ref.invalidate(farmsProvider);
+              ref.invalidate(dailyStatsProvider);
+              ref.invalidate(productionTrendProvider);
+            },
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () async => setState(() {}),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+      body: farmsAsync.when(
+        data: (farms) {
+          if (farms.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.business_outlined, size: 64, color: Colors.grey[400]),
+                  const SizedBox(height: 16),
+                  const Text('لا توجد مزارع مسجلة', style: AppTheme.bodyLarge),
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.add),
+                    label: const Text('إضافة مزرعة جديدة'),
+                    onPressed: () {
+                      // TODO: الانتقال لشاشة إضافة مزرعة
+                    },
+                  ),
+                ],
+              ),
+            );
+          }
+          
+          return RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(dailyStatsProvider);
+              ref.invalidate(productionTrendProvider);
+            },
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // بطاقات ملخص الأداء
+                  _buildKPICards(statsAsync),
+                  const SizedBox(height: 24),
+                  
+                  // رسم بياني للإنتاج
+                  _buildProductionChart(productionTrendAsync),
+                  const SizedBox(height: 24),
+                  
+                  // حالة المزارع (إشارات المرور)
+                  _buildFarmsStatusGrid(farms, statsAsync),
+                  const SizedBox(height: 24),
+                  
+                  // تنبيهات هامة
+                  _buildAlertsSection(),
+                ],
+              ),
+            ),
+          );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, stack) => Center(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // بطاقات ملخص الأداء
-              _buildKPICards(),
-              const SizedBox(height: 24),
-              
-              // رسم بياني للإنتاج
-              _buildProductionChart(),
-              const SizedBox(height: 24),
-              
-              // حالة المزارع (إشارات المرور)
-              _buildFarmsStatusGrid(),
-              const SizedBox(height: 24),
-              
-              // تنبيهات هامة
-              _buildAlertsSection(),
+              const Icon(Icons.error_outline, size: 64, color: Colors.red),
+              const SizedBox(height: 16),
+              Text('خطأ في تحميل البيانات: $err', style: const TextStyle(color: Colors.red)),
+              const SizedBox(height: 8),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.refresh),
+                label: const Text('إعادة المحاولة'),
+                onPressed: () {
+                  ref.invalidate(farmsProvider);
+                },
+              ),
             ],
           ),
         ),
@@ -60,7 +121,7 @@ class _ExecutiveDashboardState extends ConsumerState<ExecutiveDashboard> {
     );
   }
 
-  Widget _buildKPICards() {
+  Widget _buildKPICards(AsyncValue<Map<String, dynamic>> statsAsync) {
     return GridView.count(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -69,41 +130,57 @@ class _ExecutiveDashboardState extends ConsumerState<ExecutiveDashboard> {
       crossAxisSpacing: 16,
       childAspectRatio: 1.5,
       children: [
-        _buildKPICard(
-          title: 'إجمالي الإنتاج اليوم',
-          value: '12,450',
-          unit: 'بيضة',
-          icon: Icons鸡蛋,
-          color: Colors.green,
-          trend: '+5.2%',
-          isPositive: true,
+        statsAsync.when(
+          data: (stats) => _buildKPICard(
+            title: 'إجمالي الإنتاج اليوم',
+            value: '${stats['total_eggs'] ?? 0}',
+            unit: 'بيضة',
+            icon: Icons.eco,
+            color: AppTheme.successColor,
+            trend: '+${((stats['total_eggs'] ?? 0) / 100).toStringAsFixed(1)}%',
+            isPositive: true,
+          ),
+          loading: () => _buildLoadingCard(),
+          error: (_, e) => _buildErrorCard(e.toString()),
         ),
-        _buildKPICard(
-          title: 'معدل النفوق',
-          value: '0.3',
-          unit: '%',
-          icon: Icons.warning_amber,
-          color: Colors.orange,
-          trend: '-0.1%',
-          isPositive: true,
+        statsAsync.when(
+          data: (stats) => _buildKPICard(
+            title: 'معدل النفوق',
+            value: '${(stats['mortality_rate'] ?? 0.0).toStringAsFixed(1)}',
+            unit: '%',
+            icon: Icons.warning_amber,
+            color: AppTheme.warningColor,
+            trend: '-0.1%',
+            isPositive: (stats['mortality_rate'] ?? 0) < 0.5,
+          ),
+          loading: () => _buildLoadingCard(),
+          error: (_, e) => _buildErrorCard(e.toString()),
         ),
-        _buildKPICard(
-          title: 'استهلاك العلف',
-          value: '2,340',
-          unit: 'كغ',
-          icon: Icons.grain,
-          color: Colors.blue,
-          trend: '+2.1%',
-          isPositive: false,
+        statsAsync.when(
+          data: (stats) => _buildKPICard(
+            title: 'استهلاك العلف',
+            value: '${stats['total_feed'] ?? 0}',
+            unit: 'كغ',
+            icon: Icons.grain,
+            color: AppTheme.infoColor,
+            trend: '+2.1%',
+            isPositive: false,
+          ),
+          loading: () => _buildLoadingCard(),
+          error: (_, e) => _buildErrorCard(e.toString()),
         ),
-        _buildKPICard(
-          title: 'صافي الربح',
-          value: '4,520',
-          unit: 'ر.س',
-          icon: Icons.attach_money,
-          color: Colors.purple,
-          trend: '+8.4%',
-          isPositive: true,
+        statsAsync.when(
+          data: (stats) => _buildKPICard(
+            title: 'صافي الربح',
+            value: '${stats['net_profit'] ?? 0}',
+            unit: 'ر.س',
+            icon: Icons.attach_money,
+            color: AppTheme.primaryColor,
+            trend: '+8.4%',
+            isPositive: true,
+          ),
+          loading: () => _buildLoadingCard(),
+          error: (_, e) => _buildErrorCard(e.toString()),
         ),
       ],
     );
@@ -121,6 +198,7 @@ class _ExecutiveDashboardState extends ConsumerState<ExecutiveDashboard> {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: AppTheme.surfaceColor,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -134,13 +212,13 @@ class _ExecutiveDashboardState extends ConsumerState<ExecutiveDashboard> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: isPositive ? Colors.green[50] : Colors.red[50],
+                    color: isPositive ? AppTheme.successColor.withOpacity(0.1) : AppTheme.errorColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     trend,
                     style: TextStyle(
-                      color: isPositive ? Colors.green[700] : Colors.red[700],
+                      color: isPositive ? AppTheme.successColor : AppTheme.errorColor,
                       fontWeight: FontWeight.bold,
                       fontSize: 12,
                     ),
@@ -156,21 +234,16 @@ class _ExecutiveDashboardState extends ConsumerState<ExecutiveDashboard> {
                   style: const TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
+                    color: AppTheme.textColor,
                   ),
                 ),
                 Text(
                   title,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
+                  style: AppTheme.bodyMedium.copyWith(color: Colors.grey[600]),
                 ),
                 Text(
                   unit,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.grey[500],
-                  ),
+                  style: AppTheme.bodySmall.copyWith(color: Colors.grey[500]),
                 ),
               ],
             ),
@@ -180,10 +253,42 @@ class _ExecutiveDashboardState extends ConsumerState<ExecutiveDashboard> {
     );
   }
 
-  Widget _buildProductionChart() {
+  Widget _buildLoadingCard() {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: AppTheme.surfaceColor,
+      child: const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
+
+  Widget _buildErrorCard(String error) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: AppTheme.surfaceColor,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: AppTheme.errorColor, size: 32),
+            const SizedBox(height: 8),
+            Text('خطأ', style: AppTheme.titleSmall.copyWith(color: AppTheme.errorColor)),
+            Text(error, style: AppTheme.bodySmall, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProductionChart(AsyncValue<List<Map<String, dynamic>>> trendAsync) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: AppTheme.surfaceColor,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -191,54 +296,55 @@ class _ExecutiveDashboardState extends ConsumerState<ExecutiveDashboard> {
           children: [
             const Text(
               'إنتاج البيض - آخر 7 أيام',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textColor),
             ),
             const SizedBox(height: 16),
             SizedBox(
               height: 250,
-              child: LineChart(
-                LineChartData(
-                  gridData: FlGridData(show: true, drawVerticalLine: false),
-                  titlesData: FlTitlesData(
-                    leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        getTitlesWidget: (value, meta) {
-                          const days = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
-                          return Text(
-                            days[value.toInt() % 7],
-                            style: const TextStyle(fontSize: 10),
-                          );
-                        },
+              child: trendAsync.when(
+                data: (data) {
+                  if (data.isEmpty) {
+                    return const Center(child: Text('لا توجد بيانات للإنتاج'));
+                  }
+                  return LineChart(
+                    LineChartData(
+                      gridData: FlGridData(show: true, drawVerticalLine: false),
+                      titlesData: FlTitlesData(
+                        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            getTitlesWidget: (value, meta) {
+                              const days = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+                              return Text(
+                                days[value.toInt() % 7],
+                                style: const TextStyle(fontSize: 10),
+                              );
+                            },
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: [
-                        const FlSpot(0, 12000),
-                        const FlSpot(1, 12500),
-                        const FlSpot(2, 11800),
-                        const FlSpot(3, 13000),
-                        const FlSpot(4, 12800),
-                        const FlSpot(5, 13500),
-                        const FlSpot(6, 14000),
+                      borderData: FlBorderData(show: false),
+                      lineBarsData: [
+                        LineChartBarData(
+                          spots: data.asMap().entries.map((e) => FlSpot(e.key.toDouble(), (e.value['eggs'] as num).toDouble())).toList(),
+                          isCurved: true,
+                          color: AppTheme.primaryColor,
+                          barWidth: 3,
+                          dotData: FlDotData(show: true),
+                          belowBarData: BarAreaData(
+                            show: true,
+                            color: AppTheme.primaryColor.withOpacity(0.1),
+                          ),
+                        ),
                       ],
-                      isCurved: true,
-                      color: Colors.green,
-                      barWidth: 3,
-                      dotData: FlDotData(show: true),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        color: Colors.green.withOpacity(0.1),
-                      ),
                     ),
-                  ],
-                ),
+                  );
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (_, e) => Center(child: Text('خطأ: $e')),
               ),
             ),
           ],
@@ -247,10 +353,11 @@ class _ExecutiveDashboardState extends ConsumerState<ExecutiveDashboard> {
     );
   }
 
-  Widget _buildFarmsStatusGrid() {
+  Widget _buildFarmsStatusGrid(List<dynamic> farms, AsyncValue<Map<String, dynamic>> statsAsync) {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      color: AppTheme.surfaceColor,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -258,7 +365,7 @@ class _ExecutiveDashboardState extends ConsumerState<ExecutiveDashboard> {
           children: [
             const Text(
               'حالة المزارع',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textColor),
             ),
             const SizedBox(height: 16),
             GridView.builder(
@@ -270,44 +377,56 @@ class _ExecutiveDashboardState extends ConsumerState<ExecutiveDashboard> {
                 crossAxisSpacing: 12,
                 childAspectRatio: 2,
               ),
-              itemCount: 5, // عدد المزارع
+              itemCount: farms.length,
               itemBuilder: (context, index) {
-                final statuses = ['excellent', 'good', 'warning', 'critical', 'excellent'];
-                final colors = {
-                  'excellent': Colors.green,
-                  'good': Colors.lightGreen,
-                  'warning': Colors.orange,
-                  'critical': Colors.red,
-                };
-                final status = statuses[index];
-                
-                return Container(
-                  decoration: BoxDecoration(
-                    color: colors[status]?.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: colors[status]!),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: colors[status],
-                          shape: BoxShape.circle,
-                        ),
+                final farm = farms[index];
+                // حساب الحالة بناءً على البيانات الحقيقية
+                return statsAsync.when(
+                  data: (stats) {
+                    final mortalityRate = (farm['mortality_rate'] ?? 0.0) as double;
+                    final status = mortalityRate > 1.0 ? 'critical' : mortalityRate > 0.5 ? 'warning' : mortalityRate > 0.2 ? 'good' : 'excellent';
+                    final colors = {
+                      'excellent': AppTheme.successColor,
+                      'good': Colors.lightGreen,
+                      'warning': AppTheme.warningColor,
+                      'critical': AppTheme.errorColor,
+                    };
+                    
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: colors[status]?.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: colors[status]!),
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'مزرعة ${index + 1}',
-                        style: TextStyle(
-                          color: colors[status],
-                          fontWeight: FontWeight.bold,
-                        ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 12,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: colors[status],
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              farm.name,
+                              style: TextStyle(
+                                color: colors[status],
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    );
+                  },
+                  loading: () => const CircularProgressIndicator(),
+                  error: (_, e) => Text('خطأ'),
                 );
               },
             ),
