@@ -36,31 +36,32 @@ class FlockRepositoryImpl implements FlockRepository {
 
   @override
   Future<void> createFlock(FlockModel flock) async {
+    // الحفظ محلياً أولاً (offline-first) حتى لا تُفقد البيانات عند انقطاع الشبكة
+    await _localDao.insert(flock);
     try {
       await _remoteDatasource.insert(flock);
-      await _localDao.insert(flock);
     } catch (_) {
-      throw Exception('تعذّر إنشاء القطيع - تأكد من الاتصال بالإنترنت');
+      // غير متصل: بقي محلياً وسيُزامَن لاحقاً
     }
   }
 
   @override
   Future<void> updateFlock(FlockModel flock) async {
+    await _localDao.insert(flock);
     try {
       await _remoteDatasource.update(flock);
-      await _localDao.insert(flock);
     } catch (_) {
-      throw Exception('تعذّر تعديل القطيع - تأكد من الاتصال بالإنترنت');
+      // غير متصل: بقي محلياً وسيُزامَن لاحقاً
     }
   }
 
   @override
   Future<void> endFlock(String flockId) async {
+    await _localDao.markEnded(flockId);
     try {
       await _remoteDatasource.endFlock(flockId);
-      await _localDao.markEnded(flockId);
     } catch (_) {
-      throw Exception('تعذّر إنهاء الدورة - تأكد من الاتصال بالإنترنت');
+      // غير متصل: تحديث محلي فقط
     }
   }
 }

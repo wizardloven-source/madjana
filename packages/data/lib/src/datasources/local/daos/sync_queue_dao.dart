@@ -13,6 +13,7 @@ class SyncQueueDao {
     required String recordId,
     required Map<String, dynamic> payload,
     required String userId,
+    String action = 'INSERT',
   }) async {
     final db = await LocalDatabase.database;
     final now = DateTime.now().toIso8601String();
@@ -21,7 +22,7 @@ class SyncQueueDao {
       'id': _uuid.v4(),
       'table_name': tableName,
       'record_id': recordId,
-      'action': 'INSERT',
+      'action': action,
       'payload': jsonEncode(payload),
       'user_id': userId,
       'attempts': 0,
@@ -58,6 +59,20 @@ class SyncQueueDao {
     await db.rawUpdate(
       'UPDATE $_table SET attempts = attempts + 1, updated_at = ? WHERE record_id = ?',
       [DateTime.now().toIso8601String(), recordId],
+    );
+  }
+
+  Future<void> updateError(String recordId, String error) async {
+    final db = await LocalDatabase.database;
+    await db.update(
+      _table,
+      {
+        'last_error': error,
+        'status': 'failed',
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'record_id = ?',
+      whereArgs: [recordId],
     );
   }
 

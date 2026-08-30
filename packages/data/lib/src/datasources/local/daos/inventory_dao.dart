@@ -1,27 +1,57 @@
 import 'package:core/core.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 import '../local_database.dart';
 
-/// DAO للمخزون (عناصر + حركات)
+/// DAO للمخزون (عناصر + حركات) - للمدير فقط
 class InventoryDao {
   static const String _itemsTable = 'inventory_items';
-  static const String _txTable = 'inventory_transactions';
+  static const String _transactionsTable = 'inventory_transactions';
   static const _uuid = Uuid();
 
-  // ─────────────── العناصر ───────────────
+  /// حفظ عنصر مخزون (إدخال أو تحديث)
+  Future<void> saveItem(InventoryItemModel item) async {
+    final db = await LocalDatabase.database;
+    final id = item.id ?? _uuid.v4();
+    final now = DateTime.now().toIso8601String();
 
+    final values = <String, dynamic>{
+      'id': id,
+      'farm_id': item.farmId,
+      'name': item.name,
+      'unit': item.unit.name,
+      'quantity': item.quantity,
+      'low_stock_threshold': item.lowStockThreshold,
+      'notes': item.notes,
+      'updated_at': now,
+    };
+
+    final exists = await db.query(
+      _itemsTable,
+      columns: ['id'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (exists.isEmpty) {
+      await db.insert(_itemsTable, values);
+    } else {
+      await db.update(_itemsTable, values, where: 'id = ?', whereArgs: [id]);
+    }
+  }
+
+  /// الحصول على عناصر المخزون لمزرعة معينة
   Future<List<InventoryItemModel>> getItems(String farmId) async {
     final db = await LocalDatabase.database;
     final maps = await db.query(
       _itemsTable,
       where: 'farm_id = ?',
       whereArgs: [farmId],
-      orderBy: 'name',
+      orderBy: 'name ASC',
     );
-    return maps.map(_itemFromMap).toList();
+    return maps.map(_fromMap).toList();
   }
 
+  /// الحصول على عنصر حسب المعرّف
   Future<InventoryItemModel?> getById(String id) async {
     final db = await LocalDatabase.database;
     final maps = await db.query(
@@ -31,103 +61,54 @@ class InventoryDao {
       limit: 1,
     );
     if (maps.isEmpty) return null;
-    return _itemFromMap(maps.first);
+    return _fromMap(maps.first);
   }
 
-  Future<void> saveItem(InventoryItemModel item) async {
-    final db = await LocalDatabase.database;
-    final row = {
-      'id': item.id ?? _uuid.v4(),
-      'farm_id': item.farmId,
-      'name': item.name,
-      'unit': item.unit.name,
-      'quantity': item.quantity,
-      'low_stock_threshold': item.lowStockThreshold,
-      'notes': item.notes,
-      'updated_at': DateTime.now().toIso8601String(),
-    };
-    await db.insert(
-      _itemsTable,
-      row,
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-  }
-
+  /// حذف عنصر مخزون
   Future<void> deleteItem(String id) async {
     final db = await LocalDatabase.database;
-    await db.transaction((txn) async {
-      await txn.delete(_txTable, where: 'item_id = ?', whereArgs: [id]);
-      await txn.delete(_itemsTable, where: 'id = ?', whereArgs: [id]);
-    });
+    await db.delete(_itemsTable, where: 'id = ?', whereArgs: [id]);
   }
 
-  /// تعديل الكمية وتسجيل الحركة في معاملة واحدة
-  Future<InventoryItemModel?> adjustStock({
-    required String itemId,
-    required bool isInput,
-    required double quantity,
-    String? note,
-    String? userId,
-  }) async {
-    final db = await LocalDatabase.database;
-    final now = DateTime.now().toIso8601String();
-
-    late final InventoryItemModel item;
-    try {
-      await db.transaction((txn) async {
-        final maps = await txn.query(
-          _itemsTable,
-          where: 'id = ?',
-          whereArgs: [itemId],
-          limit: 1,
-        );
-        if (maps.isEmpty) throw StateError('العنصر غير موجود');
-        item = _itemFromMap(maps.first);
-
-        final newQty =
-            isInput ? item.quantity + quantity : item.quantity - quantity;
-
-        await txn.update(
-          _itemsTable,
-          {'quantity': newQty, 'updated_at': now},
-          where: 'id = ?',
-          whereArgs: [itemId],
-        );
-
-        await txn.insert(_txTable, {
-          'id': _uuid.v4(),
-          'item_id': itemId,
-          'date': now,
-          'type': isInput ? 'in' : 'out',
-          'quantity': quantity,
-          'note': note,
-          'user_id': userId,
-        });
-      });
-    } on StateError {
-      return null;
-    }
-    return item.copyWith(
-      quantity: isInput
-          ? item.quantity + quantity
-          : item.quantity - quantity,
-    );
-  }
-
+  /// حركات عنصر مخزون معيّن
   Future<List<InventoryTransactionModel>> getTransactions(String itemId) async {
     final db = await LocalDatabase.database;
     final maps = await db.query(
-      _txTable,
+      _transactionsTable,
       where: 'item_id = ?',
       whereArgs: [itemId],
-      orderBy: 'date DESC',
+      orderBy: 'date ASC',
     );
-    return maps.map(_txFromMap).toList();
+    return maps
+        .map((m) => InventoryTransactionModel.fromJson({
+              'id': m['id'],
+              'item_id': m['item_id'],
+              'date': m['date'],
+              'type': m['type'],
+              'quantity': m['quantity'],
+              'note': m['note'],
+              'user_id': m['user_id'],
+            }))
+        .toList();
   }
 
-  // ─────────────── التحويل ───────────────
+  /// إضافة حركة مخزون محلياً
+  Future<void> insertTransaction(
+      InventoryTransactionModel transaction) async {
+    final db = await LocalDatabase.database;
+    final id = transaction.id ?? _uuid.v4();
+    await db.insert(_transactionsTable, {
+      'id': id,
+      'item_id': transaction.itemId,
+      'date': transaction.date.toIso8601String(),
+      'type': transaction.isInput ? 'in' : 'out',
+      'quantity': transaction.quantity,
+      'note': transaction.note,
+      'user_id': transaction.userId,
+    });
+  }
 
-  InventoryItemModel _itemFromMap(Map<String, dynamic> map) {
+  InventoryItemModel _fromMap(Map<String, dynamic> map) {
     return InventoryItemModel(
       id: map['id'] as String,
       farmId: map['farm_id'] as String,
@@ -143,18 +124,6 @@ class InventoryDao {
       updatedAt: map['updated_at'] != null
           ? DateTime.tryParse(map['updated_at'] as String)
           : null,
-    );
-  }
-
-  InventoryTransactionModel _txFromMap(Map<String, dynamic> map) {
-    return InventoryTransactionModel(
-      id: map['id'] as String,
-      itemId: map['item_id'] as String,
-      date: DateTime.parse(map['date'] as String),
-      isInput: map['type'] == 'in',
-      quantity: (map['quantity'] as num).toDouble(),
-      note: map['note'] as String?,
-      userId: map['user_id'] as String?,
     );
   }
 }

@@ -1,4 +1,6 @@
-﻿import 'package:sqflite/sqflite.dart';
+﻿import 'dart:io';
+
+import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
 /// قاعدة البيانات المحلية - Offline-first
@@ -10,7 +12,17 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 12;
+  static const int _dbVersion = 13;
+
+  /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
+  /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
+  static String? _overridePath;
+
+  /// تعيين مسار ثابت لقاعدة البيانات (لمنصات لا تُعتمد فيها
+  /// getDatabasesPath على CWD، كـ Windows).
+  static void setDatabasePath(String path) {
+    _overridePath = path;
+  }
 
   /// الحصول على نسخة قاعدة البيانات
   static Future<Database> get database async {
@@ -20,6 +32,7 @@ class LocalDatabase {
 
   /// مسار ملف قاعدة البيانات (للنسخ الاحتياطي)
   static Future<String> databasePath() async {
+    if (_overridePath != null) return _overridePath!;
     final dbPath = await getDatabasesPath();
     return join(dbPath, _dbName);
   }
@@ -29,6 +42,16 @@ class LocalDatabase {
 
   /// تهيئة قاعدة البيانات
   static Future<Database> _initDatabase() async {
+    if (_overridePath != null) {
+      final overrideDir = Directory(_overridePath!).parent.path;
+      await Directory(overrideDir).create(recursive: true);
+      return await openDatabase(
+        _overridePath!,
+        version: _dbVersion,
+        onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
+      );
+    }
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, _dbName);
 
@@ -217,7 +240,9 @@ class LocalDatabase {
         due_date TEXT,
         notes TEXT,
         manager_id TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        sync_status TEXT DEFAULT 'synced',
+        updated_at TEXT
       )
     ''');
 
@@ -618,6 +643,17 @@ class LocalDatabase {
           } catch (_) {}
           try {
             await db.execute('ALTER TABLE customers ADD COLUMN updated_at TEXT');
+          } catch (_) {}
+        }
+        // v13: أعمدة المزامنة المفقودة في جدول المدفوعات
+        // (كانت مفقودة في _onCreate مما كسر getPendingRecords – أصلحناها)
+        if (oldVersion < 13) {
+          try {
+            await db.execute(
+                'ALTER TABLE payments ADD COLUMN sync_status TEXT DEFAULT \'synced\'');
+          } catch (_) {}
+          try {
+            await db.execute('ALTER TABLE payments ADD COLUMN updated_at TEXT');
           } catch (_) {}
         }
   }

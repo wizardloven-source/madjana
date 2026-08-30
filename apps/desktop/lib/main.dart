@@ -7,6 +7,7 @@ import 'core/supabase_client.dart';
 
 // أضف هذه المكتبات الجديدة
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// نقطة دخول تطبيق سطح المكتب (للمدير)
@@ -33,6 +34,17 @@ Future<void> main() async {
     await SupabaseConfig.initialize();
   } catch (_) {
     // يعمل وضع Offline حتى ضبط الإعدادات
+  }
+
+  // ===== ثبات مسار قاعدة البيانات المحلية على Windows =====
+  // آمن وقف التشعب: القاعدة توضع في مجلد ثابت على مستوى المستخدم
+  // بدلاً من دليل العمل، حتى لا تختلف بين تشغيلٍ وآخر.
+  if (Platform.isWindows) {
+    final appData = Platform.environment['APPDATA'] ??
+        Directory.systemTemp.path;
+    final dbDir = Directory(p.join(appData, 'madjana'));
+    dbDir.createSync(recursive: true);
+    LocalDatabase.setDatabasePath(p.join(dbDir.path, LocalDatabase.dbName));
   }
 
   // تهيئة قاعدة البيانات المحلية

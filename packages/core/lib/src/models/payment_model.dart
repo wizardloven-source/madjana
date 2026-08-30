@@ -14,6 +14,9 @@ class PaymentModel {
   final DateTime? dueDate;
   final String? notes;
   final String managerId;
+  final SyncStatus syncStatus;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 
   const PaymentModel({
     this.id,
@@ -28,6 +31,9 @@ class PaymentModel {
     this.dueDate,
     this.notes,
     required this.managerId,
+    this.syncStatus = SyncStatus.synced,
+    this.createdAt,
+    this.updatedAt,
   });
 
   /// هل المبلغ مسدد بالكامل؟
@@ -52,6 +58,16 @@ class PaymentModel {
           : null,
       notes: json['notes'] as String?,
       managerId: json['manager_id'] as String,
+      syncStatus: SyncStatus.values.firstWhere(
+        (e) => e.name == (json['sync_status'] ?? 'synced'),
+        orElse: () => SyncStatus.synced,
+      ),
+      createdAt: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'] as String)
+          : null,
+      updatedAt: json['updated_at'] != null
+          ? DateTime.tryParse(json['updated_at'] as String)
+          : null,
     );
   }
 
@@ -68,5 +84,8 @@ class PaymentModel {
         'due_date': dueDate?.toIso8601String().split('T').first,
         'notes': notes,
         'manager_id': managerId,
+        if (syncStatus != SyncStatus.synced) 'sync_status': syncStatus.name,
+        if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+        if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
       };
 }

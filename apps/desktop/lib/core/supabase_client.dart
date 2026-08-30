@@ -6,8 +6,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// تُقرأ المفاتيح من ملف `.env` (SUPABASE_URL, SUPABASE_ANON_KEY)
 /// مع قيم احتياطية للطواريء.
 class SupabaseConfig {
-  static const String _fallbackUrl = 'https://YOUR_PROJECT.supabase.co';
-  static const String _fallbackKey = 'YOUR_ANON_KEY';
+  static const String _fallbackUrl = 'https://iefwbcwhpyajhohpxwmj.supabase.co';
+  static const String _fallbackKey = 'sb_publishable_oVQbOeVQVgJFTpvh6GvroQ_eoY_dZzE';
 
   static String get supabaseUrl =>
       dotenv.env['SUPABASE_URL'] ?? _fallbackUrl;
