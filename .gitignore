@@ -1,33 +1,7 @@
 ```
-# Dart/Flutter specific
-.dart_tool/
-.packages
-.pub/
-build/
-*.g.dart
-*.freezed.dart
+# Security audit reports
+SECURITY_AUDIT_REPORT.md
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Logs
-*.log
-
-# Environment
-.env
-.env.local
-*.env.*
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Temporary files
-*.tmp
-coverage/
-htmlcov/
-.coverage
+# Supabase migrations
+supabase/migrations/*.sql
 ```
