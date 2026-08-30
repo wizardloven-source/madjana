@@ -1,112 +1,79 @@
-/// سجل طابور المزامنة المحسّن
-///
-/// يحتوي على جميع المعلومات اللازمة للمزامنة الصحيحة:
-/// - tableName + recordId لتحديد السجل بشكل فريد
-/// - operation لمعرفة نوع العملية (INSERT/UPDATE/DELETE)
-/// - version لحل التعارضات
-/// - attempts لعدد المحاولات
-class SyncRecord {
-  final String? id;
-  final String tableName;
-  final String recordId;
-  final Map<String, dynamic> payload;
-  final DateTime updatedAt;
-  final int attempts;
-  final String operation; // INSERT, UPDATE, DELETE
-  final int? version; // نسخة المزامنة
-  
-  const SyncRecord({
-    this.id,
-    required this.tableName,
-    required this.recordId,
-    required this.payload,
-    required this.updatedAt,
-    this.attempts = 0,
-    this.operation = 'UPDATE',
-    this.version,
-  });
+import 'package:core/src/models/sync_change_model.dart';
 
-  SyncRecord copyWith({
-    int? attempts,
-    String? id,
-    String? operation,
-    int? version,
-  }) {
-    return SyncRecord(
-      id: id ?? this.id,
-      tableName: tableName,
-      recordId: recordId,
-      payload: payload,
-      updatedAt: updatedAt,
-      attempts: attempts ?? this.attempts,
-      operation: operation ?? this.operation,
-      version: version ?? this.version,
-    );
-  }
+/// واجهة مستودع المزامنة المحسّنة (المرحلة 2)
+/// تدعم الحقول الجديدة: status, operation, server_version
+abstract class SyncRepository {
+  /// جلب سجلات المزامنة المعلقة محلياً
+  Future<List<SyncChangeModel>> getPendingChanges({int limit = 50});
+
+  /// حفظ تغيير جديد في طابور المزامنة المحلية
+  Future<void> queueChange(SyncChangeModel change);
+
+  /// تحديث حالة السجلات بعد المزامنة الناجحة
+  Future<void> markAsSynced(List<int> ids);
+
+  /// تحديث حالة السجل كـ "فشل" مع رسالة الخطأ
+  Future<void> markAsFailed(int id, String errorMessage);
+
+  /// حذف السجلات القديمة المُزامَنة لتوفير المساحة
+  Future<void> cleanupOldSyncedRecords({int daysToKeep = 30});
+
+  /// الحصول على عدد السجلات المعلقة
+  Future<int> getPendingCount();
+
+  /// الحصول على عدد السجلات الفاشلة
+  Future<int> getFailedCount();
+
+  /// الحصول على عدد السجلات المتضاربة
+  Future<int> getConflictCount();
+
+  /// مسح جميع السجلات المعلقة (للاستخدام في حالات الطوارئ)
+  Future<void> clearAllPending();
+
+  /// رفع مجموعة سجلات إلى السحابة
+  Future<BatchSyncResult> uploadBatch(List<SyncChangeModel> records);
+
+  /// سحب السجلات البعيدة إلى القاعدة المحلية
+  Future<int> pullRemoteRecords(String farmId);
+
+  /// دورة مزامنة كاملة
+  Future<FullSyncResult> syncNow(String farmId);
 }
 
-/// نتيجة الرفع الجماعي
-class BatchUploadResult {
-  final List<String> successIds;
-  final List<String> failedIds;
+/// نتيجة المزامنة الدفعية
+class BatchSyncResult {
+  final List<int> successIds;
+  final List<int> failedIds;
+  final List<int> conflictIds;
   final String? errorMessage;
 
-  BatchUploadResult({
+  BatchSyncResult({
     required this.successIds,
     required this.failedIds,
+    this.conflictIds = const [],
     this.errorMessage,
   });
 
-  int get failedCount => failedIds.length;
-  bool isConflict(String id) => failedIds.contains(id);
-  bool get hasFailures => failedIds.isNotEmpty;
+  int get successCount => successIds.length;
+  int get failedCount => failedIds.length + conflictIds.length;
+  bool get hasFailures => failedIds.isNotEmpty || conflictIds.isNotEmpty;
 }
 
-/// واجهة مستودع المزامنة المحسّنة
-abstract class SyncRepository {
-  /// جلب السجلات المعلقة من كل الجداول
-  Future<List<SyncRecord>> getPendingRecords({int limit = 50});
+/// نتيجة المزامنة الكاملة
+class FullSyncResult {
+  final int uploadedCount;
+  final int downloadedCount;
+  final int failedCount;
+  final DateTime completedAt;
+  final String? errorMessage;
 
-  /// عدد السجلات المعلقة
-  Future<int> getPendingCount();
+  FullSyncResult({
+    required this.uploadedCount,
+    required this.downloadedCount,
+    required this.failedCount,
+    required this.completedAt,
+    this.errorMessage,
+  });
 
-  /// عدد السجلات المزامنة
-  Future<int> getSyncedCount();
-
-  /// عدد السجلات الفاشلة
-  Future<int> getFailedCount();
-
-  /// رفع مجموعة سجلات
-  Future<BatchUploadResult> uploadBatch(List<SyncRecord> records);
-
-  /// سحب السجلات البعيدة إلى القاعدة المحلية (مزامنة واردة)
-  ///
-  /// يُرجع عدد السجلات المسحوبة/المحدّثة.
-  Future<int> pullRemoteRecords(String farmId);
-
-  /// دورة مزامنة كاملة: رفع المعلّق ثم سحب سجلات الأجهزة الأخرى.
-  ///
-  /// يُرجع عدد السجلات المسحوبة/المحدّثة.
-  Future<int> syncNow(String farmId);
-
-  /// تعليم سجل كمزامن
-  Future<void> markAsSynced(String id);
-
-  /// تعليم سجل كفاشل
-  Future<void> markAsFailed(String id, String? error);
-
-  /// زيادة عدد المحاولات
-  Future<void> incrementAttempts(String id);
-
-  /// جلب سجل من السحابة
-  Future<Map<String, dynamic>?> getRemoteRecord(String table, String id);
-
-  /// استبدال السجل المحلي بالسحابي
-  Future<void> replaceLocalWithRemote(SyncRecord local, Map<String, dynamic> remote);
-
-  /// رفع إجباري
-  Future<void> forceUpload(SyncRecord record);
-
-  /// تسجيل خطأ
-  Future<void> logError(String error);
+  bool get isSuccess => failedCount == 0;
 }

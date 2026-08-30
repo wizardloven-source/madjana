@@ -23,6 +23,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late TextEditingController _nameCtrl;
   late TextEditingController _locationCtrl;
   final _currencyCtrl = TextEditingController();
+  
+  // متحكمات إعدادات الحسابات
+  late TextEditingController _feedBagWeightCtrl;
+  late TextEditingController _eggsPerCartonCtrl;
+  late TextEditingController _eggsPerTrayCtrl;
+  late TextEditingController _mortalityRateCtrl;
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
 
@@ -31,6 +37,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     super.initState();
     _nameCtrl = TextEditingController();
     _locationCtrl = TextEditingController();
+    _feedBagWeightCtrl = TextEditingController();
+    _eggsPerCartonCtrl = TextEditingController();
+    _eggsPerTrayCtrl = TextEditingController();
+    _mortalityRateCtrl = TextEditingController();
     _load();
   }
 
@@ -39,6 +49,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _nameCtrl.dispose();
     _locationCtrl.dispose();
     _currencyCtrl.dispose();
+    _feedBagWeightCtrl.dispose();
+    _eggsPerCartonCtrl.dispose();
+    _eggsPerTrayCtrl.dispose();
+    _mortalityRateCtrl.dispose();
     super.dispose();
   }
 
@@ -47,12 +61,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       final farm = await ref.read(farmRepositoryProvider).getFarm(_farmId);
       final currency = await ref.read(farmRepositoryProvider).getCurrency();
+      final feedWeight = await ref.read(farmRepositoryProvider).getFeedBagWeightKg();
+      final eggsCarton = await ref.read(farmRepositoryProvider).getEggsPerCarton();
+      final eggsTray = await ref.read(farmRepositoryProvider).getEggsPerTray();
+      final mortalityRate = await ref.read(farmRepositoryProvider).getDefaultMortalityRate();
+      
       if (!mounted) return;
       setState(() {
         _farm = farm;
         _nameCtrl.text = farm.name;
         _locationCtrl.text = farm.location ?? '';
         _currencyCtrl.text = currency;
+        _feedBagWeightCtrl.text = feedWeight.toString();
+        _eggsPerCartonCtrl.text = eggsCarton.toString();
+        _eggsPerTrayCtrl.text = eggsTray.toString();
+        _mortalityRateCtrl.text = mortalityRate.toString();
         _loading = false;
       });
     } catch (e) {
@@ -93,6 +116,59 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text('تم تغيير العملة إلى $symbol')));
+  }
+
+  // دوال حفظ إعدادات الحسابات
+  Future<void> _saveFeedBagWeight() async {
+    final value = double.tryParse(_feedBagWeightCtrl.text);
+    if (value == null || value <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('الرجاء إدخال وزن صحيح')));
+      return;
+    }
+    await ref.read(farmRepositoryProvider).setFeedBagWeightKg(value);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تم حفظ وزن الكيس: ${value.toStringAsFixed(1)} كغ')));
+  }
+
+  Future<void> _saveEggsPerCarton() async {
+    final value = int.tryParse(_eggsPerCartonCtrl.text);
+    if (value == null || value <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('الرجاء إدخال عدد صحيح')));
+      return;
+    }
+    await ref.read(farmRepositoryProvider).setEggsPerCarton(value);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تم حفظ عدد البيض في الكرتون: $value بيضة')));
+  }
+
+  Future<void> _saveEggsPerTray() async {
+    final value = int.tryParse(_eggsPerTrayCtrl.text);
+    if (value == null || value <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('الرجاء إدخال عدد صحيح')));
+      return;
+    }
+    await ref.read(farmRepositoryProvider).setEggsPerTray(value);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تم حفظ عدد البيض في الصينية: $value بيضة')));
+  }
+
+  Future<void> _saveMortalityRate() async {
+    final value = double.tryParse(_mortalityRateCtrl.text);
+    if (value == null || value < 0 || value > 100) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('الرجاء إدخال نسبة صحيحة (0-100)')));
+      return;
+    }
+    await ref.read(farmRepositoryProvider).setDefaultMortalityRate(value);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تم حفظ معدل النفوق الافتراضي: ${value.toStringAsFixed(1)}%')));
   }
 
   // ─────────────── النسخ الاحتياطي ───────────────
@@ -351,6 +427,79 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 16),
 
+          // ─── إعدادات الحسابات ───
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    const Icon(Icons.settings_outlined),
+                    const SizedBox(width: 8),
+                    Text('إعدادات الحسابات',
+                        style: Theme.of(context).textTheme.titleMedium),
+                  ]),
+                  const SizedBox(height: 16),
+                  const Text(
+                      'هذه الإعدادات تحدد وحدات القياس المستخدمة في الحسابات:',
+                      style: TextStyle(color: Colors.grey)),
+                  const SizedBox(height: 16),
+                  
+                  // وزن كيس العلف
+                  _buildSettingField(
+                    context,
+                    icon: Icons.local_shipping_outlined,
+                    label: 'وزن كيس العلف (كغ)',
+                    initialValue: _feedBagWeightCtrl.text,
+                    onChanged: (v) => setState(() => _feedBagWeightCtrl.text = v),
+                    onSave: _saveFeedBagWeight,
+                    isNumber: true,
+                    suffix: 'كغ',
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // عدد البيض في الكرتون
+                  _buildSettingField(
+                    context,
+                    icon: Icons.inventory_2_outlined,
+                    label: 'عدد البيض في الكرتون',
+                    initialValue: _eggsPerCartonCtrl.text,
+                    onChanged: (v) => setState(() => _eggsPerCartonCtrl.text = v),
+                    onSave: _saveEggsPerCarton,
+                    isNumber: true,
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // عدد البيض في الصينية
+                  _buildSettingField(
+                    context,
+                    icon: Icons.grid_on_outlined,
+                    label: 'عدد البيض في الصينية',
+                    initialValue: _eggsPerTrayCtrl.text,
+                    onChanged: (v) => setState(() => _eggsPerTrayCtrl.text = v),
+                    onSave: _saveEggsPerTray,
+                    isNumber: true,
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // معدل النفوق الافتراضي
+                  _buildSettingField(
+                    context,
+                    icon: Icons.trending_down_outlined,
+                    label: 'معدل النفوق الافتراضي (%)',
+                    initialValue: _mortalityRateCtrl.text,
+                    onChanged: (v) => setState(() => _mortalityRateCtrl.text = v),
+                    onSave: _saveMortalityRate,
+                    isNumber: true,
+                    suffix: '%',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // ─── النسخ الاحتياطي ───
           Card(
             child: Padding(
@@ -432,6 +581,50 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSettingField(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required String initialValue,
+    required ValueChanged<String> onChanged,
+    required VoidCallback onSave,
+    bool isNumber = false,
+    String suffix = '',
+  }) {
+    final ctrl = TextEditingController(text: initialValue);
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: Colors.grey[600]),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(label, style: const TextStyle(fontSize: 14)),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 120,
+          child: TextField(
+            controller: ctrl,
+            keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+            textAlign: TextAlign.right,
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              suffixText: suffix.isNotEmpty ? suffix : null,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: onChanged,
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          icon: const Icon(Icons.save_outlined, size: 20),
+          onPressed: onSave,
+          tooltip: 'حفظ',
+        ),
+      ],
     );
   }
 }

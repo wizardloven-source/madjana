@@ -52,4 +52,17 @@ abstract class FarmRepository {
   Future<String> getCurrency();
 
   Future<void> setCurrency(String symbol);
+
+  /// إعدادات النظام
+  Future<double> getFeedBagWeightKg();
+  Future<void> setFeedBagWeightKg(double weightKg);
+  
+  Future<int> getEggsPerCarton();
+  Future<void> setEggsPerCarton(int count);
+  
+  Future<int> getEggsPerTray();
+  Future<void> setEggsPerTray(int count);
+  
+  Future<double> getDefaultMortalityRate();
+  Future<void> setDefaultMortalityRate(double rate);
 }

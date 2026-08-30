@@ -1,27 +1,16 @@
 ```
 # Dependencies
-.dart_tool/
-.pub/
-
-# Build artifacts
-build/
-**/generated_plugin_registrant.dart
+node_modules/
 
 # Environment
 .env
 .env.local
-*.env.*
+.env.
 
-# Logs
+# Logs and temp files
 *.log
-**/logs
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Temporary files
 *.tmp
-*.temp
-**/temp/
+
+# Editors
+.vscode/
 ```

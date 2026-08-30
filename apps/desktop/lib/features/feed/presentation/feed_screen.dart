@@ -92,6 +92,43 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     }
   }
 
+  Future<void> _showAddReceivedDialog() async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => const _FeedReceivedDialog(),
+    );
+    if (result != null && mounted) {
+      final farmId = _farmId;
+      if (farmId.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('خطأ: لا توجد مدجنة مرتبطة بالحساب')),
+        );
+        return;
+      }
+      final record = FeedReceivedModel(
+        id: null,
+        farmId: farmId,
+        date: result['date'] as DateTime,
+        entryMode: result['mode'] as FeedEntryMode,
+        quantity: result['quantity'] as double,
+        quantityKg: result['quantity_kg'] as double,
+        feedType: result['feed_type'] as FeedType,
+        supplier: result['supplier'] as String?,
+        invoiceNumber: result['invoice_number'] as String?,
+        notes: result['notes'] as String?,
+        syncStatus: SyncStatus.pending,
+        createdAt: DateTime.now(),
+      );
+      await ref.read(feedRepositoryProvider).saveReceivedLocal(record);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حفظ استلام العلف بنجاح')),
+        );
+        _load();
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // إعادة التحميل عند وصول بيانات من أجهزة أخرى
@@ -173,11 +210,18 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                 label: const Text('تصدير CSV'),
               ),
               const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: _showAddConsumptionDialog,
-                icon: const Icon(Icons.add),
-                label: const Text('إضافة استهلاك'),
-              ),
+              if (_tab == 0)
+                FilledButton.icon(
+                  onPressed: _showAddConsumptionDialog,
+                  icon: const Icon(Icons.add),
+                  label: const Text('إضافة استهلاك'),
+                )
+              else
+                FilledButton.icon(
+                  onPressed: _showAddReceivedDialog,
+                  icon: const Icon(Icons.add),
+                  label: const Text('إضافة استلام'),
+                ),
             ],
           ),
           const SizedBox(height: 16),
@@ -636,6 +680,189 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
                 'quantity_kg': kg,
               });
             }
+          },
+          child: const Text('حفظ'),
+        ),
+      ],
+    );
+  }
+}
+/// نافذة إدخال استلام علف
+class _FeedReceivedDialog extends StatefulWidget {
+  const _FeedReceivedDialog();
+  @override
+  State<_FeedReceivedDialog> createState() => _FeedReceivedDialogState();
+}
+
+class _FeedReceivedDialogState extends State<_FeedReceivedDialog> {
+  FeedEntryMode _mode = FeedEntryMode.bags;
+  DateTime _date = DateTime.now();
+  final _quantityCtrl = TextEditingController();
+  FeedType? _feedType;
+  final _supplierCtrl = TextEditingController();
+  final _invoiceCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
+
+  double get _quantityKg {
+    final qty = double.tryParse(_quantityCtrl.text) ?? 0;
+    return switch (_mode) {
+      FeedEntryMode.bags => qty * AppConstants.kgPerBag,
+      FeedEntryMode.kg => qty,
+      FeedEntryMode.ton => qty * AppConstants.kgPerTon,
+    };
+  }
+
+  @override
+  void dispose() {
+    _quantityCtrl.dispose();
+    _supplierCtrl.dispose();
+    _invoiceCtrl.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('إضافة استلام علف'),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // التاريخ
+              InkWell(
+                onTap: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate: _date,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                  );
+                  if (d != null) setState(() => _date = d);
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'التاريخ',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.calendar_today),
+                  ),
+                  child: Text(Formatters.formatDate(_date)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // نوع الوحدة
+              SegmentedButton<FeedEntryMode>(
+                segments: const [
+                  ButtonSegment(value: FeedEntryMode.bags, label: Text('أكياس')),
+                  ButtonSegment(value: FeedEntryMode.kg, label: Text('كيلوغرام')),
+                  ButtonSegment(value: FeedEntryMode.ton, label: Text('طن')),
+                ],
+                selected: {_mode},
+                onSelectionChanged: (s) => setState(() => _mode = s.first),
+              ),
+              const SizedBox(height: 12),
+              // الكمية
+              TextField(
+                controller: _quantityCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'الكمية (${switch (_mode) {
+                    FeedEntryMode.bags => 'أكياس',
+                    FeedEntryMode.kg => 'كغ',
+                    FeedEntryMode.ton => 'طن',
+                  }})',
+                  border: const OutlineInputBorder(),
+                  suffixText: _mode == FeedEntryMode.bags
+                      ? '(${_quantityKg.toStringAsFixed(0)} كغ)'
+                      : _mode == FeedEntryMode.ton
+                          ? '(${_quantityKg.toStringAsFixed(0)} كغ)'
+                          : null,
+                ),
+              ),
+              const SizedBox(height: 12),
+              // نوع العلف
+              DropdownButtonFormField<FeedType>(
+                value: _feedType,
+                decoration: const InputDecoration(
+                  labelText: 'نوع العلف',
+                  border: OutlineInputBorder(),
+                ),
+                items: FeedType.values.map((type) {
+                  final label = switch (type) {
+                    FeedType.starter => 'بادئ',
+                    FeedType.grower => 'نامي',
+                    FeedType.layer => 'بيّاض',
+                    FeedType.main => 'علف رئيسي',
+                  };
+                  return DropdownMenuItem(value: type, child: Text(label));
+                }).toList(),
+                onChanged: (v) => setState(() => _feedType = v),
+              ),
+              const SizedBox(height: 12),
+              // المورد
+              TextField(
+                controller: _supplierCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'اسم المورد (اختياري)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // رقم الفاتورة
+              TextField(
+                controller: _invoiceCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'رقم الفاتورة (اختياري)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // ملاحظات
+              TextField(
+                controller: _notesCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'ملاحظات (اختياري)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final quantity = double.tryParse(_quantityCtrl.text) ?? 0;
+            if (quantity <= 0) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('أدخل الكمية')),
+              );
+              return;
+            }
+            if (_feedType == null) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('اختر نوع العلف')),
+              );
+              return;
+            }
+            Navigator.pop(context, {
+              'mode': _mode,
+              'date': _date,
+              'quantity': quantity,
+              'quantity_kg': _quantityKg,
+              'feed_type': _feedType!,
+              'supplier': _supplierCtrl.text.isEmpty ? null : _supplierCtrl.text,
+              'invoice_number': _invoiceCtrl.text.isEmpty ? null : _invoiceCtrl.text,
+              'notes': _notesCtrl.text.isEmpty ? null : _notesCtrl.text,
+            });
           },
           child: const Text('حفظ'),
         ),
