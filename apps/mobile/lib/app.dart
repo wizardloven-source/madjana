@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'core/theme.dart';
+import 'config/app_theme.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/customers/presentation/customers_screen.dart';
@@ -19,6 +19,8 @@ import 'features/payments/presentation/payments_screen.dart';
 import 'features/reports/presentation/reports_screen.dart';
 import 'features/settings/presentation/settings_screen.dart';
 import 'features/settings/providers/theme_provider.dart';
+import 'features/emergency/emergency_screen.dart';
+import 'features/sync_center/sync_center_screen.dart';
 
 /// التطبيق الرئيسي
 class PoultryApp extends ConsumerWidget {
@@ -31,11 +33,15 @@ class PoultryApp extends ConsumerWidget {
     return MaterialApp(
       title: 'نظام إدارة المداجن',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme(),
-      darkTheme: AppTheme.darkTheme(),
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.lightTheme.copyWith(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF121212),
+        cardColor: const Color(0xFF1E1E1E),
+      ),
       themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
-      locale: const Locale('ar'),
-      supportedLocales: const [Locale('ar')],
+      locale: const Locale('ar', 'SA'),
+      supportedLocales: const [Locale('ar', 'SA')],
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -59,6 +65,8 @@ class PoultryApp extends ConsumerWidget {
         '/reports': (_) => const ReportsScreen(),
         '/flock-management': (_) => const FlockManagementScreen(),
         '/customers': (_) => const CustomersScreen(),
+        '/emergency': (_) => const EmergencyScreen(),
+        '/sync-center': (_) => const SyncCenterScreen(),
       },
     );
   }
@@ -86,20 +94,18 @@ class _RootGate extends ConsumerWidget {
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                  color: AppTheme.primaryColor.withOpacity(0.12),
                 ),
-                child: Icon(
-                  Icons.egg,
+                child: const Icon(
+                  Icons.egg_alt,
                   size: 56,
-                  color: theme.colorScheme.primary,
+                  color: AppTheme.primaryColor,
                 ),
               ),
               const SizedBox(height: 24),
               Text(
                 'نظام إدارة المداجن',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                style: AppTheme.headingMedium,
               ),
               const SizedBox(height: 32),
               const SizedBox(
