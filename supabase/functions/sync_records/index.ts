@@ -59,11 +59,13 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const { records } = body as {
-      records: Array<{ 
-        table_name: string; 
-        operation: string; 
-        record_id: string; 
-        payload: Record<string, unknown> 
+      records: Array<{
+        table_name: string;
+        operation: string;
+        operation_id?: string;
+        record_id: string;
+        payload: Record<string, unknown>;
+        previous_version?: number;
       }>;
     };
 
@@ -74,12 +76,12 @@ Deno.serve(async (req) => {
       );
     }
 
-    // FIX #1 & #2: إرسال العقد الصحيح مباشرة دون تحويل
-    // SQL يتوقع الآن: table_name, operation, record_id, payload
+    // FIX #12: نمرر operation_id للـ Idempotency
     const normalized = records.map((r) => ({
       table_name: r.table_name,
       operation: r.operation,
       record_id: r.record_id,
+      operation_id: r.operation_id ?? null,
       data: r.payload ?? {},
       previous_version: r.previous_version ?? null,
     }));

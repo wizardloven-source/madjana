@@ -170,7 +170,7 @@ CREATE TABLE mortality (
     created_at   TIMESTAMPTZ DEFAULT NOW(),
     updated_at   TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT check_reason_other CHECK (
-        (reason = 'other' AND reason_other IS NOT NULL) OR
+        (reason = 'other' AND reason_other IS NOT NULL AND length(trim(reason_other)) > 0) OR
         (reason != 'other' AND reason_other IS NULL)
     )
 );
@@ -357,18 +357,36 @@ CREATE TABLE inventory_transactions (
 CREATE INDEX idx_inventory_tx_item ON inventory_transactions(item_id, date);
 
 CREATE TABLE audit_log (
-    id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id    UUID REFERENCES users(id) ON DELETE SET NULL,
-    action     TEXT NOT NULL CHECK (action IN ('INSERT', 'UPDATE', 'DELETE')),
-    table_name TEXT NOT NULL,
-    record_id  UUID NOT NULL,
-    old_values JSONB,
-    new_values JSONB,
-    timestamp  TIMESTAMPTZ DEFAULT NOW()
+    id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    farm_id        UUID REFERENCES farms(id) ON DELETE SET NULL,
+    user_id        UUID REFERENCES users(id) ON DELETE SET NULL,
+    action         TEXT NOT NULL CHECK (action IN ('INSERT', 'UPDATE', 'DELETE')),
+    table_name     TEXT NOT NULL,
+    record_id      UUID NOT NULL,
+    old_values     JSONB,
+    new_values     JSONB,
+    device_id      TEXT,
+    ip_address     TEXT,
+    correlation_id TEXT,
+    created_at     TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX idx_audit_user ON audit_log(user_id);
 CREATE INDEX idx_audit_table ON audit_log(table_name);
-CREATE INDEX idx_audit_timestamp ON audit_log(timestamp);
+CREATE INDEX idx_audit_timestamp ON audit_log(created_at);
+CREATE INDEX idx_audit_farm ON audit_log(farm_id);
+
+CREATE TABLE idempotency_log (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    operation_id    TEXT NOT NULL UNIQUE,
+    user_id         UUID REFERENCES users(id),
+    table_name      TEXT NOT NULL,
+    record_id       UUID NOT NULL,
+    operation       TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    result          JSONB,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_idempotency_op ON idempotency_log(operation_id);
 
 CREATE TABLE app_notifications (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -486,6 +504,26 @@ AS $$
     SELECT u.farm_id FROM public.users AS u WHERE u.id = auth.uid() LIMIT 1;
 $$;
 
+-- تحويل PIN إلى "كلمة مرور" تُسلّم لـ GoTrue لتحقق منها بـ bcrypt
+-- تُضاف "pepper" (سالف تطبيقي) قبل الـPIN لمنع هجوم القوة العمياء دون اتصال
+-- على رقم PIN من 4 خانات. يجب أن يطابق إعداد Flutter في supabase_auth_datasource.
+CREATE OR REPLACE FUNCTION public.app_password_from_pin(p_pin text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT 'madjana$' || p_pin;
+$$;
+
+-- بريد اصطناعي لكل حساب (يجب أن يطابق _authEmail في Flutter)
+CREATE OR REPLACE FUNCTION public.app_user_email(p_uid uuid)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT p_uid::text || '@users.madjana.local';
+$$;
+
 -- البحث بالهاتف
 CREATE OR REPLACE FUNCTION public.find_user_by_phone(p_phone text)
 RETURNS TABLE (id uuid, name text, phone text, role text, farm_id uuid)
@@ -575,7 +613,7 @@ BEGIN
 
     INSERT INTO users (id, name, phone, role, pin_hash, farm_id)
     VALUES (v_auth_uuid, p_manager_name, p_phone, 'manager',
-            public.app_password_from_pin(p_pin), v_farm_id)
+            extensions.crypt(public.app_password_from_pin(p_pin), extensions.gen_salt('bf')), v_farm_id)
     ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         phone = EXCLUDED.phone,
@@ -653,7 +691,7 @@ BEGIN
 
     INSERT INTO users (id, name, phone, role, pin_hash, farm_id)
     VALUES (v_auth_uuid, p_name, p_phone, p_role,
-            public.app_password_from_pin(p_pin), p_farm_id::uuid)
+            extensions.crypt(public.app_password_from_pin(p_pin), extensions.gen_salt('bf')), p_farm_id::uuid)
     ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         phone = EXCLUDED.phone,
@@ -724,7 +762,7 @@ BEGIN
         updated_at = NOW()
     WHERE auth.users.id = p_uid::uuid;
 
-    UPDATE users SET pin_hash = public.app_password_from_pin(p_new_pin)
+    UPDATE users SET pin_hash = extensions.crypt(public.app_password_from_pin(p_new_pin), extensions.gen_salt('bf'))
     WHERE id = p_uid::uuid;
 END;
 $$;
@@ -832,14 +870,13 @@ CREATE OR REPLACE FUNCTION public.log_audit_changes()
 RETURNS TRIGGER AS $$
 DECLARE
     v_user_id uuid;
+    v_farm_id uuid;
 BEGIN
-    v_user_id := COALESCE(
-        (SELECT u.id FROM public.users AS u WHERE u.id = auth.uid()),
-        NEW.worker_id
-    );
-    INSERT INTO audit_log (user_id, action, table_name, record_id, old_values, new_values)
+    v_user_id := (SELECT u.id FROM public.users AS u WHERE u.id = auth.uid());
+    v_farm_id := COALESCE(NEW.farm_id, OLD.farm_id);
+    INSERT INTO audit_log (farm_id, user_id, action, table_name, record_id, old_values, new_values)
     VALUES (
-        v_user_id, TG_OP, TG_TABLE_NAME,
+        v_farm_id, v_user_id, TG_OP, TG_TABLE_NAME,
         COALESCE(NEW.id, OLD.id),
         CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE NULL END,
         CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN to_jsonb(NEW) ELSE NULL END
@@ -1110,7 +1147,9 @@ DECLARE
     v_table_name text;
     v_record_id uuid;
     v_operation text;
+    v_operation_id text;
     v_user_farm uuid;
+    v_user_role text;
     v_existing_record jsonb;
     v_new_version bigint;
     v_affected int := 0;
@@ -1125,35 +1164,95 @@ DECLARE
     v_upd_count int;
 BEGIN
     v_user_farm := public.current_user_farm_id();
+    v_user_role := public.current_user_role();
     IF v_user_farm IS NULL THEN
         RAISE EXCEPTION 'لا يمكن تحديد المزرعة للمستخدم الحالي';
     END IF;
 
     FOR v_record IN SELECT * FROM jsonb_array_elements(p_records)
     LOOP
-        v_table_name := v_record->>'table_name';
-        v_record_id  := (v_record->>'record_id')::uuid;
-        v_operation  := v_record->>'operation';
-        v_data       := v_record->>'data';
+        v_table_name  := v_record->>'table_name';
+        v_record_id   := (v_record->>'record_id')::uuid;
+        v_operation   := v_record->>'operation';
+        v_operation_id := v_record->>'operation_id';
+        v_data        := v_record->>'data';
 
         IF v_data IS NULL THEN
             v_data := '{}'::jsonb;
         END IF;
 
-        IF v_table_name NOT IN (
-            'egg_production', 'mortality', 'feed_consumption',
-            'feed_received', 'egg_dispatch', 'medications',
-            'customers', 'flocks', 'expenses',
-            'inventory_items', 'inventory_transactions',
-            'opening_balances'
-        ) THEN
+        -- Idempotency check: إذا تم تنفيذ العملية مسبقاً، أرجع النتيجة المحفوظة
+        IF v_operation_id IS NOT NULL AND length(v_operation_id) > 0 THEN
+            DECLARE
+                v_prev_result jsonb;
+            BEGIN
+                SELECT result INTO v_prev_result
+                FROM idempotency_log
+                WHERE operation_id = v_operation_id AND status = 'done';
+                IF v_prev_result IS NOT NULL THEN
+                    v_result := v_result || v_prev_result;
+                    CONTINUE;
+                END IF;
+            END;
+        END IF;
+
+        -- جداول محظورة نهائياً: لا يجوز لأي دور مزامنتها عبر RPC
+        IF v_table_name IN ('payments', 'users', 'farms') THEN
             v_errors := v_errors + 1;
             v_result := v_result || jsonb_build_object(
                 'record_id', v_record_id,
                 'status', 'error',
-                'message', 'جدول ممنوع: ' || v_table_name
+                'message', 'جدول ممنوع للمزامنة عبر RPC: ' || v_table_name
             );
             CONTINUE;
+        END IF;
+
+        -- Role-based whitelist: العامل لا يصلاح إلا الجداول التشغيلية
+        IF v_user_role = 'worker' THEN
+            IF v_table_name NOT IN (
+                'egg_production', 'mortality', 'feed_consumption',
+                'feed_received', 'egg_dispatch', 'medications',
+                'customers', 'flocks'
+            ) THEN
+                v_errors := v_errors + 1;
+                v_result := v_result || jsonb_build_object(
+                    'record_id', v_record_id,
+                    'status', 'error',
+                    'message', 'العميل لا يملك صلاحية المزامنة للجدول: ' || v_table_name
+                );
+                CONTINUE;
+            END IF;
+        ELSIF v_user_role = 'manager' THEN
+            IF v_table_name NOT IN (
+                'egg_production', 'mortality', 'feed_consumption',
+                'feed_received', 'egg_dispatch', 'medications',
+                'customers', 'flocks', 'expenses',
+                'inventory_items', 'inventory_transactions',
+                'opening_balances'
+            ) THEN
+                v_errors := v_errors + 1;
+                v_result := v_result || jsonb_build_object(
+                    'record_id', v_record_id,
+                    'status', 'error',
+                    'message', 'جدول غير مسموح للمزامنة: ' || v_table_name
+                );
+                CONTINUE;
+            END IF;
+        ELSE
+            -- supervisor أو أي دور آخر: جداول تشغيلية فقط
+            IF v_table_name NOT IN (
+                'egg_production', 'mortality', 'feed_consumption',
+                'feed_received', 'egg_dispatch', 'medications',
+                'customers', 'flocks'
+            ) THEN
+                v_errors := v_errors + 1;
+                v_result := v_result || jsonb_build_object(
+                    'record_id', v_record_id,
+                    'status', 'error',
+                    'message', 'الدور الحالي لا يملك صلاحية المزامنة للجدول: ' || v_table_name
+                );
+                CONTINUE;
+            END IF;
         END IF;
 
         IF v_operation IN ('update', 'delete') THEN
@@ -1269,12 +1368,23 @@ BEGIN
                 v_affected := v_affected + v_upd_count;
             END IF;
 
-            v_result := v_result || jsonb_build_object(
-                'record_id', v_record_id,
-                'table_name', v_table_name,
-                'status', 'ok',
-                'new_version', COALESCE(v_new_version, 1)
-            );
+            DECLARE
+                v_detail jsonb;
+            BEGIN
+                v_detail := jsonb_build_object(
+                    'record_id', v_record_id,
+                    'table_name', v_table_name,
+                    'status', 'ok',
+                    'new_version', COALESCE(v_new_version, 1)
+                );
+                v_result := v_result || v_detail;
+
+                -- حفظ في سجل الـ idempotency
+                IF v_operation_id IS NOT NULL AND length(v_operation_id) > 0 THEN
+                    INSERT INTO idempotency_log (operation_id, user_id, table_name, record_id, operation, status, result)
+                    VALUES (v_operation_id, auth.uid(), v_table_name, v_record_id, v_operation, 'done', v_detail);
+                END IF;
+            END;
 
         EXCEPTION WHEN OTHERS THEN
             v_errors := v_errors + 1;
@@ -1345,6 +1455,30 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_pin(text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_delete_user(text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.current_user_role() TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.current_user_farm_id() TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.app_password_from_pin(text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.app_user_email(uuid) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.sync_records_batch(jsonb) TO authenticated;
+
+-- ============================================================
+-- 16) RLS للجداول الجديدة
+-- ============================================================
+ALTER TABLE idempotency_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS idemp_only_owner ON idempotency_log;
+CREATE POLICY idemp_only_owner ON idempotency_log
+    FOR ALL TO authenticated
+    USING (user_id = auth.uid());
+
+DROP POLICY IF EXISTS audit_select_manager ON audit_log;
+CREATE POLICY audit_select_manager ON audit_log
+    FOR SELECT TO authenticated
+    USING (
+        farm_id = current_user_farm_id()
+        AND current_user_role() = 'manager'
+    );
+
+DROP POLICY IF EXISTS audit_insert_system ON audit_log;
+CREATE POLICY audit_insert_system ON audit_log
+    FOR INSERT TO authenticated
+    WITH CHECK (farm_id = current_user_farm_id());
 
 NOTIFY pgrst, 'reload schema';

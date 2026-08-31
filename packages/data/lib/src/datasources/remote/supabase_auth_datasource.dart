@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:core/core.dart';
-import 'package:crypto/crypto.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// مصدر بيانات المصادقة عبر Supabase Auth الحقيقي
@@ -11,7 +10,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// 1. البحث عن المستخدم بالهاتف (دالة RPC تعمل قبل الدخول)
 /// 2. الدخول بـ signInWithPassword:
 ///    - البريد الاصطناعي: <uid>@users.madjana.local
-///    - كلمة المرور: sha256(PIN)
+///    - كلمة المرور: pepper + PIN (يضاف الـ pepper قبل الإرسال،
+///      ويتحقق منها GoTrue عبر bcrypt مماثل لدالة app_password_from_pin)
 /// 3. بعد النجاح auth.uid() = معرف المستخدم وتعمل كل سياسات RLS
 class SupabaseAuthDatasource {
   final SupabaseClient _client;
@@ -136,11 +136,11 @@ class SupabaseAuthDatasource {
     return buffer.toString().replaceAll(RegExp(r'[\s\-–]'), '');
   }
 
-  /// تشفير PIN (SHA-256 hex) — يُستخدم ككلمة مرور لدى Supabase Auth
-  /// ويجب أن يطابق دالة app_password_from_pin في قاعدة البيانات
+  /// تحويل PIN إلى "كلمة مرور" تُسلّم لـ GoTrue للتحقق منها بـ bcrypt
+  /// يُضاف نفس الـ pepper المطابق لدالة app_password_from_pin في قاعدة البيانات
+  /// لمنع هجوم القوة العمياء دون اتصال على رقم PIN من 4 خانات.
   String _hashPin(String pin) {
-    final bytes = utf8.encode(pin);
-    return sha256.convert(bytes).toString();
+    return 'madjana\$' + pin;
   }
 
   /// تسجيل الخروج

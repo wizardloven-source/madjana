@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:core/core.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../datasources/local/local_database.dart';
@@ -35,9 +36,12 @@ class SyncRepositoryImpl implements SyncRepository {
         LIMIT ?
       ''', [limit]);
 
+      final currentUser = _supabase.auth.currentUser;
+      final farmId = currentUser?.userMetadata?['farm_id']?.toString() ?? '';
+
       return results.map((map) => SyncChangeModel.fromMap({
         'id': 0,
-        'farm_id': '',
+        'farm_id': farmId.isNotEmpty ? farmId : (map['farm_id'] ?? ''),
         'table_name': map['table_name'],
         'record_id': map['record_id'],
         'operation': (map['action'] as String? ?? 'INSERT').toLowerCase(),
@@ -60,9 +64,7 @@ class SyncRepositoryImpl implements SyncRepository {
         'table_name': change.tableName,
         'record_id': change.recordId,
         'action': change.operation.name.toUpperCase(),
-        'payload': change.payload != null
-            ? (change.payload is String ? change.payload : '')
-            : '',
+        'payload': change.payload != null ? jsonEncode(change.payload) : '',
         'user_id': change.userId ?? '',
         'attempts': 0,
         'status': change.status.name,
@@ -203,6 +205,7 @@ class SyncRepositoryImpl implements SyncRepository {
           'table_name': r.tableName,
           'record_id': r.recordId,
           'operation': r.operation.name,
+          'operation_id': r.recordId,
           'data': p,
           'previous_version': p['previous_version'] ?? p['version'],
         };
