@@ -11,6 +11,7 @@ class FeedConsumptionModel {
   final double quantityKg;
   final String workerId;
   final SyncStatus syncStatus;
+  final int? sectionNo;
 
   const FeedConsumptionModel({
     this.id,
@@ -21,6 +22,7 @@ class FeedConsumptionModel {
     required this.quantityKg,
     required this.workerId,
     this.syncStatus = SyncStatus.pending,
+    this.sectionNo,
   });
 
   /// حساب الكمية بالكيلو من عدد الأكياس
@@ -54,6 +56,7 @@ class FeedConsumptionModel {
       bagsCount: json['bags_count'] as int? ?? 0,
       quantityKg: (json['quantity_kg'] as num).toDouble(),
       workerId: json['worker_id'] as String,
+      sectionNo: json['section_no'] as int?,
       syncStatus: SyncStatus.values.firstWhere(
         (e) => e.name == json['sync_status'],
         orElse: () => SyncStatus.pending,
@@ -69,6 +72,7 @@ class FeedConsumptionModel {
         'bags_count': bagsCount,
         'quantity_kg': quantityKg,
         'worker_id': workerId,
+        if (sectionNo != null) 'section_no': sectionNo,
         'sync_status': syncStatus.name,
       };
 }

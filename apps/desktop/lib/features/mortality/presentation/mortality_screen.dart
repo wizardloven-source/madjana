@@ -90,6 +90,7 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
         reasonOther: result['reason_other'] as String?,
         notes: result['notes'] as String?,
         workerId: workerId,
+        sectionNo: result['section_no'] as int?,
       );
       await ref.read(mortalityRepositoryProvider).saveLocal(record);
       if (mounted) {
@@ -291,6 +292,15 @@ class _MortalityDialogState extends State<_MortalityDialog> {
   MortalityReason _reason = MortalityReason.unknown;
   final _otherCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
+  int? _sectionNo;
+
+  FlockModel? get _selectedFlock =>
+      _flockId == null
+          ? null
+          : widget.flocks.firstWhere(
+              (f) => f.id == _flockId,
+              orElse: () => widget.flocks.first,
+            );
 
   @override
   void dispose() {
@@ -321,9 +331,32 @@ class _MortalityDialogState extends State<_MortalityDialog> {
                     .where((f) => f.status == FlockStatus.active)
                     .map((f) => DropdownMenuItem(value: f.id, child: Text(f.breed)))
                     .toList(),
-                onChanged: (v) => setState(() => _flockId = v),
+                onChanged: (v) => setState(() {
+                  _flockId = v;
+                  _sectionNo = null;
+                }),
               ),
               const SizedBox(height: 12),
+              if (_selectedFlock != null &&
+                  _selectedFlock!.sectionsCount > 1)
+                DropdownButtonFormField<int>(
+                  value: _sectionNo,
+                  decoration: const InputDecoration(
+                    labelText: 'العنبر',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: List.generate(
+                    _selectedFlock!.sectionsCount,
+                    (i) => DropdownMenuItem(
+                      value: i + 1,
+                      child: Text('العنبر ${i + 1}'),
+                    ),
+                  ),
+                  onChanged: (v) => setState(() => _sectionNo = v),
+                ),
+              if (_selectedFlock != null &&
+                  _selectedFlock!.sectionsCount > 1)
+                const SizedBox(height: 12),
               InkWell(
                 onTap: () async {
                   final d = await showDatePicker(
@@ -414,6 +447,7 @@ class _MortalityDialogState extends State<_MortalityDialog> {
               'reason': _reason,
               'reason_other': _reason == MortalityReason.other ? _otherCtrl.text : null,
               'notes': _notesCtrl.text.isEmpty ? null : _notesCtrl.text,
+              'section_no': _sectionNo,
             });
           },
           child: const Text('حفظ'),

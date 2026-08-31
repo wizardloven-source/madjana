@@ -13,6 +13,7 @@ class MortalityModel {
   final String? imageUrl;
   final String workerId;
   final SyncStatus syncStatus;
+  final int? sectionNo;
 
   const MortalityModel({
     this.id,
@@ -26,6 +27,7 @@ class MortalityModel {
     this.imageUrl,
     required this.workerId,
     this.syncStatus = SyncStatus.pending,
+    this.sectionNo,
   });
 
   bool get isValid => count > 0 && date.isBefore(DateTime.now().add(const Duration(days: 1)));
@@ -45,6 +47,7 @@ class MortalityModel {
       notes: json['notes'] as String?,
       imageUrl: json['image_url'] as String?,
       workerId: json['worker_id'] as String,
+      sectionNo: json['section_no'] as int?,
       syncStatus: SyncStatus.values.firstWhere(
         (e) => e.name == json['sync_status'],
         orElse: () => SyncStatus.pending,
@@ -63,6 +66,7 @@ class MortalityModel {
         'notes': notes,
         'image_url': imageUrl,
         'worker_id': workerId,
+        if (sectionNo != null) 'section_no': sectionNo,
         'sync_status': syncStatus.name,
       };
 }

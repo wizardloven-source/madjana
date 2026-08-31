@@ -374,6 +374,14 @@ class _EggProductionDialogState extends State<_EggProductionDialog> {
     return EggCalculator.calculateTotal(cartons: c, trays: t, looseEggs: l);
   }
 
+  FlockModel? get _selectedFlock =>
+      _flockId == null
+          ? null
+          : widget.flocks.firstWhere(
+              (f) => f.id == _flockId,
+              orElse: () => widget.flocks.first,
+            );
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -395,7 +403,10 @@ class _EggProductionDialogState extends State<_EggProductionDialog> {
                     .where((f) => f.status == FlockStatus.active)
                     .map((f) => DropdownMenuItem(value: f.id, child: Text(f.breed)))
                     .toList(),
-                onChanged: (v) => setState(() => _flockId = v),
+                onChanged: (v) => setState(() {
+                  _flockId = v;
+                  _sectionNo = null;
+                }),
               ),
               const SizedBox(height: 12),
               InkWell(
@@ -488,16 +499,25 @@ class _EggProductionDialogState extends State<_EggProductionDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              TextField(
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: const InputDecoration(
-                  labelText: 'رقم العنبر (اختياري)',
-                  border: OutlineInputBorder(),
+              if (_selectedFlock != null &&
+                  _selectedFlock!.sectionsCount > 1) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  value: _sectionNo,
+                  decoration: const InputDecoration(
+                    labelText: 'العنبر',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: List.generate(
+                    _selectedFlock!.sectionsCount,
+                    (i) => DropdownMenuItem(
+                      value: i + 1,
+                      child: Text('العنبر ${i + 1}'),
+                    ),
+                  ),
+                  onChanged: (v) => setState(() => _sectionNo = v),
                 ),
-                onChanged: (v) => _sectionNo = int.tryParse(v),
-              ),
+              ],
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),

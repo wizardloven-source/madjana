@@ -15,6 +15,7 @@ class FeedReceivedModel {
 
   /// سعر الكيلوغرام — يُدخله المدير لاحقاً من سطح المكتب
   final double? pricePerKg;
+  final int? sectionNo;
 
   const FeedReceivedModel({
     this.id,
@@ -28,6 +29,7 @@ class FeedReceivedModel {
     this.invoiceNumber,
     this.notes,
     this.pricePerKg,
+    this.sectionNo,
   });
 
   /// إجمالي قيمة الفاتورة (يُحسب عند التسعير)
@@ -53,6 +55,7 @@ class FeedReceivedModel {
       invoiceNumber: json['invoice_number'] as String?,
       notes: json['notes'] as String?,
       pricePerKg: (json['price_per_kg'] as num?)?.toDouble(),
+      sectionNo: json['section_no'] as int?,
     );
   }
 
@@ -68,6 +71,7 @@ class FeedReceivedModel {
         'invoice_number': invoiceNumber,
         'notes': notes,
         'worker_id': '',
+        if (sectionNo != null) 'section_no': sectionNo,
         if (pricePerKg != null) 'price_per_kg': pricePerKg,
       };
 }

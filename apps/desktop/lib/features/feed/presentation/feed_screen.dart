@@ -19,11 +19,13 @@ class FeedScreen extends ConsumerStatefulWidget {
 class _FeedScreenState extends ConsumerState<FeedScreen> {
   List<FeedConsumptionModel> _consumption = [];
   List<FeedReceivedModel> _received = [];
+  List<FlockModel> _flocks = [];
   double _stock = 0;
   bool _loading = true;
   int _tab = 0;
   DateTime _fromDate = DateTime.now().subtract(const Duration(days: 30));
   DateTime _toDate = DateTime.now();
+  String _farmName = '';
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
 
@@ -36,6 +38,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final feedRepo = ref.read(feedRepositoryProvider);
+    final flockRepo = ref.read(flockRepositoryProvider);
+    final farmRepo = ref.read(farmRepositoryProvider);
     final consumption = await feedRepo.getAllConsumption(
       farmId: _farmId,
       fromDate: _fromDate,
@@ -47,12 +51,23 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       toDate: _toDate,
     );
     final stock = await feedRepo.getCurrentFeedStock(_farmId);
+    List<FlockModel> flocks = [];
+    try {
+      flocks = await flockRepo.getFlocks(_farmId, includeEnded: true);
+    } catch (_) {}
+    String farmName = '';
+    try {
+      final farm = await farmRepo.getFarm(_farmId);
+      farmName = farm.name;
+    } catch (_) {}
 
     if (!mounted) return;
     setState(() {
       _consumption = consumption;
       _received = received;
+      _flocks = flocks;
       _stock = stock;
+      _farmName = farmName;
       _loading = false;
     });
   }
@@ -60,18 +75,26 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   Future<void> _showAddConsumptionDialog() async {
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (ctx) => const _FeedConsumptionDialog(),
+      builder: (ctx) => _FeedConsumptionDialog(
+        flocks: _flocks,
+        farmName: _farmName,
+      ),
     );
     if (result != null && mounted) {
       final workerId = ref.read(authProvider).currentUser?.uid ?? 'manager';
       final mode = result['mode'] as FeedEntryMode;
       FeedConsumptionModel record;
+      final sectionNo = result['section_no'] as int?;
       if (mode == FeedEntryMode.bags) {
-        record = FeedConsumptionModel.fromBags(
+        final bags = result['bags'] as int;
+        record = FeedConsumptionModel(
           farmId: _farmId,
           date: result['date'] as DateTime,
-          bags: result['bags'] as int,
+          entryMode: FeedEntryMode.bags,
+          bagsCount: bags,
+          quantityKg: bags * AppConstants.kgPerBag,
           workerId: workerId,
+          sectionNo: sectionNo,
         );
       } else {
         record = FeedConsumptionModel(
@@ -80,6 +103,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
           entryMode: FeedEntryMode.kg,
           quantityKg: result['quantity_kg'] as double,
           workerId: workerId,
+          sectionNo: sectionNo,
         );
       }
       await ref.read(feedRepositoryProvider).saveConsumptionLocal(record);
@@ -95,7 +119,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   Future<void> _showAddReceivedDialog() async {
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (ctx) => const _FeedReceivedDialog(),
+      builder: (ctx) => _FeedReceivedDialog(
+        flocks: _flocks,
+        farmName: _farmName,
+      ),
     );
     if (result != null && mounted) {
       final farmId = _farmId;
@@ -116,6 +143,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         supplier: result['supplier'] as String?,
         invoiceNumber: result['invoice_number'] as String?,
         notes: result['notes'] as String?,
+        sectionNo: result['section_no'] as int?,
       );
       await ref.read(feedRepositoryProvider).saveReceivedLocal(record);
       if (mounted) {
@@ -562,7 +590,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
 /// نافذة إدخال استهلاك علف
 class _FeedConsumptionDialog extends StatefulWidget {
-  const _FeedConsumptionDialog();
+  final List<FlockModel> flocks;
+  final String farmName;
+  const _FeedConsumptionDialog({required this.flocks, required this.farmName});
   @override
   State<_FeedConsumptionDialog> createState() => _FeedConsumptionDialogState();
 }
@@ -572,6 +602,14 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
   DateTime _date = DateTime.now();
   final _bagsCtrl = TextEditingController();
   final _kgCtrl = TextEditingController();
+  int? _sectionNo;
+
+  bool get _hasMultipleSections =>
+      widget.flocks.any((f) => f.sectionsCount > 1);
+
+  int get _maxSections => widget.flocks
+      .where((f) => f.sectionsCount > 1)
+      .fold<int>(1, (m, f) => f.sectionsCount > m ? f.sectionsCount : m);
 
   @override
   void dispose() {
@@ -591,6 +629,19 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'المدجنة: ${widget.farmName}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 12),
               InkWell(
                 onTap: () async {
                   final d = await showDatePicker(
@@ -663,6 +714,7 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
                 'mode': FeedEntryMode.bags,
                 'date': _date,
                 'bags': bags,
+                'section_no': _sectionNo,
               });
             } else {
               final kg = double.tryParse(_kgCtrl.text) ?? 0;
@@ -676,6 +728,7 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
                 'mode': FeedEntryMode.kg,
                 'date': _date,
                 'quantity_kg': kg,
+                'section_no': _sectionNo,
               });
             }
           },
@@ -687,7 +740,9 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
 }
 /// نافذة إدخال استلام علف
 class _FeedReceivedDialog extends StatefulWidget {
-  const _FeedReceivedDialog();
+  final List<FlockModel> flocks;
+  final String farmName;
+  const _FeedReceivedDialog({required this.flocks, required this.farmName});
   @override
   State<_FeedReceivedDialog> createState() => _FeedReceivedDialogState();
 }
@@ -700,6 +755,14 @@ class _FeedReceivedDialogState extends State<_FeedReceivedDialog> {
   final _supplierCtrl = TextEditingController();
   final _invoiceCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
+  int? _sectionNo;
+
+  bool get _hasMultipleSections =>
+      widget.flocks.any((f) => f.sectionsCount > 1);
+
+  int get _maxSections => widget.flocks
+      .where((f) => f.sectionsCount > 1)
+      .fold<int>(1, (m, f) => f.sectionsCount > m ? f.sectionsCount : m);
 
   double get _quantityKg {
     final qty = double.tryParse(_quantityCtrl.text) ?? 0;
@@ -730,6 +793,19 @@ class _FeedReceivedDialogState extends State<_FeedReceivedDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'المدجنة: ${widget.farmName}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 12),
               // التاريخ
               InkWell(
                 onTap: () async {
@@ -860,6 +936,7 @@ class _FeedReceivedDialogState extends State<_FeedReceivedDialog> {
               'supplier': _supplierCtrl.text.isEmpty ? null : _supplierCtrl.text,
               'invoice_number': _invoiceCtrl.text.isEmpty ? null : _invoiceCtrl.text,
               'notes': _notesCtrl.text.isEmpty ? null : _notesCtrl.text,
+              'section_no': _sectionNo,
             });
           },
           child: const Text('حفظ'),

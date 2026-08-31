@@ -15,6 +15,7 @@ class UsersScreen extends ConsumerStatefulWidget {
 class _UsersScreenState extends ConsumerState<UsersScreen> {
   List<UserModel> _users = [];
   bool _loading = true;
+  String _farmName = '';
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
   String get _currentUid => ref.read(authProvider).currentUser?.uid ?? '';
@@ -30,8 +31,16 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
     try {
       final users =
           await ref.read(userAdminRepositoryProvider).getUsers(_farmId);
+      String farmName = '';
+      try {
+        final farm = await ref.read(farmRepositoryProvider).getFarm(_farmId);
+        farmName = farm.name;
+      } catch (_) {}
       if (!mounted) return;
-      setState(() => _users = users);
+      setState(() {
+        _users = users;
+        _farmName = farmName;
+      });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -84,6 +93,19 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'المدجنة: $_farmName',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: nameCtrl,
                   decoration:

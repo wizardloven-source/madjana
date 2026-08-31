@@ -28,6 +28,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
   DateTime _fromDate = DateTime(2020);
   DateTime _toDate = DateTime.now();
   String _search = '';
+  String _farmName = '';
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
   String get _managerId => ref.read(authProvider).currentUser?.uid ?? '';
@@ -43,10 +44,16 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
     final dispatchRepo = ref.read(dispatchRepositoryProvider);
     final paymentRepo = ref.read(paymentRepositoryProvider);
     final eggRepo = ref.read(eggProductionRepositoryProvider);
+    final farmRepo = ref.read(farmRepositoryProvider);
 
     final dispatches = await dispatchRepo.getAll(farmId: _farmId);
     final customers = await dispatchRepo.getCustomers(_farmId);
     final payments = await paymentRepo.getAll(farmId: _farmId);
+    String farmName = '';
+    try {
+      final farm = await farmRepo.getFarm(_farmId);
+      farmName = farm.name;
+    } catch (_) {}
 
     // المخزون الحي = كل الإنتاج - كل التخريج
     try {
@@ -63,6 +70,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       _dispatches = dispatches;
       _customers = {for (final c in customers) c.id! : c};
       _payments = payments;
+      _farmName = farmName;
       _loading = false;
     });
   }
@@ -138,6 +146,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       builder: (ctx) => _DispatchEntryDialog(
         customers: _customers.values.toList(),
         currentStock: _currentStock,
+        farmName: _farmName,
       ),
     );
     if (result != null && mounted) {
@@ -596,7 +605,8 @@ class _PaymentDialogState extends State<_PaymentDialog> {
 class _DispatchEntryDialog extends StatefulWidget {
   final List<CustomerModel> customers;
   final int currentStock;
-  const _DispatchEntryDialog({required this.customers, required this.currentStock});
+  final String farmName;
+  const _DispatchEntryDialog({required this.customers, required this.currentStock, required this.farmName});
   @override
   State<_DispatchEntryDialog> createState() => _DispatchEntryDialogState();
 }
@@ -635,6 +645,19 @@ class _DispatchEntryDialogState extends State<_DispatchEntryDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'المدجنة: ${widget.farmName}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 12),
               if (widget.currentStock > 0)
                 Container(
                   padding: const EdgeInsets.all(10),
