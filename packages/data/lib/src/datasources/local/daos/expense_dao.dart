@@ -45,6 +45,12 @@ class ExpenseDao {
     );
     return maps;
   }
+
+  /// الحصول على السجلات المعلقة كنماذج ExpenseModel (لمزامنتها)
+  Future<List<ExpenseModel>> getPendingModels({int limit = 50}) async {
+    final maps = await getPendingRecords(limit: limit);
+    return maps.map(_fromMap).toList();
+  }
   
   /// تحديث حالة المزامنة
   Future<void> updateSyncStatus(String id, SyncStatus status) async {

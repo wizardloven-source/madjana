@@ -16,15 +16,19 @@ class AuthState {
 
   bool get isLoggedIn => currentUser != null;
 
+  // علم مميز: يسمح لإفراغ الحقول nullable (كإزالة المستخدم)
+  static const _unset = Object();
+
   AuthState copyWith({
-    UserModel? currentUser,
+    Object? currentUser = _unset,
     bool? isLoading,
-    String? error,
+    Object? error = _unset,
+    bool clearError = false,
   }) {
     return AuthState(
-      currentUser: currentUser ?? this.currentUser,
+      currentUser: identical(currentUser, _unset) ? this.currentUser : currentUser as UserModel?,
       isLoading: isLoading ?? this.isLoading,
-      error: error ?? this.error,
+      error: clearError ? null : (identical(error, _unset) ? this.error : error as String?),
     );
   }
 }

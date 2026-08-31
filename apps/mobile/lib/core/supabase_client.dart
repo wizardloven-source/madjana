@@ -4,15 +4,27 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// إعدادات Supabase Client
 ///
 /// تُقرأ المفاتيح من ملف `.env` (SUPABASE_URL, SUPABASE_ANON_KEY)
-/// مع قيم احتياطية للطواريء.
+/// أو من --dart-define عند البناء. لا يوجد أي fallback للإنتاج —
+/// التطبيق يعمل Offline-first حتى تتوفر المفاتيح.
 class SupabaseConfig {
-  static const String _fallbackUrl = 'https://iefwbcwhpyajhohpxwmj.supabase.co';
-  static const String _fallbackKey = 'sb_publishable_oVQbOeVQVgJFTpvh6GvroQ_eoY_dZzE';
+  // لا يوجد مفتاح/رابط إنتاجي مدمج (hardcoded) — يمنع ربط البناء
+  // بمشروع Supabase محدد وإخفاء مفاتيح. يُمرَّر عبر -dart-define أو .env
+  static const String _defineUrl = String.fromEnvironment('SUPABASE_URL');
+  static const String _defineKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
-  static String get supabaseUrl =>
-      dotenv.env['SUPABASE_URL'] ?? _fallbackUrl;
-  static String get supabaseAnonKey =>
-      dotenv.env['SUPABASE_ANON_KEY'] ?? _fallbackKey;
+  static String? get supabaseUrl {
+    final fromEnv = dotenv.env['SUPABASE_URL'];
+    if (fromEnv != null && fromEnv.isNotEmpty) return fromEnv;
+    if (_defineUrl.isNotEmpty) return _defineUrl;
+    return null;
+  }
+
+  static String? get supabaseAnonKey {
+    final fromEnv = dotenv.env['SUPABASE_ANON_KEY'];
+    if (fromEnv != null && fromEnv.isNotEmpty) return fromEnv;
+    if (_defineKey.isNotEmpty) return _defineKey;
+    return null;
+  }
 
   static bool _initialized = false;
   static bool get isReady => _initialized;
@@ -24,8 +36,8 @@ class SupabaseConfig {
     // التحقق من صحة المفاتيح أولاً
     final url = supabaseUrl;
     final key = supabaseAnonKey;
-    if (url.isEmpty || key.isEmpty) {
-      throw Exception('Supabase URL أو API key فارغ — تحقق من ملف .env');
+    if (url == null || url.isEmpty || key == null || key.isEmpty) {
+      throw Exception('Supabase URL أو API key غير متوفر — مرّرها عبر --dart-define أو ملف .env');
     }
 
     await Supabase.initialize(
@@ -39,13 +51,13 @@ class SupabaseConfig {
     _initialized = true;
   }
 
-  /// اختبار الاتصال بالسيرفر
+  /// اختبار الاتصال بالسيرفر (لا يكشف المفتاح)
   static Future<String> testConnection() async {
     final url = supabaseUrl;
     final key = supabaseAnonKey;
     final buffer = StringBuffer();
-    buffer.writeln('URL: $url');
-    buffer.writeln('Key: ${key.substring(0, key.length > 20 ? 20 : key.length)}...');
+    buffer.writeln('URL: ${url ?? "غير مضبوط"}');
+    buffer.writeln('Key configured: ${(key != null && key.isNotEmpty) ? "YES" : "NO"}');
     buffer.writeln('Initialized: $_initialized');
     return buffer.toString();
   }

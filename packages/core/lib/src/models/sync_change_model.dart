@@ -77,6 +77,7 @@ class SyncChangeModel {
   }
 
   /// إنشاء نسخة محدثة من النموذج
+  /// ملاحظة: استخدم علم (sentinel) للسماح بإفراغ الحقول nullable مثل payload.
   SyncChangeModel copyWith({
     int? id,
     String? farmId,
@@ -89,6 +90,9 @@ class SyncChangeModel {
     SyncStatus? status,
     int? serverVersion,
     String? errorMessage,
+    bool clearPayload = false,
+    bool clearError = false,
+    bool clearServerVersion = false,
   }) {
     return SyncChangeModel(
       id: id ?? this.id,
@@ -98,10 +102,10 @@ class SyncChangeModel {
       operation: operation ?? this.operation,
       changedAt: changedAt ?? this.changedAt,
       userId: userId ?? this.userId,
-      payload: payload ?? this.payload,
+      payload: clearPayload ? null : (payload ?? this.payload),
       status: status ?? this.status,
-      serverVersion: serverVersion ?? this.serverVersion,
-      errorMessage: errorMessage ?? this.errorMessage,
+      serverVersion: clearServerVersion ? null : (serverVersion ?? this.serverVersion),
+      errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
     );
   }
 }

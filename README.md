@@ -43,7 +43,7 @@ madjana/
 
 ### 2. Supabase
 1. أنشئ مشروع Supabase.
-2. نفّذ ملف `supabase/migrations/001_initial_schema.sql` من محرر SQL.
+2. نفّذ ملف `supabase/migrations/20250101000000_initial_schema.sql` من محرر SQL.
 3. أنشئ الجداول المرجعية: `medicines_catalog` (كتالوج الأدوية).
 4. أنشئ مستخدماً مديراً:
    ```sql
@@ -53,10 +53,15 @@ madjana/
    VALUES (
      '<auth.user.id>',        -- من Authentication → Users
      'المدير', '07xxxxxxxx',
-     'manager',
-     '<sha256 للرقم السري 4 أرقام>',
-     '<farm_id>'
-   );
+      'manager',
+      '<bcrypt hash للرقم السري 4 أرقام عبر app_password_from_pin>',
+      '<farm_id>'
+    );
+   ```
+   ```
+   > كلمة المرور المخزنة هي `'madjana$' + <الرقم السري 4 أرقام>`، وتُولَّد عبر الدالة
+   > SQL `app_password_from_pin(p_pin)` التي تُشغَّل في migration، ثم يُحفظ ناتجها
+   > لمطابقة عمود `encrypted_password` (bcrypt) الذي يتحقق منه GoTrue.
    ```
 5. ارفع Edge Function:
    ```bash
@@ -65,16 +70,21 @@ madjana/
 6. عيّن المتغيرات: `SUPABASE_URL` و `SUPABASE_SERVICE_ROLE_KEY` (تلقائياً في dashboard).
 
 ### 3. ضبط المفاتيح
-في كل من:
+لا يُدمج أي مفتاح Supabase في الكود. تُمرَّر المفاتيح عبر أحد الطريقتين في كل من:
 - `apps/mobile/lib/core/supabase_client.dart`
 - `apps/desktop/lib/core/supabase_client.dart`
 
-استبدل:
-```dart
-static const String supabaseUrl = 'https://YOUR_PROJECT.supabase.co';
-static const String supabaseAnonKey = 'YOUR_ANON_KEY';
+**الطريقة 1 — ملف `.env`** (موصى به محلياً):
 ```
-بمفاتيح مشروعك الفعلي.
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+SUPABASE_ANON_KEY=YOUR_ANON_KEY
+```
+
+**الطريقة 2 — `--dart-define`** أثناء البناء/التشغيل:
+```bash
+flutter run --dart-define=SUPABASE_URL=https://YOUR_PROJECT.supabase.co \
+            --dart-define=SUPABASE_ANON_KEY=YOUR_ANON_KEY
+```
 
 ### 4. تشغيل الموبايل
 ```bash
@@ -100,4 +110,4 @@ flutter test      # في packages/core (اختبارات حساب البيض)
 ## ملاحظات أمنية
 - `payments` محمية بـ RLS: **المدير فقط**.
 - العامل لا يصل أبداً لشاشة القبض ولا للأسعار (يُمنع حتى على مستوى التطبيق).
-- PIN مشفّر بـ SHA-256 في `users.pin_hash`.
+- PIN مشفّر بـ bcrypt (مع pepper `madjana$`) في `users.pin_hash`، ويطابق `encrypted_password` الذي يتحقق منه GoTrue.

@@ -104,6 +104,11 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
       final farmId = ref.read(authProvider).currentUser?.farmId ?? '';
       if (farmId.isEmpty) return;
       try {
+        // رفع المصروفات المحفوظة محلياً أثناء الانقطاع (المدير فقط)
+        try {
+          await ref.read(expenseRepositoryProvider).syncPendingRecords();
+        } catch (_) {}
+
         final pulled = await ref.read(syncRepositoryProvider).syncNow(farmId);
         if (pulled.uploadedCount > 0 || pulled.downloadedCount > 0 && mounted) {
           ref.read(dataRefreshTickProvider.notifier).state++;

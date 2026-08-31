@@ -67,7 +67,7 @@ final authRepositoryProvider = Provider<AuthRepository>(
   (ref) => AuthRepositoryImpl(
     remoteDatasource: ref.watch(supabaseAuthDatasourceProvider),
     sessionDao: ref.watch(sessionDaoProvider),
-    settingsDao: SettingsDao(),
+    settingsDao: ref.watch(settingsDaoProvider),
   ),
 );
 

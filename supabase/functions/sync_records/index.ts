@@ -8,18 +8,74 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-// الخادم العام للقراءة (GET، CORS)
+// الخادم العام للتحقق من JWT فقط (لا يُستخدم لتنفيذ RPC)
 const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-Deno.serve(async (req) => {
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
+// العقد الموحد بين العميل والـ Edge Function والـ SQL
+type SyncOperation = "insert" | "update" | "delete";
+
+type SyncRecord = {
+  table_name: string;
+  operation: SyncOperation;
+  operation_id?: string | null;
+  record_id: string;
+  payload: Record<string, unknown> | null;
+  previous_version: number | null;
+};
+
+// قائمة المصادر المسموح بها (CORS) — تُضاف هنا الزبائن المعتمدة فقط
+const ALLOWED_ORIGINS: string[] = [
+  // التطبيقات الـ native لا ترسل Origin، لكن تُحتفظ بالقائمة لمن يستخدم Web لاحقاً
+  // "https://app.madjana.example",
+];
+
+function getCorsHeaders(req: Request) {
+  const origin = req.headers.get("Origin");
+  const headers: Record<string, string> = {
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
   };
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
+}
+
+// تحقق صريح (runtime) من صحة كل سجل قبل المتابعة
+function validateRecord(r: Record<string, unknown>): { ok: true; value: SyncRecord } | { ok: false; error: string } {
+  const ERR = (msg: string) => ({ ok: false as const, error: msg });
+
+  if (typeof r !== "object" || r === null) return ERR("سجل غير صالح");
+  if (typeof r["table_name"] !== "string" || r["table_name"] === "") return ERR("table_name ناقص");
+  const op = r["operation"];
+  if (op !== "insert" && op !== "update" && op !== "delete") return ERR("operation غير صالح");
+  if (typeof r["record_id"] !== "string" || r["record_id"] === "") return ERR("record_id ناقص");
+  const payload = r["payload"] ?? {};
+  if (payload !== null && (typeof payload !== "object" || Array.isArray(payload))) {
+    return ERR("payload غير صالح");
+  }
+  const pv = r["previous_version"];
+  if (pv !== null && pv !== undefined && typeof pv !== "number") return ERR("previous_version غير صالح");
+
+  return {
+    ok: true,
+    value: {
+      table_name: r["table_name"] as string,
+      operation: op as SyncOperation,
+      operation_id: (r["operation_id"] as string) ?? null,
+      record_id: r["record_id"] as string,
+      payload: payload as Record<string, unknown> | null,
+      previous_version: (pv as number | null) ?? null,
+    },
+  };
+}
+
+Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
 
   // CORS preflight
   if (req.method === "OPTIONS") {
@@ -58,37 +114,50 @@ Deno.serve(async (req) => {
     );
 
     const body = await req.json();
-    const { records } = body as {
-      records: Array<{
-        table_name: string;
-        operation: string;
-        operation_id?: string;
-        record_id: string;
-        payload: Record<string, unknown>;
-        previous_version?: number;
-      }>;
-    };
+    const rawRecords = body?.records ?? [];
 
-    if (!Array.isArray(records) || records.length === 0) {
+    if (!Array.isArray(rawRecords) || rawRecords.length === 0) {
       return new Response(
         JSON.stringify({ error: "Invalid records" }),
         { status: 400, headers: corsHeaders },
       );
     }
 
-    // FIX #12: نمرر operation_id للـ Idempotency
-    const normalized = records.map((r) => ({
-      table_name: r.table_name,
-      operation: r.operation,
-      record_id: r.record_id,
-      operation_id: r.operation_id ?? null,
-      data: r.payload ?? {},
-      previous_version: r.previous_version ?? null,
-    }));
+    // إزالة السجلات غير الصالحة مع توليد استجابة مفصلة لكل سجل مرفوض
+    const normalized: SyncRecord[] = [];
+    const rejected: { record_id: string; message: string }[] = [];
+    for (const raw of rawRecords) {
+      const check = validateRecord(raw as Record<string, unknown>);
+      if (check.ok) {
+        normalized.push(check.value);
+      } else {
+        rejected.push({
+          record_id: (raw as Record<string, unknown>)?.["record_id"] as string ?? "",
+          message: check.error,
+        });
+      }
+    }
+
+    if (normalized.length === 0) {
+      return new Response(
+        JSON.stringify({ error: "No valid records", rejected }),
+        { status: 400, headers: corsHeaders },
+      );
+    }
 
     // استخدام client المستخدم (而非 service role) لضمان عمل auth.uid()
+    // التحويل إلى عقد SQL: الحقل `data` وليس `payload`
+    const rpcInput = normalized.map((r) => ({
+      table_name: r.table_name,
+      operation: r.operation,
+      operation_id: r.operation_id,
+      record_id: r.record_id,
+      data: r.payload ?? {},
+      previous_version: r.previous_version,
+    }));
+
     const { data, error } = await supabaseUser.rpc("sync_records_batch", {
-      p_records: JSON.stringify(normalized),
+      p_records: JSON.stringify(rpcInput),
     });
 
     if (error) {

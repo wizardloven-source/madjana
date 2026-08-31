@@ -13,6 +13,9 @@ abstract class ExpenseRepository {
 
   Future<void> delete(String id);
 
+  /// رفع المصروفات المعلقة (Offline-first) إلى السحابة
+  Future<void> syncPendingRecords();
+
   /// إجمالي المصروفات ضمن فترة
   Future<double> getTotal({
     required String farmId,

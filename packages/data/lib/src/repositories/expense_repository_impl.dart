@@ -72,6 +72,24 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     }
   }
 
+  /// رفع المصروفات المعلقة (المحفوظة محلياً أثناء الانقطاع) إلى السحابة
+  @override
+  Future<void> syncPendingRecords() async {
+    final pending = await _localDao.getPendingModels();
+    if (pending.isEmpty) return;
+
+    for (final expense in pending) {
+      final id = expense.id;
+      if (id == null) continue;
+      try {
+        await _remoteDatasource.insert(expense);
+        await _localDao.updateSyncStatus(id, SyncStatus.synced);
+      } catch (_) {
+        // يبقى pending للمحاولة التالية
+      }
+    }
+  }
+
   @override
   Future<double> getTotal({
     required String farmId,

@@ -1,4 +1,5 @@
-﻿import 'dart:io';
+﻿import 'dart:convert';
+import 'dart:io';
 
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -753,5 +754,84 @@ class LocalDatabase {
   static Future<void> close() async {
     await _database?.close();
     _database = null;
+  }
+
+  /// فحص سلامة قاعدة البيانات (PRAGMA integrity_check)
+  /// يعيد true إذا كانت القاعدة سليمة.
+  static Future<bool> runIntegrityCheck() async {
+    try {
+      final db = await database;
+      final rows = await db.rawQuery('PRAGMA integrity_check');
+      if (rows.isEmpty) return false;
+      final status = rows.first.values.first?.toString() ?? '';
+      return status == 'ok';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// نسخ قاعدة البيانات إلى ملف احتياطي (مع الطابع الزمني)
+  /// تُستخدم قبل أي عملية قد تُفقد البيانات (حذف/مسح/إصلاح جذري).
+  static Future<String?> backupDatabase() async {
+    try {
+      final src = await databasePath();
+      final file = File(src);
+      if (!await file.exists()) return null;
+
+      final now = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .replaceAll('.', '-');
+      final backupPath = '${src}_backup_$now.db';
+      await file.copy(backupPath);
+
+      // نسخ احتياطي منفصل لطلاب المزامنة المعلقة لحماية البيانات غير المرفوعة
+      try {
+        final db = await database;
+        final pendingDir = Directory(join(Directory(src).parent.path, 'madjana_backups'));
+        await pendingDir.create(recursive: true);
+        final pendingFile = File(join(pendingDir.path, 'pending_changes_$now.json'));
+        final result = await db.rawQuery(
+          "SELECT record_id, table_name, action, payload, user_id, status "
+          "FROM sync_queue WHERE status != 'synced'",
+        );
+        if (result.isNotEmpty) {
+          await pendingFile.writeAsString(
+            const JsonEncoder.withIndent('  ').convert(result),
+          );
+        }
+      } catch (_) {
+        // نسخ الاحتياطي للطابور فشل — لكن نسخة القاعدة نجحت
+      }
+
+      return backupPath;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// استرجاع آخر نسخة احتياطية (تُستخدم كملاذ أخير بعد تلف مؤكد)
+  static Future<bool> restoreLatestBackup() async {
+    try {
+      final src = await databasePath();
+      final dir = Directory(src).parent.path;
+      final backups = Directory(dir)
+          .listSync()
+          .where((e) =>
+              e is File &&
+              e.path.contains('_backup_') &&
+              e.path.endsWith('.db'))
+          .cast<File>()
+          .toList()
+        ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+      if (backups.isEmpty) return false;
+
+      await close();
+      await backups.first.copy(src);
+      await database;
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }
