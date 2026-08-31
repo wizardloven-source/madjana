@@ -10,6 +10,8 @@ class ExpenseModel {
   final double amount;
   final SyncStatus syncStatus;
   final DateTime? createdAt;
+  final int version;
+  final int? previousVersion;
 
   const ExpenseModel({
     this.id,
@@ -20,6 +22,8 @@ class ExpenseModel {
     required this.amount,
     this.syncStatus = SyncStatus.synced,
     this.createdAt,
+    this.version = 1,
+    this.previousVersion,
   });
 
   factory ExpenseModel.fromJson(Map<String, dynamic> json) {
@@ -40,6 +44,7 @@ class ExpenseModel {
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String)
           : null,
+      version: json['version'] as int? ?? 1,
     );
   }
 
@@ -52,6 +57,7 @@ class ExpenseModel {
         'amount': amount,
         'sync_status': syncStatus.name,
         if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+        'version': version,
       };
 
   ExpenseModel copyWith({
@@ -62,6 +68,8 @@ class ExpenseModel {
     String? description,
     double? amount,
     SyncStatus? syncStatus,
+    int? version,
+    int? previousVersion,
   }) {
     return ExpenseModel(
       id: id ?? this.id,
@@ -72,6 +80,8 @@ class ExpenseModel {
       amount: amount ?? this.amount,
       syncStatus: syncStatus ?? this.syncStatus,
       createdAt: createdAt,
+      version: version ?? this.version,
+      previousVersion: previousVersion ?? this.previousVersion,
     );
   }
 }

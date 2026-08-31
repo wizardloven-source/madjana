@@ -16,6 +16,8 @@ class DispatchModel {
   final PaymentStatus paymentStatus;
   final String workerId;
   final SyncStatus syncStatus;
+  final int version;
+  final int? previousVersion;
 
   const DispatchModel({
     this.id,
@@ -29,6 +31,8 @@ class DispatchModel {
     this.paymentStatus = PaymentStatus.unpaid,
     required this.workerId,
     this.syncStatus = SyncStatus.pending,
+    this.version = 1,
+    this.previousVersion,
   });
 
   /// وزن البيضة الواحدة بالجرام (وزن الصحن ÷ 30 × 1000)
@@ -58,6 +62,7 @@ class DispatchModel {
         (e) => e.name == json['sync_status'],
         orElse: () => SyncStatus.pending,
       ),
+      version: json['version'] as int? ?? 1,
     );
   }
 
@@ -74,5 +79,6 @@ class DispatchModel {
         'payment_status': paymentStatus.name,
         'worker_id': workerId,
         'sync_status': syncStatus.name,
+        'version': version,
       };
 }

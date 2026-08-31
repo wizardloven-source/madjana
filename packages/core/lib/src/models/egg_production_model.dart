@@ -21,6 +21,12 @@ class EggProductionModel {
   /// رقم العنبر داخل المدجنة (1..sections_count) — اختياري
   final int? sectionNo;
 
+  /// إصدار السجل (version-based conflict detection)
+  final int version;
+
+  /// الإصدار السابق عند التزامن (يُستخدم فقط عند الإرسال، لا يُخزن في قاعدة البيانات)
+  final int? previousVersion;
+
   const EggProductionModel({
     this.id,
     required this.farmId,
@@ -37,6 +43,8 @@ class EggProductionModel {
     this.createdAt,
     this.updatedAt,
     this.sectionNo,
+    this.version = 1,
+    this.previousVersion,
   });
 
   /// الإجمالي محسوب تلقائياً
@@ -78,6 +86,7 @@ class EggProductionModel {
       updatedAt: json['updated_at'] != null
           ? DateTime.parse(json['updated_at'] as String)
           : null,
+      version: json['version'] as int? ?? 1,
     );
   }
 
@@ -96,6 +105,7 @@ class EggProductionModel {
         if (sectionNo != null) 'section_no': sectionNo,
         'worker_id': workerId,
         'sync_status': syncStatus.name,
+        'version': version,
       };
 
   EggProductionModel copyWith({
@@ -110,6 +120,8 @@ class EggProductionModel {
     DateTime? createdAt,
     DateTime? updatedAt,
     SyncStatus? syncStatus,
+    int? version,
+    int? previousVersion,
   }) {
     return EggProductionModel(
       id: id ?? this.id,
@@ -127,6 +139,8 @@ class EggProductionModel {
       syncStatus: syncStatus ?? this.syncStatus,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      version: version ?? this.version,
+      previousVersion: previousVersion ?? this.previousVersion,
     );
   }
 }

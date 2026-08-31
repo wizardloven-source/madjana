@@ -14,6 +14,8 @@ class MedicationModel {
   final String? notes;
   final String workerId;
   final SyncStatus syncStatus;
+  final int version;
+  final int? previousVersion;
 
   const MedicationModel({
     this.id,
@@ -28,6 +30,8 @@ class MedicationModel {
     this.notes,
     required this.workerId,
     this.syncStatus = SyncStatus.pending,
+    this.version = 1,
+    this.previousVersion,
   });
 
   factory MedicationModel.fromJson(Map<String, dynamic> json) {
@@ -53,6 +57,7 @@ class MedicationModel {
         (e) => e.name == json['sync_status'],
         orElse: () => SyncStatus.pending,
       ),
+      version: json['version'] as int? ?? 1,
     );
   }
 
@@ -69,5 +74,6 @@ class MedicationModel {
         'notes': notes,
         'worker_id': workerId,
         'sync_status': syncStatus.name,
+        'version': version,
       };
 }

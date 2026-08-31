@@ -1,15 +1,14 @@
 -- ============================================================
 -- Madjana - نظام إدارة المدجنة
--- مخطط قاعدة البيانات الموحد
+-- مخطط قاعدة البيانات الموحد - المرحلة 1 (الأمان + تكامل البيانات)
 --
--- مبني على 010_rebuild_clean.sql مع إضافة:
---   - mortality.section_no
---   - feed_consumption.section_no
---   - feed_received.section_no + price_per_kg
---   - egg_dispatch.tray_weight_kg
---   - sync_status يدعم: pending, synced, failed, processing, conflict
---   - feed_type يدعم: main, starter, grower, layer
---   - إنشاء sequence global_sync_version
+-- إضافات المرحلة 1:
+--   - version BIGINT لكل الجداول التشغيلية (version-based conflict detection)
+--   - deleted_at للـ Soft Delete
+--   - sync_records_batch مع whitelist + auth.uid()
+--   - trigger النفوق مع UPDATE/DELETE + منع السالب
+--   - validate_flock_farm trigger (cross-farm protection)
+--   - mortality.section_no / feed_consumption.section_no / feed_received.section_no
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -102,8 +101,10 @@ CREATE TABLE flocks (
     status         TEXT NOT NULL DEFAULT 'active'
                        CHECK (status IN ('active', 'depleted')),
     sections_count INTEGER NOT NULL DEFAULT 1,
+    version        BIGINT NOT NULL DEFAULT 1,
     created_at     TIMESTAMPTZ DEFAULT NOW(),
-    updated_at     TIMESTAMPTZ DEFAULT NOW()
+    updated_at     TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at     TIMESTAMPTZ
 );
 CREATE INDEX idx_flocks_farm ON flocks(farm_id);
 CREATE INDEX idx_flocks_status ON flocks(status);
@@ -115,8 +116,10 @@ CREATE TABLE customers (
     phone      TEXT NOT NULL,
     notes      TEXT,
     total_debt NUMERIC(12,2) DEFAULT 0,
+    version    BIGINT NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
 );
 CREATE INDEX idx_customers_farm ON customers(farm_id);
 
@@ -136,13 +139,16 @@ CREATE TABLE egg_production (
     worker_id      UUID NOT NULL REFERENCES users(id),
     sync_status    TEXT DEFAULT 'synced'
                        CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
+    version        BIGINT NOT NULL DEFAULT 1,
     created_at     TIMESTAMPTZ DEFAULT NOW(),
     updated_at     TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at     TIMESTAMPTZ,
     CONSTRAINT check_broken_dirty CHECK (broken_eggs + dirty_eggs <= total_eggs)
 );
 CREATE INDEX idx_egg_production_farm ON egg_production(farm_id);
 CREATE INDEX idx_egg_production_flock ON egg_production(flock_id);
 CREATE INDEX idx_egg_production_date ON egg_production(date);
+CREATE UNIQUE INDEX idx_egg_production_flock_date ON egg_production(flock_id, date) WHERE deleted_at IS NULL;
 
 CREATE TABLE mortality (
     id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -201,11 +207,12 @@ CREATE TABLE feed_received (
     price_per_kg   NUMERIC(10,2),
     section_no     INTEGER,
     worker_id      UUID DEFAULT '00000000-0000-0000-0000-000000000000'::uuid,
-    sync_status    TEXT DEFAULT 'synced'
-                       CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
-    created_at     TIMESTAMPTZ DEFAULT NOW(),
-    updated_at     TIMESTAMPTZ DEFAULT NOW(),
-    deleted_at     TIMESTAMPTZ
+    sync_status  TEXT DEFAULT 'synced'
+                     CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
+    version      BIGINT NOT NULL DEFAULT 1,
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at   TIMESTAMPTZ
 );
 
 CREATE TABLE egg_dispatch (
@@ -221,9 +228,10 @@ CREATE TABLE egg_dispatch (
     payment_status  TEXT NOT NULL DEFAULT 'unpaid'
                         CHECK (payment_status IN ('unpaid', 'partial', 'paid')),
     worker_id       UUID NOT NULL REFERENCES users(id),
-    sync_status     TEXT DEFAULT 'synced'
-                        CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    sync_status  TEXT DEFAULT 'synced'
+                     CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
+    version      BIGINT NOT NULL DEFAULT 1,
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW(),
     deleted_at      TIMESTAMPTZ
 );
@@ -248,6 +256,7 @@ CREATE TABLE payments (
     deleted_at       TIMESTAMPTZ,
     sync_status      TEXT DEFAULT 'synced'
                          CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
+    version          BIGINT NOT NULL DEFAULT 1,
     CONSTRAINT check_amount CHECK (amount_paid <= total_due)
 );
 
@@ -269,7 +278,8 @@ CREATE TABLE medications (
     updated_at           TIMESTAMPTZ DEFAULT NOW(),
     deleted_at           TIMESTAMPTZ,
     sync_status          TEXT DEFAULT 'synced'
-                             CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict'))
+                             CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
+    version              BIGINT NOT NULL DEFAULT 1
 );
 
 CREATE TABLE medicines_catalog (
@@ -295,7 +305,8 @@ CREATE TABLE expenses (
     updated_at  TIMESTAMPTZ DEFAULT NOW(),
     deleted_at  TIMESTAMPTZ,
     sync_status TEXT DEFAULT 'synced'
-                    CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict'))
+                    CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
+    version     BIGINT NOT NULL DEFAULT 1
 );
 CREATE INDEX idx_expenses_farm_date ON expenses(farm_id, date);
 CREATE INDEX idx_expenses_category ON expenses(category);
@@ -763,17 +774,49 @@ CREATE TRIGGER trg_calc_dispatch_total
 
 CREATE OR REPLACE FUNCTION public.update_flock_count_on_mortality()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_current_count INTEGER;
+    v_delta INTEGER;
 BEGIN
-    UPDATE flocks
-    SET current_count = current_count - NEW.count,
-        updated_at = NOW()
-    WHERE id = NEW.flock_id;
-    RETURN NEW;
+    IF TG_OP = 'INSERT' THEN
+        SELECT current_count INTO v_current_count
+        FROM flocks WHERE id = NEW.flock_id;
+
+        IF v_current_count < NEW.count THEN
+            RAISE EXCEPTION 'عدد النفوق (%) يتجاوز العدد الحالي (%)', NEW.count, v_current_count;
+        END IF;
+
+        UPDATE flocks
+        SET current_count = current_count - NEW.count, updated_at = NOW()
+        WHERE id = NEW.flock_id;
+
+    ELSIF TG_OP = 'UPDATE' THEN
+        v_delta := NEW.count - OLD.count;
+
+        SELECT current_count INTO v_current_count
+        FROM flocks WHERE id = NEW.flock_id;
+
+        IF v_current_count - v_delta < 0 THEN
+            RAISE EXCEPTION 'التعديل سيؤدي لعدد سالب (%)', v_current_count - v_delta;
+        END IF;
+
+        UPDATE flocks
+        SET current_count = current_count - v_delta, updated_at = NOW()
+        WHERE id = NEW.flock_id;
+
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE flocks
+        SET current_count = current_count + OLD.count, updated_at = NOW()
+        WHERE id = OLD.flock_id;
+    END IF;
+
+    RETURN COALESCE(NEW, OLD);
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_update_flock_count ON mortality;
 CREATE TRIGGER trg_update_flock_count
-    AFTER INSERT ON mortality
+    AFTER INSERT OR UPDATE OR DELETE ON mortality
     FOR EACH ROW EXECUTE FUNCTION public.update_flock_count_on_mortality();
 
 CREATE OR REPLACE FUNCTION public.log_audit_changes()
@@ -1039,6 +1082,234 @@ CREATE POLICY sync_changes_select ON sync_changes
 -- ============================================================
 -- 12) الصلاحيات العامة + إعادة تحميل مخطط PostgREST
 -- ============================================================
+
+-- ============================================================
+-- 13) sync_records_batch - مع whitelist + auth.uid() + version
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.sync_records_batch(
+    p_records jsonb,
+    p_user_id uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_result jsonb := '[]'::jsonb;
+    v_record jsonb;
+    v_data jsonb;
+    v_table_name text;
+    v_record_id uuid;
+    v_operation text;
+    v_user_farm uuid;
+    v_existing_record jsonb;
+    v_new_version bigint;
+    v_affected int := 0;
+    v_skipped int := 0;
+    v_errors int := 0;
+    v_col text;
+    v_cols text[] := '{}';
+    v_vals text[] := '{}';
+    v_set_parts text[] := '{}';
+    v_sql text;
+    v_first bool;
+BEGIN
+    -- whitelist: الجداول المسموح بها فقط (blocked: users, payments, audit_log, farms, sync_changes, medicines_catalog)
+    v_user_farm := public.current_user_farm_id();
+    IF v_user_farm IS NULL THEN
+        RAISE EXCEPTION 'لا يمكن تحديد المزرعة للمستخدم الحالي';
+    END IF;
+
+    FOR v_record IN SELECT * FROM jsonb_array_elements(p_records)
+    LOOP
+        v_table_name := v_record->>'table_name';
+        v_record_id  := (v_record->>'record_id')::uuid;
+        v_operation  := v_record->>'operation';
+        v_data       := v_record->>'data';
+
+        IF v_data IS NULL THEN
+            v_data := '{}'::jsonb;
+        END IF;
+
+        -- حماية ضد تسجيل جداول ممنوعة
+        IF v_table_name NOT IN (
+            'egg_production', 'mortality', 'feed_consumption',
+            'feed_received', 'egg_dispatch', 'medications',
+            'customers', 'flocks', 'expenses',
+            'inventory_items', 'inventory_transactions',
+            'opening_balances'
+        ) THEN
+            v_errors := v_errors + 1;
+            v_result := v_result || jsonb_build_object(
+                'record_id', v_record_id,
+                'status', 'error',
+                'message', 'جدول ممنوع: ' || v_table_name
+            );
+            CONTINUE;
+        END IF;
+
+        -- فحص أن السجل ينتمي لنفس المزرعة (للتعديل والحدف)
+        IF v_operation IN ('update', 'delete') THEN
+            EXECUTE format(
+                'SELECT to_jsonb(t) FROM %I t WHERE t.id = $1 AND t.farm_id = $2',
+                v_table_name
+            ) INTO v_existing_record
+            USING v_record_id, v_user_farm;
+
+            IF v_existing_record IS NULL THEN
+                v_skipped := v_skipped + 1;
+                v_result := v_result || jsonb_build_object(
+                    'record_id', v_record_id,
+                    'status', 'skipped',
+                    'message', 'السجل غير موجود أو لا ينتمي للمزرعة'
+                );
+                CONTINUE;
+            END IF;
+        END IF;
+
+        -- version-based conflict detection للـ UPDATE
+        IF v_operation = 'update' AND v_existing_record IS NOT NULL THEN
+            IF (v_record->>'previous_version') IS NOT NULL
+               AND (v_existing_record->>'version')::bigint > (v_record->>'previous_version')::bigint
+            THEN
+                v_errors := v_errors + 1;
+                v_result := v_result || jsonb_build_object(
+                    'record_id', v_record_id,
+                    'status', 'conflict',
+                    'server_version', (v_existing_record->>'version')::bigint,
+                    'client_version', (v_record->>'previous_version')::bigint
+                );
+                CONTINUE;
+            END IF;
+        END IF;
+
+        BEGIN
+            IF v_operation = 'insert' THEN
+                -- بناء INSERT ديناميكي من بيانات السجل
+                v_cols := ARRAY['id', 'farm_id', 'version'];
+                v_vals := ARRAY[
+                    quote_literal(v_record_id::text),
+                    quote_literal(v_user_farm::text),
+                    '1'
+                ];
+                FOR v_col IN SELECT jsonb_object_keys(v_data)
+                LOOP
+                    IF v_col NOT IN ('id', 'farm_id', 'version', 'previous_version') THEN
+                        v_cols := array_append(v_cols, v_col);
+                        v_vals := array_append(v_vals, quote(v_data->>v_col));
+                    END IF;
+                END LOOP;
+                v_sql := format(
+                    'INSERT INTO %I (%s) VALUES (%s)',
+                    v_table_name,
+                    array_to_string(v_cols, ', '),
+                    array_to_string(v_vals, ', ')
+                );
+                EXECUTE v_sql;
+                v_affected := v_affected + 1;
+
+            ELSIF v_operation = 'update' THEN
+                v_new_version := (v_existing_record->>'version')::bigint + 1;
+                -- بناء SET ديناميكي من بيانات السجل
+                v_set_parts := ARRAY[format('version = %s', v_new_version::text), 'updated_at = NOW()'];
+                FOR v_col IN SELECT jsonb_object_keys(v_data)
+                LOOP
+                    IF v_col NOT IN ('id', 'farm_id', 'version', 'previous_version') THEN
+                        v_set_parts := array_append(v_set_parts, format('%I = %s', v_col, quote(v_data->>v_col)));
+                    END IF;
+                END LOOP;
+                v_sql := format(
+                    'UPDATE %I SET %s WHERE id = %s AND farm_id = %s AND version = %s',
+                    v_table_name,
+                    array_to_string(v_set_parts, ', '),
+                    quote(v_record_id::text),
+                    quote(v_user_farm::text),
+                    quote((v_record->>'previous_version')::text)
+                );
+                EXECUTE v_sql;
+                GET DIAGNOSTICS v_affected = ROW_COUNT;
+                IF v_affected = 0 THEN
+                    v_errors := v_errors + 1;
+                    v_result := v_result || jsonb_build_object(
+                        'record_id', v_record_id,
+                        'status', 'conflict',
+                        'message', 'تعارض في الإصدار أثناء التحديث'
+                    );
+                    CONTINUE;
+                END IF;
+
+            ELSIF v_operation = 'delete' THEN
+                -- soft delete
+                EXECUTE format(
+                    'UPDATE %I SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1 AND farm_id = $2',
+                    v_table_name
+                ) USING v_record_id, v_user_farm;
+                v_affected := v_affected + 1;
+            END IF;
+
+            v_result := v_result || jsonb_build_object(
+                'record_id', v_record_id,
+                'status', 'ok',
+                'new_version', COALESCE(v_new_version, 1)
+            );
+
+        EXCEPTION WHEN OTHERS THEN
+            v_errors := v_errors + 1;
+            v_result := v_result || jsonb_build_object(
+                'record_id', v_record_id,
+                'status', 'error',
+                'message', SQLERRM
+            );
+        END;
+    END LOOP;
+
+    RETURN jsonb_build_object(
+        'affected', v_affected,
+        'skipped', v_skipped,
+        'errors', v_errors,
+        'details', v_result
+    );
+END;
+$$;
+
+-- ============================================================
+-- 14) validate_flock_farm - حماية ضد cross-farm operations
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.validate_flock_farm()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_farm_id uuid;
+BEGIN
+    SELECT farm_id INTO v_farm_id FROM flocks WHERE id = NEW.flock_id;
+    IF v_farm_id IS NULL THEN
+        RAISE EXCEPTION 'الدجاجة غير موجودة: %', NEW.flock_id;
+    END IF;
+    IF v_farm_id != NEW.farm_id THEN
+        RAISE EXCEPTION 'الدجاجة لا تنتمي لهذه المزرعة';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DROP TRIGGER IF EXISTS trg_validate_flock_farm ON egg_production;
+CREATE TRIGGER trg_validate_flock_farm
+    BEFORE INSERT OR UPDATE ON egg_production
+    FOR EACH ROW EXECUTE FUNCTION public.validate_flock_farm();
+
+DROP TRIGGER IF EXISTS trg_validate_flock_mortality ON mortality;
+CREATE TRIGGER trg_validate_flock_mortality
+    BEFORE INSERT OR UPDATE ON mortality
+    FOR EACH ROW EXECUTE FUNCTION public.validate_flock_farm();
+
+DROP TRIGGER IF EXISTS trg_validate_flock_feed ON feed_consumption;
+CREATE TRIGGER trg_validate_flock_feed
+    BEFORE INSERT OR UPDATE ON feed_consumption
+    FOR EACH ROW EXECUTE FUNCTION public.validate_flock_farm();
+
+-- ============================================================
+-- 15) الصلاحيات العامة + إعادة تحميل مخطط PostgREST
+-- ============================================================
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.find_user_by_phone(text) TO anon, authenticated;
@@ -1049,5 +1320,6 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_pin(text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_delete_user(text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.current_user_role() TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.current_user_farm_id() TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.sync_records_batch(jsonb, uuid) TO authenticated;
 
 NOTIFY pgrst, 'reload schema';

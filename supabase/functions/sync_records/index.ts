@@ -73,7 +73,8 @@ Deno.serve(async (req) => {
       table_name: r.table_name,
       operation: r.operation,
       record_id: r.record_id,
-      payload: r.payload,
+      data: r.payload ?? {},
+      previous_version: r.previous_version ?? null,
     }));
 
     // FIX #3: عدم إرسال user_id مطلقاً - الدالة ستستخدم auth.uid() فقط
@@ -96,17 +97,41 @@ Deno.serve(async (req) => {
     }
 
     const typedData = data as {
-      success_ids?: string[];
-      failed_ids?: string[];
-      conflict_ids?: string[];
+      affected?: number;
+      skipped?: number;
+      errors?: number;
+      details?: Array<{
+        record_id: string;
+        status: 'ok' | 'conflict' | 'error' | 'skipped';
+        new_version?: number;
+        server_version?: number;
+        client_version?: number;
+        message?: string;
+      }>;
     };
+
+    // تحويل الصيغة الجديدة إلى الصيغة القديمة للتوافق
+    const details = typedData.details || [];
+    const successIds = details
+      .filter(d => d.status === 'ok')
+      .map(d => d.record_id);
+    const failedIds = details
+      .filter(d => d.status === 'error')
+      .map(d => d.record_id);
+    const conflictIds = details
+      .filter(d => d.status === 'conflict')
+      .map(d => d.record_id);
 
     return new Response(
       JSON.stringify({
         success: true,
-        success_ids: typedData.success_ids || [],
-        failed_ids: typedData.failed_ids || [],
-        conflict_ids: typedData.conflict_ids || [],
+        affected: typedData.affected ?? 0,
+        skipped: typedData.skipped ?? 0,
+        errors: typedData.errors ?? 0,
+        success_ids: successIds,
+        failed_ids: failedIds,
+        conflict_ids: conflictIds,
+        details: details,
       }),
       {
         status: 200,

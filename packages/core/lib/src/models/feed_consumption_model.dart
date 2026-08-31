@@ -12,6 +12,8 @@ class FeedConsumptionModel {
   final String workerId;
   final SyncStatus syncStatus;
   final int? sectionNo;
+  final int version;
+  final int? previousVersion;
 
   const FeedConsumptionModel({
     this.id,
@@ -23,6 +25,8 @@ class FeedConsumptionModel {
     required this.workerId,
     this.syncStatus = SyncStatus.pending,
     this.sectionNo,
+    this.version = 1,
+    this.previousVersion,
   });
 
   /// حساب الكمية بالكيلو من عدد الأكياس
@@ -61,6 +65,7 @@ class FeedConsumptionModel {
         (e) => e.name == json['sync_status'],
         orElse: () => SyncStatus.pending,
       ),
+      version: json['version'] as int? ?? 1,
     );
   }
 
@@ -74,5 +79,6 @@ class FeedConsumptionModel {
         'worker_id': workerId,
         if (sectionNo != null) 'section_no': sectionNo,
         'sync_status': syncStatus.name,
+        'version': version,
       };
 }

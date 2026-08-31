@@ -6,6 +6,8 @@ class CustomerModel {
   final String phone;
   final String? notes;
   final double totalDebt;
+  final int version;
+  final int? previousVersion;
 
   const CustomerModel({
     this.id,
@@ -14,6 +16,8 @@ class CustomerModel {
     required this.phone,
     this.notes,
     this.totalDebt = 0,
+    this.version = 1,
+    this.previousVersion,
   });
 
   factory CustomerModel.fromJson(Map<String, dynamic> json) {
@@ -24,6 +28,7 @@ class CustomerModel {
       phone: json['phone'] as String,
       notes: json['notes'] as String?,
       totalDebt: (json['total_debt'] as num?)?.toDouble() ?? 0,
+      version: json['version'] as int? ?? 1,
     );
   }
 
@@ -34,5 +39,6 @@ class CustomerModel {
         'phone': phone,
         'notes': notes,
         'total_debt': totalDebt,
+        'version': version,
       };
 }

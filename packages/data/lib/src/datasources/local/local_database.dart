@@ -12,7 +12,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 13;
+  static const int _dbVersion = 14;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -81,6 +81,8 @@ class LocalDatabase {
         section_no INTEGER,
         worker_id TEXT NOT NULL,
         sync_status TEXT DEFAULT 'pending',
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -98,7 +100,10 @@ class LocalDatabase {
         notes TEXT,
         image_url TEXT,
         worker_id TEXT NOT NULL,
+        section_no INTEGER,
         sync_status TEXT DEFAULT 'pending',
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -113,7 +118,10 @@ class LocalDatabase {
         bags_count INTEGER DEFAULT 0,
         quantity_kg REAL NOT NULL,
         worker_id TEXT NOT NULL,
+        section_no INTEGER,
         sync_status TEXT DEFAULT 'pending',
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -133,6 +141,8 @@ class LocalDatabase {
         payment_status TEXT DEFAULT 'unpaid',
         worker_id TEXT NOT NULL,
         sync_status TEXT DEFAULT 'pending',
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -152,7 +162,10 @@ class LocalDatabase {
         price_per_kg REAL,
         notes TEXT,
         worker_id TEXT NOT NULL,
+        section_no INTEGER,
         sync_status TEXT DEFAULT 'pending',
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -172,6 +185,8 @@ class LocalDatabase {
         notes TEXT,
         worker_id TEXT NOT NULL,
         sync_status TEXT DEFAULT 'pending',
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -186,6 +201,8 @@ class LocalDatabase {
         notes TEXT,
         total_debt REAL DEFAULT 0,
         sync_status TEXT DEFAULT 'synced',
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT
       )
@@ -209,7 +226,9 @@ class LocalDatabase {
         initial_count INTEGER NOT NULL,
         current_count INTEGER NOT NULL,
         status TEXT DEFAULT 'active',
-        sections_count INTEGER DEFAULT 1
+        sections_count INTEGER DEFAULT 1,
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT
       )
     ''');
 
@@ -242,6 +261,8 @@ class LocalDatabase {
         manager_id TEXT NOT NULL,
         created_at TEXT NOT NULL,
         sync_status TEXT DEFAULT 'synced',
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT,
         updated_at TEXT
       )
     ''');
@@ -256,6 +277,8 @@ class LocalDatabase {
         description TEXT,
         amount REAL NOT NULL DEFAULT 0,
         sync_status TEXT DEFAULT 'synced',
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT,
         created_at TEXT,
         updated_at TEXT
       )
@@ -654,6 +677,32 @@ class LocalDatabase {
           } catch (_) {}
           try {
             await db.execute('ALTER TABLE payments ADD COLUMN updated_at TEXT');
+          } catch (_) {}
+        }
+        // v14: version + deleted_at للجداول التشغيلية (version-based conflict detection)
+        if (oldVersion < 14) {
+          final tables = [
+            'egg_production', 'mortality', 'feed_consumption',
+            'feed_received', 'egg_dispatch', 'medications',
+            'customers', 'flocks', 'expenses', 'payments',
+          ];
+          for (final table in tables) {
+            try {
+              await db.execute('ALTER TABLE $table ADD COLUMN version INTEGER DEFAULT 1');
+            } catch (_) {}
+            try {
+              await db.execute('ALTER TABLE $table ADD COLUMN deleted_at TEXT');
+            } catch (_) {}
+          }
+          // section_no for mortality/feed_consumption/feed_received
+          try {
+            await db.execute('ALTER TABLE mortality ADD COLUMN section_no INTEGER');
+          } catch (_) {}
+          try {
+            await db.execute('ALTER TABLE feed_consumption ADD COLUMN section_no INTEGER');
+          } catch (_) {}
+          try {
+            await db.execute('ALTER TABLE feed_received ADD COLUMN section_no INTEGER');
           } catch (_) {}
         }
   }

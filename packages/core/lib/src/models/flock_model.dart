@@ -12,6 +12,8 @@ class FlockModel {
 
   /// عدد العنابر في المدجنة (1..3)
   final int sectionsCount;
+  final int version;
+  final int? previousVersion;
 
   const FlockModel({
     required this.id,
@@ -22,6 +24,8 @@ class FlockModel {
     required this.currentCount,
     this.status = FlockStatus.active,
     this.sectionsCount = 1,
+    this.version = 1,
+    this.previousVersion,
   });
 
   /// نسبة الإنتاج المتوقعة اليومية
@@ -41,6 +45,7 @@ class FlockModel {
         orElse: () => FlockStatus.active,
       ),
       sectionsCount: json['sections_count'] as int? ?? 1,
+      version: json['version'] as int? ?? 1,
     );
   }
 
@@ -53,6 +58,7 @@ class FlockModel {
         'current_count': currentCount,
         'status': status.name,
         'sections_count': sectionsCount,
+        'version': version,
       };
 
   /// اسم مختصر للعرض

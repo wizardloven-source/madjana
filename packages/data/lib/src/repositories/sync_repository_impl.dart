@@ -147,7 +147,35 @@ class SyncRepositoryImpl implements SyncRepository {
 
   @override
   Future<int> getConflictCount() async {
-    return 0;
+    try {
+      final db = await LocalDatabase.database;
+      final result = await db.rawQuery(
+        "SELECT COUNT(*) as count FROM sync_queue WHERE status = 'conflict'",
+      );
+      return result.first['count'] as int? ?? 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /// تحديث version السجل في SQLite بعد المزامنة الناجحة
+  Future<void> _updateLocalVersion(String recordId, String tableName, int newVersion) async {
+    try {
+      final db = await LocalDatabase.database;
+      final allowedTables = [
+        'egg_production', 'mortality', 'feed_consumption',
+        'feed_received', 'egg_dispatch', 'medications',
+        'customers', 'flocks', 'expenses', 'payments',
+      ];
+      if (allowedTables.contains(tableName)) {
+        await db.rawUpdate(
+          'UPDATE $tableName SET version = ? WHERE id = ?',
+          [newVersion, recordId],
+        );
+      }
+    } catch (_) {
+      // silently fail
+    }
   }
 
   @override
@@ -169,13 +197,18 @@ class SyncRepositoryImpl implements SyncRepository {
     }
 
     try {
-      final payload = records.map((r) => {
-        'table_name': r.tableName,
-        'record_id': r.recordId,
-        'operation': r.operation.name,
-        'payload': r.payload ?? {},
-        'farm_id': r.farmId,
-        'user_id': r.userId,
+      final payload = records.map((r) {
+        // استخراج previous_version من payload
+        final p = r.payload ?? {};
+        return {
+          'table_name': r.tableName,
+          'record_id': r.recordId,
+          'operation': r.operation.name,
+          'payload': p,
+          'previous_version': p['previous_version'] ?? p['version'],
+          'farm_id': r.farmId,
+          'user_id': r.userId,
+        };
       }).toList();
 
       final response = await _supabase.functions.invoke(
@@ -183,15 +216,49 @@ class SyncRepositoryImpl implements SyncRepository {
         body: {'records': payload},
       );
 
-      if (response.data != null && response.data['success_ids'] != null) {
-        final successIds = (response.data['success_ids'] as List).map((e) => e as int).toList();
-        final failedIds = (response.data['failed_ids'] as List? ?? []).map((e) => e as int).toList();
-        final conflictIds = (response.data['conflict_ids'] as List? ?? []).map((e) => e as int).toList();
+      if (response.data != null && response.data is Map) {
+        final resp = response.data as Map;
+        final affected = resp['affected'] as int? ?? 0;
+        final skipped = resp['skipped'] as int? ?? 0;
+        final errors = resp['errors'] as int? ?? 0;
+        final details = resp['details'] as List<dynamic>? ?? [];
+
+        // استخراج IDs بناءً على التفاصيل
+        final successIds = <int>[];
+        final failedIds = <int>[];
+        final conflictIds = <int>[];
+
+        for (final detail in details) {
+          final detailMap = detail as Map;
+          final recordIdStr = detailMap['record_id'] as String?;
+          final status = detailMap['status'] as String?;
+
+          if (recordIdStr == null) continue;
+          final recordId = int.tryParse(recordIdStr) ?? 0;
+
+          switch (status) {
+            case 'ok':
+              successIds.add(recordId);
+              // تحديث version في SQLite
+              final newVersion = detailMap['new_version'] as int?;
+              if (newVersion != null) {
+                await _updateLocalVersion(recordIdStr, resp['table_name']?.toString() ?? '', newVersion);
+              }
+              break;
+            case 'conflict':
+              conflictIds.add(recordId);
+              break;
+            case 'error':
+            case 'skipped':
+              failedIds.add(recordId);
+              break;
+          }
+        }
 
         await markAsSynced(successIds);
 
         for (var id in failedIds) {
-          await markAsFailed(id, 'Server error');
+          await markAsFailed(id, 'Sync error');
         }
 
         return BatchSyncResult(
