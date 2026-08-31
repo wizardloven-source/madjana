@@ -12,7 +12,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 14;
+  static const int _dbVersion = 15;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -113,6 +113,7 @@ class LocalDatabase {
       CREATE TABLE feed_consumption (
         id TEXT PRIMARY KEY,
         farm_id TEXT NOT NULL,
+        flock_id TEXT,
         date TEXT NOT NULL,
         entry_mode TEXT NOT NULL,
         bags_count INTEGER DEFAULT 0,
@@ -175,6 +176,7 @@ class LocalDatabase {
       CREATE TABLE medications (
         id TEXT PRIMARY KEY,
         farm_id TEXT NOT NULL,
+        flock_id TEXT,
         date TEXT NOT NULL,
         type TEXT NOT NULL,
         medicine_name TEXT NOT NULL,
@@ -703,6 +705,15 @@ class LocalDatabase {
           } catch (_) {}
           try {
             await db.execute('ALTER TABLE feed_received ADD COLUMN section_no INTEGER');
+          } catch (_) {}
+        }
+        // v15: flock_id for feed_consumption + medications
+        if (oldVersion < 15) {
+          try {
+            await db.execute('ALTER TABLE feed_consumption ADD COLUMN flock_id TEXT');
+          } catch (_) {}
+          try {
+            await db.execute('ALTER TABLE medications ADD COLUMN flock_id TEXT');
           } catch (_) {}
         }
   }

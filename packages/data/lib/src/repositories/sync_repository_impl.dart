@@ -75,7 +75,7 @@ class SyncRepositoryImpl implements SyncRepository {
   }
 
   @override
-  Future<void> markAsSynced(List<int> ids) async {
+  Future<void> markAsSynced(List<String> ids) async {
     if (ids.isEmpty) return;
     try {
       final db = await LocalDatabase.database;
@@ -84,7 +84,7 @@ class SyncRepositoryImpl implements SyncRepository {
           UPDATE sync_queue
           SET status = 'synced', updated_at = datetime('now')
           WHERE record_id = ?
-        ''', [id.toString()]);
+        ''', [id]);
       }
     } catch (e) {
       rethrow;
@@ -92,14 +92,14 @@ class SyncRepositoryImpl implements SyncRepository {
   }
 
   @override
-  Future<void> markAsFailed(int id, String errorMessage) async {
+  Future<void> markAsFailed(String id, String errorMessage) async {
     try {
       final db = await LocalDatabase.database;
       await db.rawUpdate('''
         UPDATE sync_queue
         SET status = 'failed', last_error = ?, updated_at = datetime('now')
         WHERE record_id = ?
-      ''', [errorMessage, id.toString()]);
+      ''', [errorMessage, id]);
     } catch (e) {
       // silently fail
     }
@@ -198,16 +198,13 @@ class SyncRepositoryImpl implements SyncRepository {
 
     try {
       final payload = records.map((r) {
-        // استخراج previous_version من payload
         final p = r.payload ?? {};
         return {
           'table_name': r.tableName,
           'record_id': r.recordId,
           'operation': r.operation.name,
-          'payload': p,
+          'data': p,
           'previous_version': p['previous_version'] ?? p['version'],
-          'farm_id': r.farmId,
-          'user_id': r.userId,
         };
       }).toList();
 
@@ -218,39 +215,34 @@ class SyncRepositoryImpl implements SyncRepository {
 
       if (response.data != null && response.data is Map) {
         final resp = response.data as Map;
-        final affected = resp['affected'] as int? ?? 0;
-        final skipped = resp['skipped'] as int? ?? 0;
-        final errors = resp['errors'] as int? ?? 0;
         final details = resp['details'] as List<dynamic>? ?? [];
 
-        // استخراج IDs بناءً على التفاصيل
-        final successIds = <int>[];
-        final failedIds = <int>[];
-        final conflictIds = <int>[];
+        final successIds = <String>[];
+        final failedIds = <String>[];
+        final conflictIds = <String>[];
 
         for (final detail in details) {
           final detailMap = detail as Map;
           final recordIdStr = detailMap['record_id'] as String?;
           final status = detailMap['status'] as String?;
+          final tableName = detailMap['table_name'] as String?;
 
           if (recordIdStr == null) continue;
-          final recordId = int.tryParse(recordIdStr) ?? 0;
 
           switch (status) {
             case 'ok':
-              successIds.add(recordId);
-              // تحديث version في SQLite
+              successIds.add(recordIdStr);
               final newVersion = detailMap['new_version'] as int?;
-              if (newVersion != null) {
-                await _updateLocalVersion(recordIdStr, resp['table_name']?.toString() ?? '', newVersion);
+              if (newVersion != null && tableName != null) {
+                await _updateLocalVersion(recordIdStr, tableName, newVersion);
               }
               break;
             case 'conflict':
-              conflictIds.add(recordId);
+              conflictIds.add(recordIdStr);
               break;
             case 'error':
             case 'skipped':
-              failedIds.add(recordId);
+              failedIds.add(recordIdStr);
               break;
           }
         }
@@ -271,13 +263,11 @@ class SyncRepositoryImpl implements SyncRepository {
       }
     } catch (e) {
       for (var record in records) {
-        if (record.id != null) {
-          await markAsFailed(record.id!, e.toString());
-        }
+        await markAsFailed(record.recordId, e.toString());
       }
       return BatchSyncResult(
         successIds: [],
-        failedIds: records.map((r) => r.id ?? 0).toList(),
+        failedIds: records.map((r) => r.recordId).toList(),
         errorMessage: e.toString(),
       );
     }

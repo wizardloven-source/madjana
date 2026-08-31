@@ -43,7 +43,7 @@ DROP FUNCTION IF EXISTS public.admin_create_user(text, text, text, text, text);
 DROP FUNCTION IF EXISTS public.admin_update_user(text, text, text, text);
 DROP FUNCTION IF EXISTS public.admin_reset_pin(text, text);
 DROP FUNCTION IF EXISTS public.admin_delete_user(text);
-DROP FUNCTION IF EXISTS public.sync_records_batch(jsonb, uuid);
+DROP FUNCTION IF EXISTS public.sync_records_batch(jsonb);
 DROP FUNCTION IF EXISTS public.ensure_operational_policies(name);
 DROP FUNCTION IF EXISTS public.ensure_manager_policies(name);
 DROP FUNCTION IF EXISTS public.update_updated_at_column();
@@ -97,7 +97,7 @@ CREATE TABLE flocks (
     breed          TEXT NOT NULL,
     start_date     DATE NOT NULL,
     initial_count  INTEGER NOT NULL CHECK (initial_count > 0),
-    current_count  INTEGER NOT NULL,
+    current_count  INTEGER NOT NULL CHECK (current_count >= 0),
     status         TEXT NOT NULL DEFAULT 'active'
                        CHECK (status IN ('active', 'depleted')),
     sections_count INTEGER NOT NULL DEFAULT 1,
@@ -180,6 +180,7 @@ CREATE INDEX idx_mortality_date ON mortality(date);
 CREATE TABLE feed_consumption (
     id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     farm_id      UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    flock_id     UUID REFERENCES flocks(id) ON DELETE SET NULL,
     date         DATE NOT NULL CHECK (date <= CURRENT_DATE),
     entry_mode   TEXT NOT NULL CHECK (entry_mode IN ('bags', 'kg')),
     bags_count   INTEGER DEFAULT 0,
@@ -263,6 +264,7 @@ CREATE TABLE payments (
 CREATE TABLE medications (
     id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     farm_id              UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    flock_id             UUID REFERENCES flocks(id) ON DELETE SET NULL,
     date                 DATE NOT NULL CHECK (date <= CURRENT_DATE),
     type                 TEXT NOT NULL CHECK (type IN ('drug', 'vaccine', 'vitamin')),
     medicine_name        TEXT NOT NULL,
@@ -777,12 +779,19 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_current_count INTEGER;
     v_delta INTEGER;
+    v_target_flock UUID;
 BEGIN
+    -- حدد أي قطيع يتأثر (الجديداً أو القديم حسب نوع العملية)
+    v_target_flock := COALESCE(NEW.flock_id, OLD.flock_id);
+    IF v_target_flock IS NULL THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
     IF TG_OP = 'INSERT' THEN
         SELECT current_count INTO v_current_count
         FROM flocks WHERE id = NEW.flock_id;
 
-        IF v_current_count < NEW.count THEN
+        IF v_current_count IS NOT NULL AND v_current_count < NEW.count THEN
             RAISE EXCEPTION 'عدد النفوق (%) يتجاوز العدد الحالي (%)', NEW.count, v_current_count;
         END IF;
 
@@ -796,7 +805,7 @@ BEGIN
         SELECT current_count INTO v_current_count
         FROM flocks WHERE id = NEW.flock_id;
 
-        IF v_current_count - v_delta < 0 THEN
+        IF v_current_count IS NOT NULL AND (v_current_count - v_delta) < 0 THEN
             RAISE EXCEPTION 'التعديل سيؤدي لعدد سالب (%)', v_current_count - v_delta;
         END IF;
 
@@ -1087,8 +1096,7 @@ CREATE POLICY sync_changes_select ON sync_changes
 -- 13) sync_records_batch - مع whitelist + auth.uid() + version
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.sync_records_batch(
-    p_records jsonb,
-    p_user_id uuid DEFAULT NULL
+    p_records jsonb
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -1109,13 +1117,13 @@ DECLARE
     v_skipped int := 0;
     v_errors int := 0;
     v_col text;
-    v_cols text[] := '{}';
-    v_vals text[] := '{}';
-    v_set_parts text[] := '{}';
+    v_allowed_cols text[];
+    v_cols text[];
+    v_vals text[];
+    v_set_parts text[];
     v_sql text;
-    v_first bool;
+    v_upd_count int;
 BEGIN
-    -- whitelist: الجداول المسموح بها فقط (blocked: users, payments, audit_log, farms, sync_changes, medicines_catalog)
     v_user_farm := public.current_user_farm_id();
     IF v_user_farm IS NULL THEN
         RAISE EXCEPTION 'لا يمكن تحديد المزرعة للمستخدم الحالي';
@@ -1132,7 +1140,6 @@ BEGIN
             v_data := '{}'::jsonb;
         END IF;
 
-        -- حماية ضد تسجيل جداول ممنوعة
         IF v_table_name NOT IN (
             'egg_production', 'mortality', 'feed_consumption',
             'feed_received', 'egg_dispatch', 'medications',
@@ -1149,7 +1156,6 @@ BEGIN
             CONTINUE;
         END IF;
 
-        -- فحص أن السجل ينتمي لنفس المزرعة (للتعديل والحدف)
         IF v_operation IN ('update', 'delete') THEN
             EXECUTE format(
                 'SELECT to_jsonb(t) FROM %I t WHERE t.id = $1 AND t.farm_id = $2',
@@ -1168,7 +1174,6 @@ BEGIN
             END IF;
         END IF;
 
-        -- version-based conflict detection للـ UPDATE
         IF v_operation = 'update' AND v_existing_record IS NOT NULL THEN
             IF (v_record->>'previous_version') IS NOT NULL
                AND (v_existing_record->>'version')::bigint > (v_record->>'previous_version')::bigint
@@ -1184,9 +1189,25 @@ BEGIN
             END IF;
         END IF;
 
+        -- column whitelist لكل جدول
+        CASE v_table_name
+            WHEN 'egg_production' THEN v_allowed_cols := ARRAY['flock_id','date','cartons','trays','loose_eggs','broken_eggs','dirty_eggs','tray_weight_kg','section_no','worker_id'];
+            WHEN 'mortality' THEN v_allowed_cols := ARRAY['flock_id','date','count','reason','reason_other','notes','image_url','worker_id','section_no'];
+            WHEN 'feed_consumption' THEN v_allowed_cols := ARRAY['flock_id','date','entry_mode','bags_count','quantity_kg','worker_id','section_no'];
+            WHEN 'feed_received' THEN v_allowed_cols := ARRAY['date','entry_mode','quantity','quantity_kg','feed_type','supplier','invoice_number','notes','price_per_kg','section_no','worker_id'];
+            WHEN 'egg_dispatch' THEN v_allowed_cols := ARRAY['date','customer_id','cartons','trays','tray_weight_kg','notes','payment_status','worker_id'];
+            WHEN 'medications' THEN v_allowed_cols := ARRAY['flock_id','date','type','medicine_name','dosage','administration_route','treatment_days','withdrawal_days','notes','worker_id'];
+            WHEN 'customers' THEN v_allowed_cols := ARRAY['name','phone','notes'];
+            WHEN 'flocks' THEN v_allowed_cols := ARRAY['breed','start_date','initial_count','current_count','status','sections_count'];
+            WHEN 'expenses' THEN v_allowed_cols := ARRAY['date','category','description','amount'];
+            WHEN 'inventory_items' THEN v_allowed_cols := ARRAY['name','unit','quantity','low_stock_threshold','notes'];
+            WHEN 'inventory_transactions' THEN v_allowed_cols := ARRAY['item_id','date','type','quantity','note','user_id'];
+            WHEN 'opening_balances' THEN v_allowed_cols := ARRAY['flock_id','eggs_produced','eggs_dispatched','feed_consumed_kg','initial_birds','mortality_count','total_payments','total_revenues','sections'];
+            ELSE v_allowed_cols := ARRAY[]::text[];
+        END CASE;
+
         BEGIN
             IF v_operation = 'insert' THEN
-                -- بناء INSERT ديناميكي من بيانات السجل
                 v_cols := ARRAY['id', 'farm_id', 'version'];
                 v_vals := ARRAY[
                     quote_literal(v_record_id::text),
@@ -1195,7 +1216,7 @@ BEGIN
                 ];
                 FOR v_col IN SELECT jsonb_object_keys(v_data)
                 LOOP
-                    IF v_col NOT IN ('id', 'farm_id', 'version', 'previous_version') THEN
+                    IF v_col = ANY(v_allowed_cols) THEN
                         v_cols := array_append(v_cols, v_col);
                         v_vals := array_append(v_vals, quote(v_data->>v_col));
                     END IF;
@@ -1211,11 +1232,10 @@ BEGIN
 
             ELSIF v_operation = 'update' THEN
                 v_new_version := (v_existing_record->>'version')::bigint + 1;
-                -- بناء SET ديناميكي من بيانات السجل
                 v_set_parts := ARRAY[format('version = %s', v_new_version::text), 'updated_at = NOW()'];
                 FOR v_col IN SELECT jsonb_object_keys(v_data)
                 LOOP
-                    IF v_col NOT IN ('id', 'farm_id', 'version', 'previous_version') THEN
+                    IF v_col = ANY(v_allowed_cols) THEN
                         v_set_parts := array_append(v_set_parts, format('%I = %s', v_col, quote(v_data->>v_col)));
                     END IF;
                 END LOOP;
@@ -1228,8 +1248,8 @@ BEGIN
                     quote((v_record->>'previous_version')::text)
                 );
                 EXECUTE v_sql;
-                GET DIAGNOSTICS v_affected = ROW_COUNT;
-                IF v_affected = 0 THEN
+                GET DIAGNOSTICS v_upd_count = ROW_COUNT;
+                IF v_upd_count = 0 THEN
                     v_errors := v_errors + 1;
                     v_result := v_result || jsonb_build_object(
                         'record_id', v_record_id,
@@ -1238,18 +1258,20 @@ BEGIN
                     );
                     CONTINUE;
                 END IF;
+                v_affected := v_affected + v_upd_count;
 
             ELSIF v_operation = 'delete' THEN
-                -- soft delete
                 EXECUTE format(
-                    'UPDATE %I SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1 AND farm_id = $2',
+                    'UPDATE %I SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1 AND farm_id = $2 AND deleted_at IS NULL',
                     v_table_name
                 ) USING v_record_id, v_user_farm;
-                v_affected := v_affected + 1;
+                GET DIAGNOSTICS v_upd_count = ROW_COUNT;
+                v_affected := v_affected + v_upd_count;
             END IF;
 
             v_result := v_result || jsonb_build_object(
                 'record_id', v_record_id,
+                'table_name', v_table_name,
                 'status', 'ok',
                 'new_version', COALESCE(v_new_version, 1)
             );
@@ -1281,6 +1303,9 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_farm_id uuid;
 BEGIN
+    IF NEW.flock_id IS NULL THEN
+        RETURN NEW;
+    END IF;
     SELECT farm_id INTO v_farm_id FROM flocks WHERE id = NEW.flock_id;
     IF v_farm_id IS NULL THEN
         RAISE EXCEPTION 'الدجاجة غير موجودة: %', NEW.flock_id;
@@ -1320,6 +1345,6 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_pin(text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_delete_user(text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.current_user_role() TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.current_user_farm_id() TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.sync_records_batch(jsonb, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.sync_records_batch(jsonb) TO authenticated;
 
 NOTIFY pgrst, 'reload schema';

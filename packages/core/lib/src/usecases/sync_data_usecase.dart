@@ -27,10 +27,10 @@ class SyncDataUseCase {
 
       // 3. تحديث الحالات
       for (final record in pendingRecords) {
-        if (result.successIds.contains(record.id)) {
-          await repository.markAsSynced([record.id!]);
+        if (result.successIds.contains(record.recordId)) {
+          await repository.markAsSynced([record.recordId]);
         } else {
-          await repository.markAsFailed(record.id!, result.errorMessage ?? 'Unknown error');
+          await repository.markAsFailed(record.recordId, result.errorMessage ?? 'Unknown error');
         }
       }
 

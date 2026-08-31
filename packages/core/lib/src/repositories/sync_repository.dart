@@ -10,10 +10,10 @@ abstract class SyncRepository {
   Future<void> queueChange(SyncChangeModel change);
 
   /// تحديث حالة السجلات بعد المزامنة الناجحة
-  Future<void> markAsSynced(List<int> ids);
+  Future<void> markAsSynced(List<String> ids);
 
   /// تحديث حالة السجل كـ "فشل" مع رسالة الخطأ
-  Future<void> markAsFailed(int id, String errorMessage);
+  Future<void> markAsFailed(String id, String errorMessage);
 
   /// حذف السجلات القديمة المُزامَنة لتوفير المساحة
   Future<void> cleanupOldSyncedRecords({int daysToKeep = 30});
@@ -42,9 +42,9 @@ abstract class SyncRepository {
 
 /// نتيجة المزامنة الدفعية
 class BatchSyncResult {
-  final List<int> successIds;
-  final List<int> failedIds;
-  final List<int> conflictIds;
+  final List<String> successIds;
+  final List<String> failedIds;
+  final List<String> conflictIds;
   final String? errorMessage;
 
   BatchSyncResult({

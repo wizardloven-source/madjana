@@ -4,6 +4,7 @@ import '../constants/enums.dart';
 class MedicationModel {
   final String? id;
   final String farmId;
+  final String? flockId;
   final DateTime date;
   final MedicationType type;
   final String medicineName;
@@ -20,6 +21,7 @@ class MedicationModel {
   const MedicationModel({
     this.id,
     required this.farmId,
+    this.flockId,
     required this.date,
     required this.type,
     required this.medicineName,
@@ -38,6 +40,7 @@ class MedicationModel {
     return MedicationModel(
       id: json['id'] as String?,
       farmId: json['farm_id'] as String,
+      flockId: json['flock_id'] as String?,
       date: DateTime.parse(json['date'] as String),
       type: MedicationType.values.firstWhere(
         (e) => e.name == json['type'],
@@ -64,6 +67,7 @@ class MedicationModel {
   Map<String, dynamic> toJson() => {
         if (id != null) 'id': id,
         'farm_id': farmId,
+        if (flockId != null) 'flock_id': flockId,
         'date': date.toIso8601String().split('T').first,
         'type': type.name,
         'medicine_name': medicineName,

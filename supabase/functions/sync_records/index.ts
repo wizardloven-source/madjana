@@ -8,8 +8,8 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-// استخدام SERVICE_ROLE_KEY للكتابة الآمنة (لا يمر عبر RLS)
-const supabase = createClient(
+// الخادم العام للقراءة (GET، CORS)
+const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser(token);
+    } = await supabaseAdmin.auth.getUser(token);
 
     if (authError || !user) {
       return new Response(
@@ -49,6 +49,13 @@ Deno.serve(async (req) => {
         { status: 401, headers: corsHeaders },
       );
     }
+
+    // إنشاء client بمفتاح المستخدم (لضمان عمل auth.uid() داخل SQL)
+    const supabaseUser = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
 
     const body = await req.json();
     const { records } = body as {
@@ -77,10 +84,9 @@ Deno.serve(async (req) => {
       previous_version: r.previous_version ?? null,
     }));
 
-    // FIX #3: عدم إرسال user_id مطلقاً - الدالة ستستخدم auth.uid() فقط
-    const { data, error } = await supabase.rpc("sync_records_batch", {
+    // استخدام client المستخدم (而非 service role) لضمان عمل auth.uid()
+    const { data, error } = await supabaseUser.rpc("sync_records_batch", {
       p_records: JSON.stringify(normalized),
-      // لا نرسل p_user_id أبداً
     });
 
     if (error) {

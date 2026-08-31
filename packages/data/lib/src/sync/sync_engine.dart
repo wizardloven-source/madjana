@@ -51,7 +51,7 @@ class SyncEngine {
   Future<void> syncAllPending() async {
     try {
       // جلب السجلات المعلقة
-      final pendingRecords = await _syncRepo.getPendingRecords();
+      final pendingRecords = await _syncRepo.getPendingChanges();
 
       if (pendingRecords.isEmpty) {
         return;
@@ -85,7 +85,7 @@ class SyncEngine {
         success = true;
         
         // تحديث الحالة إلى synced
-        final ids = records.map((r) => r.id).toList();
+        final ids = records.map((r) => r.recordId).toList();
         await _syncRepo.markAsSynced(ids);
       } catch (e) {
         attempts++;
@@ -93,8 +93,9 @@ class SyncEngine {
         
         if (attempts >= maxRetries) {
           // فشل نهائي، تحديث الحالة إلى failed
-          final ids = records.map((r) => r.id).toList();
-          await _syncRepo.markAsFailed(ids, errorMessage: e.toString());
+          for (var r in records) {
+            await _syncRepo.markAsFailed(r.recordId, e.toString());
+          }
           rethrow;
         }
         
@@ -147,13 +148,13 @@ class SyncEngine {
       final payload = EggProductionModel.fromJson(record.payload!);
       
       switch (record.operation) {
-        case 'INSERT':
+        case SyncOperation.insert:
           await _eggRepo.saveRemote(payload);
           break;
-        case 'UPDATE':
+        case SyncOperation.update:
           await _eggRepo.updateRemote(payload);
           break;
-        case 'DELETE':
+        case SyncOperation.delete:
           await _eggRepo.deleteRemote(payload.id!);
           break;
       }
@@ -165,13 +166,13 @@ class SyncEngine {
       final payload = MortalityModel.fromJson(record.payload!);
       
       switch (record.operation) {
-        case 'INSERT':
+        case SyncOperation.insert:
           await _mortalityRepo.saveRemote(payload);
           break;
-        case 'UPDATE':
+        case SyncOperation.update:
           await _mortalityRepo.updateRemote(payload);
           break;
-        case 'DELETE':
+        case SyncOperation.delete:
           await _mortalityRepo.deleteRemote(payload.id!);
           break;
       }
@@ -183,13 +184,13 @@ class SyncEngine {
       final payload = FeedConsumptionModel.fromJson(record.payload!);
       
       switch (record.operation) {
-        case 'INSERT':
+        case SyncOperation.insert:
           await _feedRepo.saveRemote(payload);
           break;
-        case 'UPDATE':
+        case SyncOperation.update:
           await _feedRepo.updateRemote(payload);
           break;
-        case 'DELETE':
+        case SyncOperation.delete:
           await _feedRepo.deleteRemote(payload.id!);
           break;
       }
@@ -201,13 +202,13 @@ class SyncEngine {
       final payload = FeedReceivedModel.fromJson(record.payload!);
       
       switch (record.operation) {
-        case 'INSERT':
+        case SyncOperation.insert:
           await _feedReceivedRepo.saveRemote(payload);
           break;
-        case 'UPDATE':
+        case SyncOperation.update:
           await _feedReceivedRepo.updateRemote(payload);
           break;
-        case 'DELETE':
+        case SyncOperation.delete:
           await _feedReceivedRepo.deleteRemote(payload.id!);
           break;
       }
@@ -216,16 +217,16 @@ class SyncEngine {
 
   Future<void> _syncEggDispatch(List<SyncChangeModel> records) async {
     for (var record in records) {
-      final payload = EggDispatchModel.fromJson(record.payload!);
+      final payload = DispatchModel.fromJson(record.payload!);
       
       switch (record.operation) {
-        case 'INSERT':
+        case SyncOperation.insert:
           await _dispatchRepo.saveRemote(payload);
           break;
-        case 'UPDATE':
+        case SyncOperation.update:
           await _dispatchRepo.updateRemote(payload);
           break;
-        case 'DELETE':
+        case SyncOperation.delete:
           await _dispatchRepo.deleteRemote(payload.id!);
           break;
       }
@@ -237,13 +238,13 @@ class SyncEngine {
       final payload = MedicationModel.fromJson(record.payload!);
       
       switch (record.operation) {
-        case 'INSERT':
+        case SyncOperation.insert:
           await _medicationRepo.saveRemote(payload);
           break;
-        case 'UPDATE':
+        case SyncOperation.update:
           await _medicationRepo.updateRemote(payload);
           break;
-        case 'DELETE':
+        case SyncOperation.delete:
           await _medicationRepo.deleteRemote(payload.id!);
           break;
       }
@@ -255,13 +256,13 @@ class SyncEngine {
       final payload = ExpenseModel.fromJson(record.payload!);
       
       switch (record.operation) {
-        case 'INSERT':
+        case SyncOperation.insert:
           await _expenseRepo.saveRemote(payload);
           break;
-        case 'UPDATE':
+        case SyncOperation.update:
           await _expenseRepo.updateRemote(payload);
           break;
-        case 'DELETE':
+        case SyncOperation.delete:
           await _expenseRepo.deleteRemote(payload.id!);
           break;
       }
@@ -273,13 +274,13 @@ class SyncEngine {
       final payload = CustomerModel.fromJson(record.payload!);
       
       switch (record.operation) {
-        case 'INSERT':
+        case SyncOperation.insert:
           await _customerRepo.saveRemote(payload);
           break;
-        case 'UPDATE':
+        case SyncOperation.update:
           await _customerRepo.updateRemote(payload);
           break;
-        case 'DELETE':
+        case SyncOperation.delete:
           await _customerRepo.deleteRemote(payload.id!);
           break;
       }
@@ -291,13 +292,13 @@ class SyncEngine {
       final payload = PaymentModel.fromJson(record.payload!);
       
       switch (record.operation) {
-        case 'INSERT':
+        case SyncOperation.insert:
           await _paymentRepo.saveRemote(payload);
           break;
-        case 'UPDATE':
+        case SyncOperation.update:
           await _paymentRepo.updateRemote(payload);
           break;
-        case 'DELETE':
+        case SyncOperation.delete:
           await _paymentRepo.deleteRemote(payload.id!);
           break;
       }
@@ -309,13 +310,13 @@ class SyncEngine {
       final payload = FlockModel.fromJson(record.payload!);
       
       switch (record.operation) {
-        case 'INSERT':
+        case SyncOperation.insert:
           await _flockRepo.saveRemote(payload);
           break;
-        case 'UPDATE':
+        case SyncOperation.update:
           await _flockRepo.updateRemote(payload);
           break;
-        case 'DELETE':
+        case SyncOperation.delete:
           await _flockRepo.deleteRemote(payload.id!);
           break;
       }

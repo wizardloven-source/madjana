@@ -97,9 +97,7 @@ class SyncEngine {
             final result = await repository.uploadBatch(records);
 
             for (final record in records) {
-              if (record.id == null) continue;
-
-              if (result.successIds.contains(record.id)) {
+              if (result.successIds.contains(record.recordId)) {
                 await repository.markAsSyncedById(record.tableName, record.recordId);
                 _consecutiveFailures = 0;
               } else {
