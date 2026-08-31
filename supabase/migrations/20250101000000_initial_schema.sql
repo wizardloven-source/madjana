@@ -1,46 +1,22 @@
 -- ============================================================
--- 010: إعادة البناء الجذري الكامل (المخطط النظيف)
+-- Madjana - نظام إدارة المدجنة
+-- مخطط قاعدة البيانات الموحد
 --
--- القرارات البنيوية الملبّاة من الخطة:
---   1) users.id = auth.uid()  (نوع UUID، مطابق تماماً)
---   2) Trigger handle_new_user على auth.users
---      ينشئ سجل users تلقائياً بنفس NEW.id لكل مستخدم يُسجَّل
---   3) RLS مفعّل على جميع الجداول
---   4) دوال الهوية current_user_role() / current_user_farm_id()
---      STABLE وليست SECURITY DEFINER
---   5) إنشاء المدير الأول:
---      الطريقة الموصى بها (تضمن دخولاً صحيحاً 100%):
---        أ) لوحة التحكم ← Authentication ← Users ← Add user
---           (بريد دلوي، باسورد = sha256(PIN) السداسي، Auto confirm: ON)
---        ب) حدّث المرور عبر دالة من أدناه)
---      ملاحظة: bootstrap_create_farm_and_manager أُنشئ لراحة الوضع الفارغ،
---      لكن الإدراج المباشر داخل auth.users قد لا يطابق كل أعمدة GoTrue
---      الخاصة بنسخة المشروع — إن وُجد خلل تسجيل دخول ناتج عنه فاستخدم
---      الطريقة أعلاه (لوحة التحكم + الـ Trigger) ثم رقّي الحساب عبر SQL.
---      أنشئ trigger handle_new_user على auth.users
---      بنفس NEW.id لكل مستخدم يُسجَّل
---
--- ملاحظة تقنية هامة (بخصوص بند "لا SECURITY DEFINER"):
---   - دالة handle_new_user (Trigger) يجب أن تكون SECURITY DEFINER
---     لأنها تكتب في public.users من inside schema auth —
---     وهذا النمط القياسي الرسمي من Supabase، وليس "دالة هوية".
---   - دوال الهوية (current_user_role/farm_id) هي STABLE + invoker.
---   - الاستثناء الوحيد: سياسة "المدير يرى مستخدمي مزرعته" على جدول
---     users نفسِه لا يمكنها استدعاء current_user_role() لأن PostgreSQL
---     يكشف تكراراً لا نهائياً (RLS على users يعيد استدعاء دالة تقرأ
---     users). ولذلك تستخدم هذه السياسةُ حقول user_metadata من JWT
---     (agrole + farm_id المحفوظان في auth عند الإنشاء) — وهذا يحقّق
---     نفس النتيجة دون أي SECURITY DEFINER ودون معالجة بريد.
---
--- آمن لإعادة التنفيذ بالكامل (DROP IF EXISTS في البداية).
--- لا تشغّل 001..008 بعد هذا الملف (010 يغني عنها كلها).
+-- مبني على 010_rebuild_clean.sql مع إضافة:
+--   - mortality.section_no
+--   - feed_consumption.section_no
+--   - feed_received.section_no + price_per_kg
+--   - egg_dispatch.tray_weight_kg
+--   - sync_status يدعم: pending, synced, failed, processing, conflict
+--   - feed_type يدعم: main, starter, grower, layer
+--   - إنشاء sequence global_sync_version
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================================
--- 0) تنظيف أي بقايا من النسخ القديمة
+-- 0) تنظيف أي بقايا
 -- ============================================================
 DROP TRIGGER IF EXISTS handle_new_user ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user();
@@ -69,15 +45,29 @@ DROP FUNCTION IF EXISTS public.admin_update_user(text, text, text, text);
 DROP FUNCTION IF EXISTS public.admin_reset_pin(text, text);
 DROP FUNCTION IF EXISTS public.admin_delete_user(text);
 DROP FUNCTION IF EXISTS public.sync_records_batch(jsonb, uuid);
+DROP FUNCTION IF EXISTS public.ensure_operational_policies(name);
+DROP FUNCTION IF EXISTS public.ensure_manager_policies(name);
+DROP FUNCTION IF EXISTS public.update_updated_at_column();
+
+DROP SEQUENCE IF EXISTS global_sync_version;
 
 -- ============================================================
--- 1) المزارع والمستخدمون  (users.id = auth.uid())
+-- 1) التسلسل العام للمزامنة
+-- ============================================================
+CREATE SEQUENCE global_sync_version START WITH 1 INCREMENT BY 1;
+
+-- ============================================================
+-- 2) المزارع والمستخدمون
 -- ============================================================
 CREATE TABLE farms (
     id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name       TEXT NOT NULL,
     location   TEXT,
     owner_id   UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    feed_bag_weight_kg   NUMERIC(6,2) NOT NULL DEFAULT 50.0,
+    eggs_per_carton      INTEGER NOT NULL DEFAULT 360,
+    eggs_per_tray        INTEGER NOT NULL DEFAULT 30,
+    default_mortality_rate NUMERIC(5,2) NOT NULL DEFAULT 0.0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -100,20 +90,20 @@ CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_phone ON users(phone);
 
 -- ============================================================
--- 2) الجداول التشغيلية (شارة: id uuid default؛ موازية لمخطط التطبيق)
+-- 3) الجداول التشغيلية
 -- ============================================================
 CREATE TABLE flocks (
-    id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    farm_id       UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
-    breed         TEXT NOT NULL,
-    start_date    DATE NOT NULL,
-    initial_count INTEGER NOT NULL CHECK (initial_count > 0),
-    current_count INTEGER NOT NULL,
-    status        TEXT NOT NULL DEFAULT 'active'
-                      CHECK (status IN ('active', 'depleted')),
+    id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    farm_id        UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    breed          TEXT NOT NULL,
+    start_date     DATE NOT NULL,
+    initial_count  INTEGER NOT NULL CHECK (initial_count > 0),
+    current_count  INTEGER NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'active'
+                       CHECK (status IN ('active', 'depleted')),
     sections_count INTEGER NOT NULL DEFAULT 1,
-    created_at    TIMESTAMPTZ DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ DEFAULT NOW()
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX idx_flocks_farm ON flocks(farm_id);
 CREATE INDEX idx_flocks_status ON flocks(status);
@@ -131,22 +121,23 @@ CREATE TABLE customers (
 CREATE INDEX idx_customers_farm ON customers(farm_id);
 
 CREATE TABLE egg_production (
-    id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    farm_id       UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
-    flock_id      UUID NOT NULL REFERENCES flocks(id) ON DELETE CASCADE,
-    date          DATE NOT NULL CHECK (date <= CURRENT_DATE),
-    cartons       INTEGER NOT NULL DEFAULT 0 CHECK (cartons >= 0),
-    trays         INTEGER NOT NULL DEFAULT 0 CHECK (trays >= 0 AND trays < 12),
-    loose_eggs    INTEGER NOT NULL DEFAULT 0 CHECK (loose_eggs >= 0 AND loose_eggs < 30),
-    total_eggs    INTEGER NOT NULL DEFAULT 0,
-    broken_eggs   INTEGER DEFAULT 0 CHECK (broken_eggs >= 0),
-    dirty_eggs    INTEGER DEFAULT 0 CHECK (dirty_eggs >= 0),
+    id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    farm_id        UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    flock_id       UUID NOT NULL REFERENCES flocks(id) ON DELETE CASCADE,
+    date           DATE NOT NULL CHECK (date <= CURRENT_DATE),
+    cartons        INTEGER NOT NULL DEFAULT 0 CHECK (cartons >= 0),
+    trays          INTEGER NOT NULL DEFAULT 0 CHECK (trays >= 0 AND trays < 12),
+    loose_eggs     INTEGER NOT NULL DEFAULT 0 CHECK (loose_eggs >= 0 AND loose_eggs < 30),
+    total_eggs     INTEGER NOT NULL DEFAULT 0,
+    broken_eggs    INTEGER DEFAULT 0 CHECK (broken_eggs >= 0),
+    dirty_eggs     INTEGER DEFAULT 0 CHECK (dirty_eggs >= 0),
     tray_weight_kg NUMERIC(6,2),
-    section_no    INTEGER,
-    worker_id     UUID NOT NULL REFERENCES users(id),
-    sync_status   TEXT DEFAULT 'synced' CHECK (sync_status IN ('pending', 'synced', 'failed')),
-    created_at    TIMESTAMPTZ DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ DEFAULT NOW(),
+    section_no     INTEGER,
+    worker_id      UUID NOT NULL REFERENCES users(id),
+    sync_status    TEXT DEFAULT 'synced'
+                       CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT check_broken_dirty CHECK (broken_eggs + dirty_eggs <= total_eggs)
 );
 CREATE INDEX idx_egg_production_farm ON egg_production(farm_id);
@@ -154,22 +145,24 @@ CREATE INDEX idx_egg_production_flock ON egg_production(flock_id);
 CREATE INDEX idx_egg_production_date ON egg_production(date);
 
 CREATE TABLE mortality (
-    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    farm_id     UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
-    flock_id    UUID NOT NULL REFERENCES flocks(id) ON DELETE CASCADE,
-    date        DATE NOT NULL CHECK (date <= CURRENT_DATE),
-    count       INTEGER NOT NULL CHECK (count > 0),
-    reason      TEXT NOT NULL CHECK (reason IN (
+    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    farm_id      UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    flock_id     UUID NOT NULL REFERENCES flocks(id) ON DELETE CASCADE,
+    date         DATE NOT NULL CHECK (date <= CURRENT_DATE),
+    count        INTEGER NOT NULL CHECK (count > 0),
+    reason       TEXT NOT NULL CHECK (reason IN (
         'not_eating', 'internal_bleeding', 'immunity_break',
         'heat_stress', 'cannibalism', 'unknown', 'other'
     )),
     reason_other TEXT,
-    notes       TEXT,
-    image_url   TEXT,
-    worker_id   UUID NOT NULL REFERENCES users(id),
-    sync_status TEXT DEFAULT 'synced',
-    created_at  TIMESTAMPTZ DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ DEFAULT NOW(),
+    notes        TEXT,
+    image_url    TEXT,
+    section_no   INTEGER,
+    worker_id    UUID NOT NULL REFERENCES users(id),
+    sync_status  TEXT DEFAULT 'synced'
+                     CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT check_reason_other CHECK (
         (reason = 'other' AND reason_other IS NOT NULL) OR
         (reason != 'other' AND reason_other IS NULL)
@@ -185,52 +178,55 @@ CREATE TABLE feed_consumption (
     entry_mode   TEXT NOT NULL CHECK (entry_mode IN ('bags', 'kg')),
     bags_count   INTEGER DEFAULT 0,
     quantity_kg  NUMERIC(10,2) NOT NULL CHECK (quantity_kg > 0),
+    section_no   INTEGER,
     worker_id    UUID NOT NULL REFERENCES users(id),
-    sync_status  TEXT DEFAULT 'synced',
+    sync_status  TEXT DEFAULT 'synced'
+                     CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
     created_at   TIMESTAMPTZ DEFAULT NOW(),
     updated_at   TIMESTAMPTZ DEFAULT NOW(),
     deleted_at   TIMESTAMPTZ
 );
-CREATE TRIGGER update_feed_consumption_updated_at BEFORE UPDATE ON feed_consumption 
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TABLE feed_received (
-    id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    farm_id       UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
-    date          DATE NOT NULL CHECK (date <= CURRENT_DATE),
-    entry_mode    TEXT NOT NULL CHECK (entry_mode IN ('bags', 'kg', 'ton')),
-    quantity      NUMERIC(10,2) NOT NULL,
-    quantity_kg   NUMERIC(10,2) NOT NULL CHECK (quantity_kg > 0),
-    feed_type     TEXT NOT NULL CHECK (feed_type IN ('starter', 'grower', 'layer')),
-    supplier      TEXT,
-    invoice_number TEXT,
-    notes         TEXT,
-    created_at    TIMESTAMPTZ DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ DEFAULT NOW(),
-    deleted_at    TIMESTAMPTZ
-);
-CREATE TRIGGER update_feed_received_updated_at BEFORE UPDATE ON feed_received 
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TABLE egg_dispatch (
     id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     farm_id        UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
     date           DATE NOT NULL CHECK (date <= CURRENT_DATE),
-    customer_id    UUID NOT NULL REFERENCES customers(id),
-    cartons        INTEGER NOT NULL DEFAULT 0 CHECK (cartons >= 0),
-    trays          INTEGER NOT NULL DEFAULT 0 CHECK (trays >= 0 AND trays < 12),
-    total_eggs     INTEGER NOT NULL DEFAULT 0,
+    entry_mode     TEXT NOT NULL CHECK (entry_mode IN ('bags', 'kg', 'ton')),
+    quantity       NUMERIC(10,2) NOT NULL,
+    quantity_kg    NUMERIC(10,2) NOT NULL CHECK (quantity_kg > 0),
+    feed_type      TEXT NOT NULL CHECK (feed_type IN ('main', 'starter', 'grower', 'layer')),
+    supplier       TEXT,
+    invoice_number TEXT,
     notes          TEXT,
-    payment_status TEXT NOT NULL DEFAULT 'unpaid'
-                       CHECK (payment_status IN ('unpaid', 'partial', 'paid')),
-    worker_id      UUID NOT NULL REFERENCES users(id),
-    sync_status    TEXT DEFAULT 'synced',
+    price_per_kg   NUMERIC(10,2),
+    section_no     INTEGER,
+    worker_id      UUID DEFAULT '00000000-0000-0000-0000-000000000000'::uuid,
+    sync_status    TEXT DEFAULT 'synced'
+                       CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
     created_at     TIMESTAMPTZ DEFAULT NOW(),
     updated_at     TIMESTAMPTZ DEFAULT NOW(),
     deleted_at     TIMESTAMPTZ
 );
-CREATE TRIGGER update_egg_dispatch_updated_at BEFORE UPDATE ON egg_dispatch 
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TABLE egg_dispatch (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    farm_id         UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    date            DATE NOT NULL CHECK (date <= CURRENT_DATE),
+    customer_id     UUID NOT NULL REFERENCES customers(id),
+    cartons         INTEGER NOT NULL DEFAULT 0 CHECK (cartons >= 0),
+    trays           INTEGER NOT NULL DEFAULT 0 CHECK (trays >= 0 AND trays < 12),
+    total_eggs      INTEGER NOT NULL DEFAULT 0,
+    tray_weight_kg  NUMERIC(6,2),
+    notes           TEXT,
+    payment_status  TEXT NOT NULL DEFAULT 'unpaid'
+                        CHECK (payment_status IN ('unpaid', 'partial', 'paid')),
+    worker_id       UUID NOT NULL REFERENCES users(id),
+    sync_status     TEXT DEFAULT 'synced'
+                        CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at      TIMESTAMPTZ
+);
 CREATE INDEX idx_egg_dispatch_farm ON egg_dispatch(farm_id);
 CREATE INDEX idx_egg_dispatch_customer ON egg_dispatch(customer_id);
 
@@ -250,33 +246,31 @@ CREATE TABLE payments (
     created_at       TIMESTAMPTZ DEFAULT NOW(),
     updated_at       TIMESTAMPTZ DEFAULT NOW(),
     deleted_at       TIMESTAMPTZ,
-    sync_status      TEXT DEFAULT 'synced',
+    sync_status      TEXT DEFAULT 'synced'
+                         CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
     CONSTRAINT check_amount CHECK (amount_paid <= total_due)
 );
-CREATE TRIGGER update_payments_updated_at BEFORE UPDATE ON payments 
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TABLE medications (
-    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    farm_id             UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
-    date                DATE NOT NULL CHECK (date <= CURRENT_DATE),
-    type                TEXT NOT NULL CHECK (type IN ('drug', 'vaccine', 'vitamin')),
-    medicine_name       TEXT NOT NULL,
-    dosage              TEXT NOT NULL,
+    id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    farm_id              UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    date                 DATE NOT NULL CHECK (date <= CURRENT_DATE),
+    type                 TEXT NOT NULL CHECK (type IN ('drug', 'vaccine', 'vitamin')),
+    medicine_name        TEXT NOT NULL,
+    dosage               TEXT NOT NULL,
     administration_route TEXT NOT NULL CHECK (administration_route IN (
         'water', 'spray', 'injection', 'feed'
     )),
-    treatment_days      INTEGER,
-    withdrawal_days     INTEGER DEFAULT 0 CHECK (withdrawal_days >= 0),
-    notes               TEXT,
-    worker_id           UUID NOT NULL REFERENCES users(id),
-    created_at          TIMESTAMPTZ DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ DEFAULT NOW(),
-    deleted_at          TIMESTAMPTZ,
-    sync_status         TEXT DEFAULT 'synced'
+    treatment_days       INTEGER,
+    withdrawal_days      INTEGER DEFAULT 0 CHECK (withdrawal_days >= 0),
+    notes                TEXT,
+    worker_id            UUID NOT NULL REFERENCES users(id),
+    created_at           TIMESTAMPTZ DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at           TIMESTAMPTZ,
+    sync_status          TEXT DEFAULT 'synced'
+                             CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict'))
 );
-CREATE TRIGGER update_medications_updated_at BEFORE UPDATE ON medications 
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TABLE medicines_catalog (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -301,9 +295,8 @@ CREATE TABLE expenses (
     updated_at  TIMESTAMPTZ DEFAULT NOW(),
     deleted_at  TIMESTAMPTZ,
     sync_status TEXT DEFAULT 'synced'
+                    CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict'))
 );
-CREATE TRIGGER update_expenses_updated_at BEFORE UPDATE ON expenses 
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE INDEX idx_expenses_farm_date ON expenses(farm_id, date);
 CREATE INDEX idx_expenses_category ON expenses(category);
 
@@ -364,7 +357,6 @@ CREATE INDEX idx_audit_user ON audit_log(user_id);
 CREATE INDEX idx_audit_table ON audit_log(table_name);
 CREATE INDEX idx_audit_timestamp ON audit_log(timestamp);
 
--- إشعارات المدير وطلبات التخريج (تطابق ميزات التطبيق)
 CREATE TABLE app_notifications (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     farm_id       UUID NOT NULL,
@@ -394,7 +386,6 @@ CREATE TABLE dispatch_requests (
     decided_by  UUID
 );
 
--- طابور مزامنة سحابي (لتتبع التغييرات عبر الأجهزة - بروتوكول المزامنة الجديد)
 CREATE TABLE sync_changes (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     table_name      TEXT NOT NULL,
@@ -410,17 +401,14 @@ CREATE TABLE sync_changes (
 CREATE INDEX idx_sync_changes_farm_server ON sync_changes(farm_id, server_version);
 CREATE INDEX idx_sync_changes_record ON sync_changes(table_name, record_id);
 
--- الجدول القديم sync_queue يُحذف لأنه لم يعد مستخدماً
-DROP TABLE IF EXISTS sync_queue;
-
 -- ============================================================
--- 3) بذر كتالوج الأدوية
+-- 4) بذر كتالوج الأدوية
 -- ============================================================
 INSERT INTO medicines_catalog (name, type, withdrawal_days, notes) VALUES
     ('حامض الستريك (Citric Acid)', 'drug', 0, 'محفز شرب'),
-    ('أموكسيسيلين (Amoxicillin)', 'drug', 5, 'مضاد حيوي واسع الطيف'),
-    ('إنروفلوكساسين (Enrofloxacin)', 'drug', 7, 'مضاد حيوي للجهاز التنفسي'),
-    ('دوكسيسيكلين (Doxycycline)', 'drug', 5, 'مضاد حيوي'),
+    ('أموكسيسيلين (Amoxicillin)', 'drug', 5, 'مضاد حيبي واسع الطيف'),
+    ('إنروفلوكساسين (Enrofloxacin)', 'drug', 7, 'مضاد حيبي للجهاز التنفسي'),
+    ('دوكسيسيكلين (Doxycycline)', 'drug', 5, 'مضاد حيبي'),
     ('لقاح نيوكاسل (Newcastle)', 'vaccine', 0, 'تحصين'),
     ('لقاح جامبورو (Gumboro)', 'vaccine', 0, 'تحصين'),
     ('فيتامين A,D3,E', 'vitamin', 0, 'فيتامينات ذائبة في الدهون'),
@@ -428,11 +416,10 @@ INSERT INTO medicines_catalog (name, type, withdrawal_days, notes) VALUES
     ('مولتي فيتامين (Multivitamin)', 'vitamin', 0, 'فيتامينات متكاملة');
 
 -- ============================================================
--- 4) Trigger: أي مستخدم يُنشأ في Auth يُنشأ سجله في users تلقائياً
---    (SECURITY DEFINER ضروري لأن الكتابة تتم من schema auth)
+-- 5) الدوال
 -- ============================================================
 
--- دالة تحديث updated_at تلقائياً
+-- تحديث updated_at تلقائياً
 CREATE OR REPLACE FUNCTION public.update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -441,6 +428,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Trigger: إنشاء سجل users تلقائياً عند تسجيل مستخدم جديد
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -466,11 +454,7 @@ CREATE TRIGGER handle_new_user
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- ============================================================
--- 5) دوال الهوية المعتمدة  (STABLE + invoker — بلا SECURITY DEFINER)
---    تعمل داخل سياسات بقية الجداول لأن المستخدم يرى صفّه في users
---    (سياسة self)، وداخل الدوال SECURITY DEFINER تعمل بحقوق المالك.
--- ============================================================
+-- دوال الهوية (STABLE + invoker)
 CREATE OR REPLACE FUNCTION public.current_user_role()
 RETURNS text
 LANGUAGE sql
@@ -489,234 +473,7 @@ AS $$
     SELECT u.farm_id FROM public.users AS u WHERE u.id = auth.uid() LIMIT 1;
 $$;
 
--- ============================================================
--- 6) RLS: تفعيل على جميع الجداول
--- ============================================================
-ALTER TABLE farms ENABLE ROW LEVEL SECURITY;
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE flocks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE egg_production ENABLE ROW LEVEL SECURITY;
-ALTER TABLE mortality ENABLE ROW LEVEL SECURITY;
-ALTER TABLE feed_consumption ENABLE ROW LEVEL SECURITY;
-ALTER TABLE feed_received ENABLE ROW LEVEL SECURITY;
-ALTER TABLE egg_dispatch ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE medications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE medicines_catalog ENABLE ROW LEVEL SECURITY;
-ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE opening_balances ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inventory_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inventory_transactions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
-ALTER TABLE app_notifications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dispatch_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE sync_changes ENABLE ROW LEVEL SECURITY;
-
--- ============================================================
--- 7) سياسات المستخدمين والمزارع
--- ============================================================
-
--- --- users -------------------------------------------------
--- المرء يرى ويعدّل بياناته فقط
-DROP POLICY IF EXISTS users_select_self ON users;
-CREATE POLICY users_select_self ON users
-    FOR SELECT TO authenticated
-    USING (id = auth.uid());
-
-DROP POLICY IF EXISTS users_update_self ON users;
-CREATE POLICY users_update_self ON users
-    FOR UPDATE TO authenticated
-    USING (id = auth.uid())
-    WITH CHECK (id = auth.uid());
-
--- المدير يرى مستخدمي مزرعته عبر حقول JWT (user_metadata)
--- (انظر الشرح التقني أعلى الملف: تجنّب التكرار اللانهائي لـ RLS
---  دون اللجوء إلى SECURITY DEFINER)
-DROP POLICY IF EXISTS users_select_same_farm ON users;
-CREATE POLICY users_select_same_farm ON users
-    FOR SELECT TO authenticated
-    USING (
-        (auth.jwt() -> 'user_metadata' ->> 'role') = 'manager'
-        AND farm_id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid
-    );
-
--- --- farms -------------------------------------------------
--- قراءة عامة للمصادقين
-DROP POLICY IF EXISTS farms_select_all ON farms;
-CREATE POLICY farms_select_all ON farms
-    FOR SELECT TO authenticated
-    USING (true);
-
--- الكتابة (إضافة/تعديل/حذف) للمدير فقط
-DROP POLICY IF EXISTS farms_insert_manager ON farms;
-CREATE POLICY farms_insert_manager ON farms
-    FOR INSERT TO authenticated
-    WITH CHECK (current_user_role() = 'manager');
-
-DROP POLICY IF EXISTS farms_update_manager ON farms;
-CREATE POLICY farms_update_manager ON farms
-    FOR UPDATE TO authenticated
-    USING (current_user_role() = 'manager')
-    WITH CHECK (current_user_role() = 'manager');
-
-DROP POLICY IF EXISTS farms_delete_manager ON farms;
-CREATE POLICY farms_delete_manager ON farms
-    FOR DELETE TO authenticated
-    USING (current_user_role() = 'manager');
-
--- ============================================================
--- 8) سياسات الجداول التشغيلية
--- قاعدة عامة: انتخاب/إدراج/تحديث لأعضاء المزرعة، حذف للمدير فقط
--- (تُطبق بالضبط على: flocks, customers, egg_production, mortality,
---  feed_consumption, feed_received, egg_dispatch, medications)
--- ============================================================
-CREATE OR REPLACE FUNCTION public.ensure_operational_policies(p_table name)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-BEGIN
-    EXECUTE format('DROP POLICY IF EXISTS op_select ON %I', p_table);
-    EXECUTE format('DROP POLICY IF EXISTS op_insert ON %I', p_table);
-    EXECUTE format('DROP POLICY IF EXISTS op_update ON %I', p_table);
-    EXECUTE format('DROP POLICY IF EXISTS op_delete ON %I', p_table);
-    EXECUTE format('CREATE POLICY op_select ON %I FOR SELECT TO authenticated USING (farm_id = current_user_farm_id())', p_table);
-    EXECUTE format('CREATE POLICY op_insert ON %I FOR INSERT TO authenticated WITH CHECK (farm_id = current_user_farm_id())', p_table);
-    EXECUTE format('CREATE POLICY op_update ON %I FOR UPDATE TO authenticated USING (farm_id = current_user_farm_id()) WITH CHECK (farm_id = current_user_farm_id())', p_table);
-    EXECUTE format('CREATE POLICY op_delete ON %I FOR DELETE TO authenticated USING (farm_id = current_user_farm_id() AND current_user_role() = ''manager'')', p_table);
-END;
-$$;
-
-SELECT public.ensure_operational_policies('flocks');
-SELECT public.ensure_operational_policies('customers');
-SELECT public.ensure_operational_policies('egg_production');
-SELECT public.ensure_operational_policies('mortality');
-SELECT public.ensure_operational_policies('feed_consumption');
-SELECT public.ensure_operational_policies('feed_received');
-SELECT public.ensure_operational_policies('egg_dispatch');
-SELECT public.ensure_operational_policies('medications');
-
--- ============================================================
--- 9) سياسات الجداول المالية والإدارية (المدير فقط)
--- ============================================================
-CREATE OR REPLACE FUNCTION public.ensure_manager_policies(p_table name)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-BEGIN
-    EXECUTE format('DROP POLICY IF EXISTS mgr_all ON %I', p_table);
-    EXECUTE format('CREATE POLICY mgr_all ON %I FOR ALL TO authenticated USING (current_user_role() = ''manager'') WITH CHECK (current_user_role() = ''manager'')', p_table);
-END;
-$$;
-
--- payments / expenses / opening_balances / inventory_items / audit_log
-SELECT public.ensure_manager_policies('payments');
-SELECT public.ensure_manager_policies('expenses');
-SELECT public.ensure_manager_policies('opening_balances');
-SELECT public.ensure_manager_policies('inventory_items');
-SELECT public.ensure_manager_policies('audit_log');
-
--- inventory_transactions (بلا farm_id مباشرة): للمدير على عناصر مزرعته
-DROP POLICY IF EXISTS mgr_tx ON inventory_transactions;
-CREATE POLICY mgr_tx ON inventory_transactions
-    FOR ALL TO authenticated
-    USING (
-        current_user_role() = 'manager'
-        AND item_id IN (SELECT i.id FROM inventory_items i WHERE i.farm_id = current_user_farm_id())
-    )
-    WITH CHECK (
-        current_user_role() = 'manager'
-        AND item_id IN (SELECT i.id FROM inventory_items i WHERE i.farm_id = current_user_farm_id())
-    );
-
--- medicines_catalog: قراءة للجميع، كتابة للمدير
-DROP POLICY IF EXISTS catalog_select ON medicines_catalog;
-CREATE POLICY catalog_select ON medicines_catalog
-    FOR SELECT TO authenticated
-    USING (true);
-
-DROP POLICY IF EXISTS catalog_manager ON medicines_catalog;
-CREATE POLICY catalog_manager ON medicines_catalog
-    FOR ALL TO authenticated
-    USING (current_user_role() = 'manager')
-    WITH CHECK (current_user_role() = 'manager');
-
--- ============================================================
--- 10) سياسات الإشعارات وطلبات التخريج
--- ============================================================
--- app_notifications: قراءة لأعضاء المزرعة، كتابة للمدير
-DROP POLICY IF EXISTS notif_read ON app_notifications;
-CREATE POLICY notif_read ON app_notifications
-    FOR SELECT TO authenticated
-    USING (farm_id = current_user_farm_id());
-
-DROP POLICY IF EXISTS notif_manager ON app_notifications;
-CREATE POLICY notif_manager ON app_notifications
-    FOR ALL TO authenticated
-    USING (current_user_role() = 'manager' AND farm_id = current_user_farm_id())
-    WITH CHECK (current_user_role() = 'manager' AND farm_id = current_user_farm_id());
-
--- dispatch_requests: قراءة وإدخال لأعضاء المزرعة، القرار/الحذف للمدير
-DROP POLICY IF EXISTS dreq_select ON dispatch_requests;
-CREATE POLICY dreq_select ON dispatch_requests
-    FOR SELECT TO authenticated
-    USING (farm_id = current_user_farm_id());
-
-DROP POLICY IF EXISTS dreq_insert ON dispatch_requests;
-CREATE POLICY dreq_insert ON dispatch_requests
-    FOR INSERT TO authenticated
-    WITH CHECK (farm_id = current_user_farm_id());
-
-DROP POLICY IF EXISTS dreq_manager ON dispatch_requests;
-CREATE POLICY dreq_manager ON dispatch_requests
-    FOR UPDATE TO authenticated
-    USING (current_user_role() = 'manager' AND farm_id = current_user_farm_id())
-    WITH CHECK (current_user_role() = 'manager' AND farm_id = current_user_farm_id());
-
-DROP POLICY IF EXISTS dreq_manager_delete ON dispatch_requests;
-CREATE POLICY dreq_manager_delete ON dispatch_requests
-    FOR DELETE TO authenticated
-    USING (current_user_role() = 'manager' AND farm_id = current_user_farm_id());
-
--- sync_changes: سياسة السماح للمخدم فقط بالكتابة (Edge Function)
-DROP POLICY IF EXISTS sync_changes_insert ON sync_changes;
-CREATE POLICY sync_changes_insert ON sync_changes
-    FOR INSERT TO authenticated
-    WITH CHECK (auth.uid()::text = '00000000-0000-0000-0000-000000000000'::text);
-
-DROP POLICY IF EXISTS sync_changes_select ON sync_changes;
-CREATE POLICY sync_changes_select ON sync_changes
-    FOR SELECT TO authenticated
-    USING (farm_id = current_user_farm_id());
-
--- الجدول القديم sync_queue: مغلق تماماً (غير مستخدم من التطبيق)
-DROP POLICY IF EXISTS sync_queue_block ON sync_queue;
-
--- ============================================================
--- 11) الدوال المساعدة للمصادقة والإدارة (SECURITY DEFINER —
---     ضرورية: كتابة auth + التعامل مع المستخدمين قبل وبعد الدخول)
--- ============================================================
-CREATE OR REPLACE FUNCTION public.app_user_email(p_uid uuid)
-RETURNS text
-LANGUAGE sql IMMUTABLE
-SET search_path = public, pg_temp
-AS $$
-    SELECT p_uid::text || '@users.madjana.local';
-$$;
-
-CREATE OR REPLACE FUNCTION public.app_password_from_pin(p_pin text)
-RETURNS text
-LANGUAGE sql IMMUTABLE
-SET search_path = public, pg_temp
-AS $$
-    SELECT encode(extensions.digest(p_pin, 'sha256'), 'hex');
-$$;
-
--- البحث بالهاتف قبل الدخول (يجب أن يرى أي مستخدم أياً كان)
+-- البحث بالهاتف
 CREATE OR REPLACE FUNCTION public.find_user_by_phone(p_phone text)
 RETURNS TABLE (id uuid, name text, phone text, role text, farm_id uuid)
 LANGUAGE sql STABLE SECURITY DEFINER
@@ -745,7 +502,7 @@ BEGIN
 END;
 $$;
 
--- إنشاء أول مدجنة ومدير (مرة واحدة فقط عندما يكون users فارغاً)
+-- إنشاء أول مدجنة ومدير
 CREATE OR REPLACE FUNCTION public.bootstrap_create_farm_and_manager(
     p_farm_name text,
     p_location text,
@@ -772,7 +529,6 @@ BEGIN
     INSERT INTO farms (name, location) VALUES (p_farm_name, NULLIF(p_location, ''))
         RETURNING id INTO v_farm_id;
 
-    -- auth.users.id = users.id = v_auth_uuid (مطابقة تامة)
     INSERT INTO auth.users (
         instance_id, id, aud, role, email, encrypted_password,
         email_confirmed_at, created_at, updated_at,
@@ -804,7 +560,6 @@ BEGIN
         'email', NOW(), NOW(), NOW()
     );
 
-    -- (الـ trigger قد أنشأ الصف أولاً بالدور worker — نكمله هنا)
     INSERT INTO users (id, name, phone, role, pin_hash, farm_id)
     VALUES (v_auth_uuid, p_manager_name, p_phone, 'manager',
             public.app_password_from_pin(p_pin), v_farm_id)
@@ -823,7 +578,7 @@ BEGIN
 END;
 $$;
 
--- إنشاء مستخدم (عامل/مشرف/مدير) — للمدير
+-- إنشاء مستخدم
 CREATE OR REPLACE FUNCTION public.admin_create_user(
     p_farm_id text,
     p_name text,
@@ -928,7 +683,6 @@ BEGIN
         role = COALESCE(p_role, role)
     WHERE id = p_uid::uuid;
 
-    -- تحديث JWT metadata ليظهر الدور والمزرعة فوراً بعد إعادة الدخول
     UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || jsonb_build_object(
         'role', COALESCE(p_role, raw_user_meta_data ->> 'role'),
         'phone', COALESCE(p_phone, raw_user_meta_data ->> 'phone'),
@@ -981,7 +735,7 @@ END;
 $$;
 
 -- ============================================================
--- 12) Triggers الحسابات والتدقيق (تُنشأ بعد الجداول)
+-- 6) Triggers الحسابات
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.calc_total_eggs()
 RETURNS TRIGGER AS $$
@@ -1075,8 +829,215 @@ CREATE TRIGGER expenses_audit_trigger
     AFTER INSERT OR UPDATE OR DELETE ON expenses
     FOR EACH ROW EXECUTE FUNCTION public.audit_expenses_changes();
 
+-- updated_at triggers
+CREATE TRIGGER update_feed_consumption_updated_at BEFORE UPDATE ON feed_consumption
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_feed_received_updated_at BEFORE UPDATE ON feed_received
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_egg_dispatch_updated_at BEFORE UPDATE ON egg_dispatch
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_payments_updated_at BEFORE UPDATE ON payments
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_medications_updated_at BEFORE UPDATE ON medications
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_expenses_updated_at BEFORE UPDATE ON expenses
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- ============================================================
--- 13) الصلاحيات العامة + إعادة تحميل مخطط PostgREST
+-- 7) RLS: تفعيل على جميع الجداول
+-- ============================================================
+ALTER TABLE farms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE flocks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE egg_production ENABLE ROW LEVEL SECURITY;
+ALTER TABLE mortality ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feed_consumption ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feed_received ENABLE ROW LEVEL SECURITY;
+ALTER TABLE egg_dispatch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medicines_catalog ENABLE ROW LEVEL SECURITY;
+ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE opening_balances ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dispatch_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sync_changes ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================
+-- 8) سياسات المستخدمين والمزارع
+-- ============================================================
+
+-- users: المرء يرى ويعدّل بياناته فقط
+DROP POLICY IF EXISTS users_select_self ON users;
+CREATE POLICY users_select_self ON users
+    FOR SELECT TO authenticated
+    USING (id = auth.uid());
+
+DROP POLICY IF EXISTS users_update_self ON users;
+CREATE POLICY users_update_self ON users
+    FOR UPDATE TO authenticated
+    USING (id = auth.uid())
+    WITH CHECK (id = auth.uid());
+
+-- المدير يرى مستخدمي مزرعته عبر JWT
+DROP POLICY IF EXISTS users_select_same_farm ON users;
+CREATE POLICY users_select_same_farm ON users
+    FOR SELECT TO authenticated
+    USING (
+        (auth.jwt() -> 'user_metadata' ->> 'role') = 'manager'
+        AND farm_id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid
+    );
+
+-- farms: قراءة عامة، كتابة للمدير
+DROP POLICY IF EXISTS farms_select_all ON farms;
+CREATE POLICY farms_select_all ON farms
+    FOR SELECT TO authenticated
+    USING (true);
+
+DROP POLICY IF EXISTS farms_insert_manager ON farms;
+CREATE POLICY farms_insert_manager ON farms
+    FOR INSERT TO authenticated
+    WITH CHECK (current_user_role() = 'manager');
+
+DROP POLICY IF EXISTS farms_update_manager ON farms;
+CREATE POLICY farms_update_manager ON farms
+    FOR UPDATE TO authenticated
+    USING (current_user_role() = 'manager')
+    WITH CHECK (current_user_role() = 'manager');
+
+DROP POLICY IF EXISTS farms_delete_manager ON farms;
+CREATE POLICY farms_delete_manager ON farms
+    FOR DELETE TO authenticated
+    USING (current_user_role() = 'manager');
+
+-- ============================================================
+-- 9) سياسات الجداول التشغيلية
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.ensure_operational_policies(p_table name)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    EXECUTE format('DROP POLICY IF EXISTS op_select ON %I', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS op_insert ON %I', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS op_update ON %I', p_table);
+    EXECUTE format('DROP POLICY IF EXISTS op_delete ON %I', p_table);
+    EXECUTE format('CREATE POLICY op_select ON %I FOR SELECT TO authenticated USING (farm_id = current_user_farm_id())', p_table);
+    EXECUTE format('CREATE POLICY op_insert ON %I FOR INSERT TO authenticated WITH CHECK (farm_id = current_user_farm_id())', p_table);
+    EXECUTE format('CREATE POLICY op_update ON %I FOR UPDATE TO authenticated USING (farm_id = current_user_farm_id()) WITH CHECK (farm_id = current_user_farm_id())', p_table);
+    EXECUTE format('CREATE POLICY op_delete ON %I FOR DELETE TO authenticated USING (farm_id = current_user_farm_id() AND current_user_role() = ''manager'')', p_table);
+END;
+$$;
+
+SELECT public.ensure_operational_policies('flocks');
+SELECT public.ensure_operational_policies('customers');
+SELECT public.ensure_operational_policies('egg_production');
+SELECT public.ensure_operational_policies('mortality');
+SELECT public.ensure_operational_policies('feed_consumption');
+SELECT public.ensure_operational_policies('feed_received');
+SELECT public.ensure_operational_policies('egg_dispatch');
+SELECT public.ensure_operational_policies('medications');
+
+-- ============================================================
+-- 10) سياسات الجداول المالية والإدارية (المدير فقط)
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.ensure_manager_policies(p_table name)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    EXECUTE format('DROP POLICY IF EXISTS mgr_all ON %I', p_table);
+    EXECUTE format('CREATE POLICY mgr_all ON %I FOR ALL TO authenticated USING (current_user_role() = ''manager'') WITH CHECK (current_user_role() = ''manager'')', p_table);
+END;
+$$;
+
+SELECT public.ensure_manager_policies('payments');
+SELECT public.ensure_manager_policies('expenses');
+SELECT public.ensure_manager_policies('opening_balances');
+SELECT public.ensure_manager_policies('inventory_items');
+SELECT public.ensure_manager_policies('audit_log');
+
+-- inventory_transactions
+DROP POLICY IF EXISTS mgr_tx ON inventory_transactions;
+CREATE POLICY mgr_tx ON inventory_transactions
+    FOR ALL TO authenticated
+    USING (
+        current_user_role() = 'manager'
+        AND item_id IN (SELECT i.id FROM inventory_items i WHERE i.farm_id = current_user_farm_id())
+    )
+    WITH CHECK (
+        current_user_role() = 'manager'
+        AND item_id IN (SELECT i.id FROM inventory_items i WHERE i.farm_id = current_user_farm_id())
+    );
+
+-- medicines_catalog
+DROP POLICY IF EXISTS catalog_select ON medicines_catalog;
+CREATE POLICY catalog_select ON medicines_catalog
+    FOR SELECT TO authenticated
+    USING (true);
+
+DROP POLICY IF EXISTS catalog_manager ON medicines_catalog;
+CREATE POLICY catalog_manager ON medicines_catalog
+    FOR ALL TO authenticated
+    USING (current_user_role() = 'manager')
+    WITH CHECK (current_user_role() = 'manager');
+
+-- ============================================================
+-- 11) سياسات الإشعارات وطلبات التخريج
+-- ============================================================
+DROP POLICY IF EXISTS notif_read ON app_notifications;
+CREATE POLICY notif_read ON app_notifications
+    FOR SELECT TO authenticated
+    USING (farm_id = current_user_farm_id());
+
+DROP POLICY IF EXISTS notif_manager ON app_notifications;
+CREATE POLICY notif_manager ON app_notifications
+    FOR ALL TO authenticated
+    USING (current_user_role() = 'manager' AND farm_id = current_user_farm_id())
+    WITH CHECK (current_user_role() = 'manager' AND farm_id = current_user_farm_id());
+
+DROP POLICY IF EXISTS dreq_select ON dispatch_requests;
+CREATE POLICY dreq_select ON dispatch_requests
+    FOR SELECT TO authenticated
+    USING (farm_id = current_user_farm_id());
+
+DROP POLICY IF EXISTS dreq_insert ON dispatch_requests;
+CREATE POLICY dreq_insert ON dispatch_requests
+    FOR INSERT TO authenticated
+    WITH CHECK (farm_id = current_user_farm_id());
+
+DROP POLICY IF EXISTS dreq_manager ON dispatch_requests;
+CREATE POLICY dreq_manager ON dispatch_requests
+    FOR UPDATE TO authenticated
+    USING (current_user_role() = 'manager' AND farm_id = current_user_farm_id())
+    WITH CHECK (current_user_role() = 'manager' AND farm_id = current_user_farm_id());
+
+DROP POLICY IF EXISTS dreq_manager_delete ON dispatch_requests;
+CREATE POLICY dreq_manager_delete ON dispatch_requests
+    FOR DELETE TO authenticated
+    USING (current_user_role() = 'manager' AND farm_id = current_user_farm_id());
+
+-- sync_changes
+DROP POLICY IF EXISTS sync_changes_insert ON sync_changes;
+CREATE POLICY sync_changes_insert ON sync_changes
+    FOR INSERT TO authenticated
+    WITH CHECK (auth.uid()::text = '00000000-0000-0000-0000-000000000000'::text);
+
+DROP POLICY IF EXISTS sync_changes_select ON sync_changes;
+CREATE POLICY sync_changes_select ON sync_changes
+    FOR SELECT TO authenticated
+    USING (farm_id = current_user_farm_id());
+
+-- ============================================================
+-- 12) الصلاحيات العامة + إعادة تحميل مخطط PostgREST
 -- ============================================================
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
