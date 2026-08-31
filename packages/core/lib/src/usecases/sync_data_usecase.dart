@@ -16,7 +16,7 @@ class SyncDataUseCase {
   Future<SyncResult> call() async {
     try {
       // 1. جلب السجلات المعلقة
-      final pendingRecords = await repository.getPendingRecords();
+      final pendingRecords = await repository.getPendingChanges();
       
       if (pendingRecords.isEmpty) {
         return SyncResult.success(uploadedCount: 0);
@@ -28,9 +28,9 @@ class SyncDataUseCase {
       // 3. تحديث الحالات
       for (final record in pendingRecords) {
         if (result.successIds.contains(record.id)) {
-          await repository.markAsSynced(record.id!);
+          await repository.markAsSynced([record.id!]);
         } else {
-          await repository.markAsFailed(record.id!, result.errorMessage);
+          await repository.markAsFailed(record.id!, result.errorMessage ?? 'Unknown error');
         }
       }
 

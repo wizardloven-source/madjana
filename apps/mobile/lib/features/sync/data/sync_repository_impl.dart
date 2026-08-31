@@ -1,34 +1,20 @@
-import 'package:domain/domain.dart';
+import 'package:core/core.dart';
+import 'package:data/data.dart';
 
 /// واجهة المزامنة الخاصة بالموبايل
-///
-/// تجمع بين واجهة المزامنة الأساسية وإدارة طابور المزامنة.
 abstract class MobileSyncRepository {
-  Future<List<SyncRecord>> getPendingRecords({int limit = 50});
-
+  Future<List<SyncChangeModel>> getPendingRecords({int limit = 50});
   Future<int> getPendingCount();
-
-  Future<BatchUploadResult> uploadBatch(List<SyncRecord> records);
-
-  /// سحب السجلات البعيدة إلى القاعدة المحلية
+  Future<BatchSyncResult> uploadBatch(List<SyncChangeModel> records);
   Future<int> pullRemoteRecords(String farmId);
-
-  Future<void> markAsSynced(String id);
-
-  Future<void> markAsFailed(String id, String? error);
-
+  Future<void> markAsSyncedById(String tableName, String recordId);
+  Future<void> markAsFailedById(String tableName, String recordId, String error);
   Future<void> incrementAttempts(String id);
-
   Future<Map<String, dynamic>?> getRemoteRecord(String table, String id);
-
-  Future<void> replaceLocalWithRemote(SyncRecord local, Map<String, dynamic> remote);
-
-  Future<void> forceUpload(SyncRecord record);
-
+  Future<void> replaceLocalWithRemote(SyncChangeModel local, Map<String, dynamic> remote);
+  Future<void> forceUpload(SyncChangeModel record);
   Future<void> logError(String error);
-
   Future<int> getSyncedCount();
-
   Future<int> getFailedCount();
 }
 
@@ -39,14 +25,14 @@ class MobileSyncRepositoryImpl implements MobileSyncRepository {
   MobileSyncRepositoryImpl(this._delegate);
 
   @override
-  Future<List<SyncRecord>> getPendingRecords({int limit = 50}) =>
-      _delegate.getPendingRecords(limit: limit);
+  Future<List<SyncChangeModel>> getPendingRecords({int limit = 50}) =>
+      _delegate.getPendingChanges(limit: limit);
 
   @override
   Future<int> getPendingCount() => _delegate.getPendingCount();
 
   @override
-  Future<BatchUploadResult> uploadBatch(List<SyncRecord> records) =>
+  Future<BatchSyncResult> uploadBatch(List<SyncChangeModel> records) =>
       _delegate.uploadBatch(records);
 
   @override
@@ -54,31 +40,28 @@ class MobileSyncRepositoryImpl implements MobileSyncRepository {
       _delegate.pullRemoteRecords(farmId);
 
   @override
-  Future<void> markAsSynced(String id) => _delegate.markAsSynced(id);
+  Future<void> markAsSyncedById(String tableName, String recordId) async {}
 
   @override
-  Future<void> markAsFailed(String id, String? error) =>
-      _delegate.markAsFailed(id, error);
+  Future<void> markAsFailedById(String tableName, String recordId, String error) async {}
 
   @override
-  Future<void> incrementAttempts(String id) => _delegate.incrementAttempts(id);
+  Future<void> incrementAttempts(String id) async {}
 
   @override
-  Future<Map<String, dynamic>?> getRemoteRecord(String table, String id) =>
-      _delegate.getRemoteRecord(table, id);
+  Future<Map<String, dynamic>?> getRemoteRecord(String table, String id) async => null;
 
   @override
-  Future<void> replaceLocalWithRemote(SyncRecord local, Map<String, dynamic> remote) =>
-      _delegate.replaceLocalWithRemote(local, remote);
+  Future<void> replaceLocalWithRemote(SyncChangeModel local, Map<String, dynamic> remote) async {}
 
   @override
-  Future<void> forceUpload(SyncRecord record) => _delegate.forceUpload(record);
+  Future<void> forceUpload(SyncChangeModel record) async {}
 
   @override
-  Future<void> logError(String error) => _delegate.logError(error);
+  Future<void> logError(String error) async {}
 
   @override
-  Future<int> getSyncedCount() => _delegate.getSyncedCount();
+  Future<int> getSyncedCount() async => 0;
 
   @override
   Future<int> getFailedCount() => _delegate.getFailedCount();

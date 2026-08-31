@@ -5,11 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:data/data.dart';
 import 'app.dart';
 import 'core/supabase_client.dart';
+import 'config/app_theme.dart';
 
 /// نقطة دخول تطبيق الموبايل
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
+  
   // تحميل المفاتيح من ملف .env
   try {
     await dotenv.load(fileName: '.env');
@@ -32,5 +33,13 @@ Future<void> main() async {
     } catch (_) {}
   }
 
-  runApp(const ProviderScope(child: PoultryApp()));
+  runApp(
+    MaterialApp(
+      title: 'إدارة المداجن',
+      theme: AppTheme.lightTheme,
+      locale: const Locale('ar', 'SA'),
+      debugShowCheckedModeBanner: false,
+      home: const ProviderScope(child: PoultryApp()),
+    ),
+  );
 }

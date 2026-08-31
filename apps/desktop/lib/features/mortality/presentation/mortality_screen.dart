@@ -22,6 +22,7 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
   bool _loading = true;
   DateTime _fromDate = DateTime.now().subtract(const Duration(days: 30));
   DateTime _toDate = DateTime.now();
+  String? _flockFilter;
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
 
@@ -62,6 +63,11 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
     return '-';
   }
 
+  List<MortalityModel> get _filtered =>
+      _flockFilter == null || _flockFilter!.isEmpty
+          ? _records
+          : _records.where((r) => r.flockId == _flockFilter).toList();
+
   Future<void> _showAddDialog() async {
     if (_flocks.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -97,14 +103,16 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
 
   Future<void> _exportCsv() async {
     try {
+      final filtered = _filtered;
       final path = await CsvExporter.saveCsv(
         fileName:
             'mortality_${DateTime.now().toIso8601String().split('T').first}',
         rows: [
-          ['التاريخ', 'العدد', 'السبب', 'ملاحظات'],
-          for (final r in _records)
+          ['التاريخ', 'المدجنة', 'العدد', 'السبب', 'ملاحظات'],
+          for (final r in filtered)
             [
               Formatters.formatDate(r.date),
+              _breedName(r.flockId),
               '${r.count}',
               _reasonLabel(r),
               r.notes ?? '',
@@ -127,7 +135,8 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
   Widget build(BuildContext context) {
     // إعادة التحميل عند وصول بيانات من أجهزة أخرى
     ref.listen(dataRefreshTickProvider, (_, __) => _load());
-    final total = _records.fold<int>(0, (s, r) => s + r.count);
+    final filtered = _filtered;
+    final total = filtered.fold<int>(0, (s, r) => s + r.count);
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -183,13 +192,32 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
                 icon: const Icon(Icons.date_range),
                 label: Text('إلى: ${Formatters.formatDate(_toDate)}'),
               ),
+              SizedBox(
+                width: 200,
+                child: DropdownButtonFormField<String>(
+                  value: _flockFilter,
+                  isDense: true,
+                  decoration: const InputDecoration(
+                    labelText: 'المدجنة',
+                    border: OutlineInputBorder(),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('الكل')),
+                    ..._flocks.map((f) =>
+                        DropdownMenuItem(value: f.id, child: Text(f.breed))),
+                  ],
+                  onChanged: (v) => setState(() => _flockFilter = v),
+                ),
+              ),
               const SizedBox(width: 8),
               Chip(
                 label: Text('إجمالي النفوق: ${Formatters.formatNumber(total)}'),
                 avatar: const Icon(Icons.heart_broken, size: 18),
               ),
               FilledButton.tonalIcon(
-                onPressed: _records.isEmpty ? null : _exportCsv,
+                onPressed: filtered.isEmpty ? null : _exportCsv,
                 icon: const Icon(Icons.file_download_outlined),
                 label: const Text('تصدير CSV'),
               ),
@@ -205,7 +233,7 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
-                : _records.isEmpty
+                : filtered.isEmpty
                     ? const Center(child: Text('لا توجد بيانات'))
                     : SingleChildScrollView(
                         child: DataTable(
@@ -214,15 +242,17 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
                           ),
                           columns: const [
                             DataColumn(label: Text('التاريخ')),
+                            DataColumn(label: Text('المدجنة')),
                             DataColumn(label: Text('العدد')),
                             DataColumn(label: Text('السبب')),
                             DataColumn(label: Text('ملاحظات')),
                           ],
                           rows: [
-                            for (final r in _records)
+                            for (final r in filtered)
                               DataRow(
                                 cells: [
                                   DataCell(Text(Formatters.formatDate(r.date))),
+                                  DataCell(Text(_breedName(r.flockId))),
                                   DataCell(
                                     Text(
                                       '${r.count}',

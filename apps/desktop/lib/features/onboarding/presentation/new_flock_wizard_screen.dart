@@ -63,9 +63,11 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
       _farmNameCtrl.text = farm.name;
     } catch (_) {}
     try {
-      final users = await ref.read(userAdminRepositoryProvider).getUsers(_farmId);
+      final users =
+          await ref.read(userAdminRepositoryProvider).getUsers(_farmId);
       _workers = users
-          .where((u) => u.role == UserRole.worker || u.role == UserRole.supervisor)
+          .where((u) =>
+              u.role == UserRole.worker || u.role == UserRole.supervisor)
           .toList();
     } catch (_) {
       _workers = [];
@@ -94,10 +96,6 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
       }
       if (_toInt(_initialBirdsCtrl) <= 0) {
         _showSnack('أدخل العدد الأولي للدجاج');
-        return false;
-      }
-      if (_farmNameCtrl.text.trim().isEmpty) {
-        _showSnack('أدخل اسم المدجنة');
         return false;
       }
     }
@@ -186,7 +184,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('معالج فوج جديد')),
+      appBar: AppBar(title: const Text('إضافة قطيع جديد')),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -222,7 +220,9 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
                         ? Theme.of(context).colorScheme.primary
                         : done
                             ? Colors.green.shade100
-                            : Theme.of(context).colorScheme.surfaceContainerHighest,
+                            : Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
@@ -267,6 +267,11 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
       children: [
         Text('بيانات القطيع الجديد',
             style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 4),
+        const Text(
+          'أدخل基本信息 عن الفوج الجديد',
+          style: TextStyle(color: Colors.grey, fontSize: 13),
+        ),
         const SizedBox(height: 16),
         TextField(
           controller: _breedCtrl,
@@ -274,14 +279,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
             labelText: 'اسم / سلالة القطيع',
             hintText: 'مثال: هاي لاين بروان',
             border: OutlineInputBorder(),
-          ),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _farmNameCtrl,
-          decoration: const InputDecoration(
-            labelText: 'اسم المدجنة',
-            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.pets),
           ),
         ),
         const SizedBox(height: 16),
@@ -312,6 +310,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
           decoration: const InputDecoration(
             labelText: 'العدد الأولي للدجاج',
             border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.numbers),
           ),
         ),
         const SizedBox(height: 16),
@@ -320,11 +319,14 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
           decoration: const InputDecoration(
             labelText: 'عدد العنابر',
             border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.view_column),
           ),
           items: const [
             DropdownMenuItem(value: 1, child: Text('عنبر واحد')),
             DropdownMenuItem(value: 2, child: Text('عنبران')),
             DropdownMenuItem(value: 3, child: Text('3 عنابر')),
+            DropdownMenuItem(value: 4, child: Text('4 عنابر')),
+            DropdownMenuItem(value: 5, child: Text('5 عنابر')),
           ],
           onChanged: (v) {
             if (v != null) setState(() => _sectionsCount = v);
@@ -340,6 +342,11 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
       children: [
         Text('العامل المسؤول عن القطيع',
             style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 4),
+        const Text(
+          'اختر عامل موجود أو أنشئ حساباً جديداً',
+          style: TextStyle(color: Colors.grey, fontSize: 13),
+        ),
         const SizedBox(height: 16),
         if (_loadingWorkers)
           const Center(child: CircularProgressIndicator())
@@ -360,6 +367,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
               decoration: const InputDecoration(
                 labelText: 'العامل',
                 border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.person),
               ),
               items: _workers
                   .map((w) => DropdownMenuItem(
@@ -383,6 +391,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
             decoration: const InputDecoration(
               labelText: 'اسم العامل',
               border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.person_outline),
             ),
           ),
           const SizedBox(height: 12),
@@ -393,6 +402,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
               labelText: 'رقم الهاتف',
               hintText: 'مثال: 0934123456',
               border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.phone),
             ),
           ),
           const SizedBox(height: 12),
@@ -404,6 +414,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
             decoration: const InputDecoration(
               labelText: 'الرقم السري (4 أرقام فأكثر)',
               border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.lock_outline),
             ),
           ),
         ],
@@ -420,7 +431,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
             onPressed: _saving
                 ? null
                 : () => setState(() => _step--),
-            icon: const Icon(Icons.arrow_back),
+            icon: const Icon(Icons.arrow_forward),
             label: const Text('السابق'),
           )
         else
@@ -437,7 +448,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
                         if (!_validateStep()) return;
                         setState(() => _step++);
                       },
-                icon: const Icon(Icons.arrow_forward),
+                icon: const Icon(Icons.arrow_back),
                 label: const Text('التالي'),
               )
             : FilledButton.icon(

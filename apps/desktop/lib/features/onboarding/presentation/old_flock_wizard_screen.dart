@@ -9,7 +9,7 @@ import '../../auth/providers/auth_provider.dart';
 
 /// معالج قطيع قديم - إدخال الأرصدة الافتتاحية لقطيع يعمل قبل النظام
 ///
-/// مكون من خطوتين:
+/// مكون من 3 خطوات:
 /// 1. بيانات القطيع (اسم/سلالة، تاريخ البدء، عدد العنابر، العدد الأولي)
 /// 2. الأرصدة الافتتاحية (إنتاج البيض، التخريج، العلف، النفوق، المدفوعات، الإيرادات)
 /// 3. تفصيل العنابر (كل عنبر: العدد الأولي + النفوق)
@@ -26,7 +26,7 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
 
   // بيانات القطيع
   late final TextEditingController _breedCtrl;
-  late final TextEditingController _startCtrl;
+  late final TextEditingController _initialBirdsCtrl;
   DateTime _startDate = DateTime.now().subtract(const Duration(days: 273));
   int _sectionsCount = 1;
 
@@ -34,7 +34,6 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
   late final TextEditingController _eggsProducedCtrl;
   late final TextEditingController _eggsDispatchedCtrl;
   late final TextEditingController _feedConsumedCtrl;
-  late final TextEditingController _initialBirdsCtrl;
   late final TextEditingController _mortalityCtrl;
   late final TextEditingController _paymentsCtrl;
   late final TextEditingController _revenuesCtrl;
@@ -52,11 +51,10 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
   void initState() {
     super.initState();
     _breedCtrl = TextEditingController();
-    _startCtrl = TextEditingController();
+    _initialBirdsCtrl = TextEditingController();
     _eggsProducedCtrl = TextEditingController();
     _eggsDispatchedCtrl = TextEditingController();
     _feedConsumedCtrl = TextEditingController();
-    _initialBirdsCtrl = TextEditingController();
     _mortalityCtrl = TextEditingController();
     _paymentsCtrl = TextEditingController();
     _revenuesCtrl = TextEditingController();
@@ -77,11 +75,10 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
   @override
   void dispose() {
     _breedCtrl.dispose();
-    _startCtrl.dispose();
+    _initialBirdsCtrl.dispose();
     _eggsProducedCtrl.dispose();
     _eggsDispatchedCtrl.dispose();
     _feedConsumedCtrl.dispose();
-    _initialBirdsCtrl.dispose();
     _mortalityCtrl.dispose();
     _paymentsCtrl.dispose();
     _revenuesCtrl.dispose();
@@ -108,17 +105,6 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
         return false;
       }
     }
-    if (_step == 1) {
-      if (_toInt(_eggsProducedCtrl) <= 0 &&
-          _toInt(_eggsDispatchedCtrl) <= 0 &&
-          _toDouble(_feedConsumedCtrl) <= 0 &&
-          _toInt(_mortalityCtrl) <= 0 &&
-          _toDouble(_paymentsCtrl) <= 0 &&
-          _toDouble(_revenuesCtrl) <= 0) {
-        _showSnack('أدخل بيانات دفعة واحدة على الأقل أو تخطَّ هذه الخطوة');
-        return false;
-      }
-    }
     return true;
   }
 
@@ -134,14 +120,15 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
       final flockId = _uuid.v4();
       final initialBirds = _toInt(_initialBirdsCtrl);
 
-      // 1. إنشاء القطيع مع العدد الحالي = الأولي - النفوق
+      // 1. إنشاء القطيع مع العدد الحالي = الأولي - النفوق الكلي
+      final totalMortality = _toInt(_mortalityCtrl);
       final flock = FlockModel(
         id: flockId,
         farmId: _farmId,
         breed: _breedCtrl.text.trim(),
         startDate: _startDate,
         initialCount: initialBirds,
-        currentCount: (initialBirds - _toInt(_mortalityCtrl)).clamp(0, initialBirds),
+        currentCount: (initialBirds - totalMortality).clamp(0, initialBirds),
         status: FlockStatus.active,
         sectionsCount: _sectionsCount,
       );
@@ -169,7 +156,7 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
         eggsDispatched: _toInt(_eggsDispatchedCtrl),
         feedConsumedKg: _toDouble(_feedConsumedCtrl),
         initialBirds: initialBirds,
-        mortalityCount: _toInt(_mortalityCtrl),
+        mortalityCount: totalMortality,
         totalPayments: _toDouble(_paymentsCtrl),
         totalRevenues: _toDouble(_revenuesCtrl),
         sections: sections,
@@ -192,7 +179,7 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('معالج قطيع قديم — الأرصدة الافتتاحية')),
+      appBar: AppBar(title: const Text('إضافة قطيع قديم')),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -212,7 +199,7 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
   }
 
   Widget _buildStepper() {
-    const steps = ['بيانات القطيع', 'الأرصدة الكلية', 'تفصيل العنابر'];
+    const steps = ['بيانات القطيع', 'الأرصدة الافتتاحية', 'تفصيل العنابر'];
     return Row(
       children: List.generate(steps.length, (i) {
         final active = i == _step;
@@ -228,7 +215,9 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
                         ? Theme.of(context).colorScheme.primary
                         : done
                             ? Colors.green.shade100
-                            : Theme.of(context).colorScheme.surfaceContainerHighest,
+                            : Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
@@ -249,6 +238,7 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
                         style: TextStyle(
                           color: active ? Colors.white : null,
                           fontWeight: FontWeight.bold,
+                          fontSize: 13,
                         ),
                       ),
                     ],
@@ -278,8 +268,13 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('بيانات القطيع القديم',
+        Text('بيانات القطيع',
             style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 4),
+        const Text(
+          'أدخل基本信息 عن القطيع القديم',
+          style: TextStyle(color: Colors.grey),
+        ),
         const SizedBox(height: 16),
         TextField(
           controller: _breedCtrl,
@@ -287,6 +282,7 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
             labelText: 'اسم / سلالة القطيع',
             hintText: 'مثال: هاي لاين بروان',
             border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.pets),
           ),
         ),
         const SizedBox(height: 16),
@@ -317,6 +313,7 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
           decoration: const InputDecoration(
             labelText: 'عدد الدجاج الأولي عند بدء الدورة',
             border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.numbers),
           ),
         ),
         const SizedBox(height: 16),
@@ -325,11 +322,14 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
           decoration: const InputDecoration(
             labelText: 'عدد العنابر',
             border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.view_column),
           ),
           items: const [
             DropdownMenuItem(value: 1, child: Text('عنبر واحد')),
             DropdownMenuItem(value: 2, child: Text('عنبران')),
             DropdownMenuItem(value: 3, child: Text('3 عنابر')),
+            DropdownMenuItem(value: 4, child: Text('4 عنابر')),
+            DropdownMenuItem(value: 5, child: Text('5 عنابر')),
           ],
           onChanged: (v) {
             if (v == null) return;
@@ -343,24 +343,26 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
     );
   }
 
-  Widget _moneyField(TextEditingController ctrl, String label) {
+  Widget _moneyField(TextEditingController ctrl, String label, {String? hint}) {
     return TextField(
       controller: ctrl,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       decoration: InputDecoration(
         labelText: label,
+        hintText: hint,
         border: const OutlineInputBorder(),
       ),
     );
   }
 
-  Widget _intField(TextEditingController ctrl, String label) {
+  Widget _intField(TextEditingController ctrl, String label, {String? hint}) {
     return TextField(
       controller: ctrl,
       keyboardType: TextInputType.number,
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
       decoration: InputDecoration(
         labelText: label,
+        hintText: hint,
         border: const OutlineInputBorder(),
       ),
     );
@@ -370,22 +372,59 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('الأرصدة الافتتاحية (حتى اليوم)',
+        Text('الأرصدة الافتتاحية',
             style: Theme.of(context).textTheme.titleLarge),
-        const Text('أدخل الإجمالي المتراكم منذ بدء الدورة حتى الآن.',
-            style: TextStyle(color: Colors.grey)),
-        const SizedBox(height: 16),
-        _intField(_eggsProducedCtrl, 'كمية البيض المُنتجة حتى الآن (بيضة)'),
-        const SizedBox(height: 16),
-        _intField(_eggsDispatchedCtrl, 'كمية البيض المُخرَّج حتى الآن (بيضة)'),
-        const SizedBox(height: 16),
-        _moneyField(_feedConsumedCtrl, 'كمية العلف المستهلك حتى الآن (كغ)'),
-        const SizedBox(height: 16),
-        _intField(_mortalityCtrl, 'كمية النفوق حتى الآن'),
-        const SizedBox(height: 16),
-        _moneyField(_paymentsCtrl, 'إجمالي المدفوعات المصروفة حتى الآن'),
-        const SizedBox(height: 16),
-        _moneyField(_revenuesCtrl, 'إجمالي الإيرادات المحصَّلة حتى الآن'),
+        const SizedBox(height: 4),
+        const Text(
+          'أدخل الإجمالي المتراكم منذ بدء الدورة حتى الآن. يمكنك التخطي إذا لم تتوفر بيانات.',
+          style: TextStyle(color: Colors.grey, fontSize: 13),
+        ),
+        const SizedBox(height: 20),
+        // قسم الإنتاج
+        _sectionHeader('الإنتاج والتخريج', Icons.egg_alt),
+        const SizedBox(height: 12),
+        _intField(_eggsProducedCtrl, 'كمية البيض المُنتجة حتى الآن',
+            hint: 'بيضة'),
+        const SizedBox(height: 12),
+        _intField(_eggsDispatchedCtrl, 'كمية البيض المُخرَّج حتى الآن',
+            hint: 'بيضة'),
+        const SizedBox(height: 24),
+        // قسم العلف
+        _sectionHeader('العلف', Icons.grain),
+        const SizedBox(height: 12),
+        _moneyField(_feedConsumedCtrl, 'كمية العلف المستهلك حتى الآن',
+            hint: 'كيلوغرام'),
+        const SizedBox(height: 24),
+        // قسم النفوق
+        _sectionHeader('النفوق', Icons.heart_broken),
+        const SizedBox(height: 12),
+        _intField(_mortalityCtrl, 'كمية النفوق حتى الآن', hint: 'طائر'),
+        const SizedBox(height: 24),
+        // قسم المالية
+        _sectionHeader('المالية', Icons.attach_money),
+        const SizedBox(height: 12),
+        _moneyField(_paymentsCtrl, 'إجمالي المدفوعات المصروفة حتى الآن',
+            hint: 'عملة'),
+        const SizedBox(height: 12),
+        _moneyField(_revenuesCtrl, 'إجمالي الإيرادات المحصَّلة حتى الآن',
+            hint: 'عملة'),
+      ],
+    );
+  }
+
+  Widget _sectionHeader(String title, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
       ],
     );
   }
@@ -394,27 +433,47 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('تفصيل العنابر', style: Theme.of(context).textTheme.titleLarge),
-        const Text('أدخل عدد الدجاج الأولي والنفوق في كل عنبر.',
-            style: TextStyle(color: Colors.grey)),
+        Text('تفصيل العنابر',
+            style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 4),
+        const Text(
+          'أدخل عدد الدجاج الأولي والنفوق في كل عنبر.',
+          style: TextStyle(color: Colors.grey, fontSize: 13),
+        ),
         const SizedBox(height: 16),
         for (var i = 0; i < _sectionsCount; i++) ...[
-          Text('العنبر ${i + 1}',
-              style:
-                  const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _intField(_sectionInitial[i], 'العدد الأولي بالعنبر'),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'العنبر ${i + 1}',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _intField(
+                            _sectionInitial[i], 'العدد الأولي',
+                            hint: 'عدد الدجاج'),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _intField(
+                            _sectionMortality[i], 'النفوق',
+                            hint: 'عدد النفوق'),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _intField(_sectionMortality[i], 'النفوق بالعنبر'),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
         ],
       ],
     );
@@ -429,14 +488,12 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
             onPressed: _saving
                 ? null
                 : () => setState(() => _step--),
-            icon: const Icon(Icons.arrow_back),
+            icon: const Icon(Icons.arrow_forward),
             label: const Text('السابق'),
           )
         else
           OutlinedButton.icon(
-            onPressed: _saving
-                ? null
-                : () => Navigator.pop(context),
+            onPressed: _saving ? null : () => Navigator.pop(context),
             icon: const Icon(Icons.close),
             label: const Text('إلغاء'),
           ),
@@ -448,7 +505,7 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
                         if (!_validateStep()) return;
                         setState(() => _step++);
                       },
-                icon: const Icon(Icons.arrow_forward),
+                icon: const Icon(Icons.arrow_back),
                 label: const Text('التالي'),
               )
             : FilledButton.icon(

@@ -135,6 +135,8 @@ final syncRepositoryProvider = Provider<SyncRepository>(
     dispatchDao: ref.watch(dispatchDaoProvider),
     medicationDao: ref.watch(medicationDaoProvider),
     customerDao: ref.watch(customerDaoProvider),
+    paymentDao: ref.watch(paymentDaoProvider),
+    expenseDao: null,
     syncQueueDao: ref.watch(syncQueueDaoProvider),
     remoteEgg: ref.watch(supabaseEggDatasourceProvider),
     remoteMortality: ref.watch(supabaseMortalityDatasourceProvider),

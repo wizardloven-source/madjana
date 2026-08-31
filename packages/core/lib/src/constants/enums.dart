@@ -58,7 +58,7 @@ enum MortalityReason {
 }
 
 /// حالة المزامنة
-enum SyncStatus { pending, synced, failed, processing }
+enum SyncStatus { pending, synced, failed, processing, conflict }
 
 /// فئات المصروفات
 enum ExpenseCategory {

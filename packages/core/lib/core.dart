@@ -22,6 +22,8 @@ export 'src/models/expense_model.dart';
 export 'src/models/inventory_model.dart';
 export 'src/models/notification_models.dart';
 export 'src/models/opening_balance_model.dart';
+export 'src/models/sync_change_model.dart';
+export 'src/models/batch_upload_result.dart';
 
 // الأدوات
 export 'src/utils/egg_calculator.dart';

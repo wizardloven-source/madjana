@@ -105,7 +105,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
       if (farmId.isEmpty) return;
       try {
         final pulled = await ref.read(syncRepositoryProvider).syncNow(farmId);
-        if (pulled > 0 && mounted) {
+        if (pulled.uploadedCount > 0 || pulled.downloadedCount > 0 && mounted) {
           ref.read(dataRefreshTickProvider.notifier).state++;
         }
       } catch (_) {}

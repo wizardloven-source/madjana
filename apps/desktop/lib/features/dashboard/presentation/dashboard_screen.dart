@@ -53,7 +53,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     try {
       final syncRepo = ref.read(syncRepositoryProvider);
       final pulled = await syncRepo.syncNow(farmId);
-      if (pulled > 0 && mounted) {
+      if (pulled.uploadedCount > 0 || pulled.downloadedCount > 0 && mounted) {
         ref.read(dataRefreshTickProvider.notifier).state++;
       }
     } catch (_) {}
