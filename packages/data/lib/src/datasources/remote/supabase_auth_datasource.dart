@@ -1,6 +1,3 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:core/core.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -54,12 +51,20 @@ class SupabaseAuthDatasource {
         throw AuthException('انتهت مهلة تسجيل الدخول');
       });
 
+      // 3) الدور/المزرعة تُقرأ من الـ JWT (مصدر مُصادَق) وليس من بحث الهاتف المكشوف
+      final sessionUser = _client.auth.currentUser;
+      final meta = sessionUser?.userMetadata ?? const {};
+      final resolvedName = (meta['full_name'] as String?) ?? userData['name'];
+      final resolvedPhone = (meta['phone'] as String?) ?? userData['phone'];
+      final resolvedRole = (meta['role'] as String?) ?? 'worker';
+      final resolvedFarmId = (meta['farm_id'] as String?) ?? '';
+
       return UserModel.fromJson({
         'uid': uid,
-        'name': userData['name'],
-        'phone': userData['phone'],
-        'role': userData['role'],
-        'farm_id': userData['farm_id'],
+        'name': resolvedName,
+        'phone': resolvedPhone,
+        'role': resolvedRole,
+        'farm_id': resolvedFarmId,
         'created_at': null,
       });
     } on AuthApiException catch (e) {

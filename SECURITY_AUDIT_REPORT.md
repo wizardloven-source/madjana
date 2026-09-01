@@ -8,7 +8,10 @@
 ## ✅ الإصلاحات المنفذة (Implemented Fixes)
 
 ### 1. إصلاح دالة المزامنة `sync_records_batch` (أولوية P0)
-**الملف:** `supabase/migrations/002_security_integrity_patch.sql`
+**الملف:** `supabase/migrations/20250101000000_initial_schema.sql`
+> **ملاحظة (نزاهة النشر):** كل الإصلاحات مجمّعة في ملف هجرة واحد فقط —
+> `20250101000000_initial_schema.sql`. لا يوجد `002_security_integrity_patch.sql`؛
+> أي مرجع سابق لملف ثانٍ كان غير صحيح ويُستبدل بالملف الموحد.
 
 **الثغرات التي تم إصلاحها:**
 - **تزوير الهوية (p_user_id):** كانت الدالة تقبل `user_id` من العميل، مما يسمح للمستخدم المنتحل بالتظاهر بشخص آخر.
@@ -21,7 +24,7 @@
   - **الحل:** إضافة شرط `IF current_count < mortality_count THEN RAISE EXCEPTION`.
 
 ### 2. تأمين سجل التدقيق `audit_log` (أولوية P0)
-**الملف:** `supabase/migrations/002_security_integrity_patch.sql`
+**الملف:** `supabase/migrations/20250101000000_initial_schema.sql`
 
 - **المشكلة:** كان المدير يملك صلاحية `DELETE` و `UPDATE` على سجل التدقيق، مما يلغي الغرض منه.
 - **الحل:** 
@@ -95,7 +98,7 @@ GRANT EXECUTE ON FUNCTION cleanup_old_sync_logs TO service_role;
 
 ## 📂 الملفات المعدلة
 
-1. `/workspace/supabase/migrations/002_security_integrity_patch.sql` (جديد)
+1. `/workspace/supabase/migrations/20250101000000_initial_schema.sql` (الملف الموحد لكل التغييرات)
 2. `/workspace/supabase/functions/sync_records/index.ts` (محدث)
 3. `/workspace/SECURITY_AUDIT_REPORT.md` (هذا الملف)
 
@@ -106,7 +109,12 @@ GRANT EXECUTE ON FUNCTION cleanup_old_sync_logs TO service_role;
 1. **تطبيق الهجرة:**
    ```bash
    # في Supabase Dashboard -> SQL Editor
-   # انسخ محتويات 002_security_integrity_patch.sql ونفذها
+   # قاعدة جديدة: نفّذ الملف الموحد بالكامل
+   #    supabase/migrations/20250101000000_initial_schema.sql
+   #
+   # قاعدة منشورة بالفعل: أنشئ patch فرق (delta) من الهجرة
+   #    الموحدة بعد تحريرها، أو أعد تطبيق الأجزاء المتغيّرة فقط
+   #    (sync_records_batch, triggers, policies) يدوياً.
    ```
 
 2. **نشر الدالة:**

@@ -4,7 +4,6 @@ import 'package:core/core.dart';
 import 'package:data/data.dart';
 import 'supabase_client.dart';
 import '../features/sync/data/connectivity_service.dart';
-import '../features/sync/data/sync_repository_impl.dart';
 
 /// ═══════════════════════════════════════════════
 /// حاوية التبعيات (Dependency Injection)
@@ -147,10 +146,6 @@ final syncRepositoryProvider = Provider<SyncRepository>(
   ),
 );
 
-/// تنفيذ محلي يربط واجهة المزامنة الخاصة بالموبايل مع تنفيذ البيانات
-final mobileSyncRepositoryProvider = Provider<MobileSyncRepository>(
-  (ref) => MobileSyncRepositoryImpl(ref.watch(syncRepositoryProvider)),
-);
 final remindersDaoProvider = Provider<RemindersDao>((ref) => RemindersDao());
 
 final notificationRepositoryProvider = Provider<NotificationRepository>(

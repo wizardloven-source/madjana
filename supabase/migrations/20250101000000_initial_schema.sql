@@ -38,7 +38,7 @@ DROP FUNCTION IF EXISTS public.current_user_role(), public.current_user_farm_id(
 DROP FUNCTION IF EXISTS public.current_role_safe(), public.current_farm_safe();
 DROP FUNCTION IF EXISTS public.app_user_email(uuid), public.app_password_from_pin(text);
 DROP FUNCTION IF EXISTS public.assert_current_is_manager_of(uuid);
-DROP FUNCTION IF EXISTS public.bootstrap_create_farm_and_manager(text, text, text, text, text);
+DROP FUNCTION IF EXISTS public.bootstrap_create_farm_and_manager(text, text, text, text, text, text);
 DROP FUNCTION IF EXISTS public.admin_create_user(text, text, text, text, text);
 DROP FUNCTION IF EXISTS public.admin_update_user(text, text, text, text);
 DROP FUNCTION IF EXISTS public.admin_reset_pin(text, text);
@@ -169,6 +169,9 @@ CREATE TABLE mortality (
                      CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
     created_at   TIMESTAMPTZ DEFAULT NOW(),
     updated_at   TIMESTAMPTZ DEFAULT NOW(),
+    -- (13) توحيد version/deleted_at لكل الجداول المتزامنة (OCC + soft delete)
+    version      BIGINT NOT NULL DEFAULT 1,
+    deleted_at   TIMESTAMPTZ,
     CONSTRAINT check_reason_other CHECK (
         (reason = 'other' AND reason_other IS NOT NULL AND length(trim(reason_other)) > 0) OR
         (reason != 'other' AND reason_other IS NULL)
@@ -191,6 +194,8 @@ CREATE TABLE feed_consumption (
                      CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
     created_at   TIMESTAMPTZ DEFAULT NOW(),
     updated_at   TIMESTAMPTZ DEFAULT NOW(),
+    -- (13) version لتفعيل OCC في sync_records_batch
+    version      BIGINT NOT NULL DEFAULT 1,
     deleted_at   TIMESTAMPTZ
 );
 
@@ -207,7 +212,8 @@ CREATE TABLE feed_received (
     notes          TEXT,
     price_per_kg   NUMERIC(10,2),
     section_no     INTEGER,
-    worker_id      UUID DEFAULT '00000000-0000-0000-0000-000000000000'::uuid,
+    -- P0: worker_id إلزامي (لا UUID وهمي) — المالك الحقيقي للسجل
+    worker_id      UUID NOT NULL REFERENCES users(id),
     sync_status  TEXT DEFAULT 'synced'
                      CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
     version      BIGINT NOT NULL DEFAULT 1,
@@ -524,13 +530,14 @@ AS $$
     SELECT p_uid::text || '@users.madjana.local';
 $$;
 
--- البحث بالهاتف
+-- البحث بالهاتف — يستخدمه تطبيق تسجيل الدخول لربط رقم الهاتف بـ auth uid.
+-- P0: لا يعود بالأدوار/المزارع لتفادي تسريب معلومات؛ ويمنع الوصول العام (anon).
 CREATE OR REPLACE FUNCTION public.find_user_by_phone(p_phone text)
-RETURNS TABLE (id uuid, name text, phone text, role text, farm_id uuid)
+RETURNS TABLE (id uuid, name text, phone text)
 LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-    SELECT u.id::uuid, u.name::text, u.phone::text, u.role::text, u.farm_id::uuid
+    SELECT u.id::uuid, u.name::text, u.phone::text
     FROM public.users AS u
     WHERE u.phone = p_phone
     LIMIT 1;
@@ -554,12 +561,17 @@ END;
 $$;
 
 -- إنشاء أول مدجنة ومدير
+-- P0: بوابة سري + قفل استشاري لمنع السباق.
+--   - يتطلب p_provision_token يطابق value ضمن app_settings (مفتاح secure.bootstrap_token)
+--     يُضبط يدوياً عند التهيئة الأولى. بدون التوكن → رفض.
+--   - pg_advisory_xact_lock يمنع إنشاء مزرعة/مدير مزدوج عند طلبات متزامنة.
 CREATE OR REPLACE FUNCTION public.bootstrap_create_farm_and_manager(
     p_farm_name text,
     p_location text,
     p_manager_name text,
     p_phone text,
-    p_pin text
+    p_pin text,
+    p_provision_token text
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -569,10 +581,20 @@ AS $$
 DECLARE
     v_auth_uuid uuid := gen_random_uuid();
     v_farm_id   uuid;
+    v_expected  text;
 BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('madjana_bootstrap'));
+
     IF EXISTS (SELECT 1 FROM users LIMIT 1) THEN
         RAISE EXCEPTION 'يوجد مستخدمون بالفعل — هذه الدالة للتهيئة الأولى فقط';
     END IF;
+
+    -- بوابة سري: لا bootstrap بدون توكن مضبوط مسبقاً في الإعدادات
+    SELECT value INTO v_expected FROM app_settings WHERE key = 'secure.bootstrap_token';
+    IF v_expected IS NULL OR v_expected = '' OR p_provision_token IS DISTINCT FROM v_expected THEN
+        RAISE EXCEPTION 'غير مصرح: رمز التهيئة المقدم غير صحيح';
+    END IF;
+
     IF p_pin !~ '^[0-9]{4}$' THEN
         RAISE EXCEPTION 'الرمز يجب أن يكون 4 أرقام';
     END IF;
@@ -838,18 +860,30 @@ BEGIN
         WHERE id = NEW.flock_id;
 
     ELSIF TG_OP = 'UPDATE' THEN
-        v_delta := NEW.count - OLD.count;
+        -- soft delete: استرجاع العدد كما في حذف فعلي (لا حذف فيزيائي)
+        IF OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
+            UPDATE flocks
+            SET current_count = current_count + OLD.count, updated_at = NOW()
+            WHERE id = NEW.flock_id;
+        ELSIF OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL THEN
+            -- إعادة تفعيل سجل كان محذوفاً منطقياً
+            UPDATE flocks
+            SET current_count = current_count - NEW.count, updated_at = NOW()
+            WHERE id = NEW.flock_id;
+        ELSE
+            v_delta := NEW.count - OLD.count;
 
-        SELECT current_count INTO v_current_count
-        FROM flocks WHERE id = NEW.flock_id;
+            SELECT current_count INTO v_current_count
+            FROM flocks WHERE id = NEW.flock_id;
 
-        IF v_current_count IS NOT NULL AND (v_current_count - v_delta) < 0 THEN
-            RAISE EXCEPTION 'التعديل سيؤدي لعدد سالب (%)', v_current_count - v_delta;
+            IF v_current_count IS NOT NULL AND (v_current_count - v_delta) < 0 THEN
+                RAISE EXCEPTION 'التعديل سيؤدي لعدد سالب (%)', v_current_count - v_delta;
+            END IF;
+
+            UPDATE flocks
+            SET current_count = current_count - v_delta, updated_at = NOW()
+            WHERE id = NEW.flock_id;
         END IF;
-
-        UPDATE flocks
-        SET current_count = current_count - v_delta, updated_at = NOW()
-        WHERE id = NEW.flock_id;
 
     ELSIF TG_OP = 'DELETE' THEN
         UPDATE flocks
@@ -918,6 +952,37 @@ CREATE TRIGGER expenses_audit_trigger
     AFTER INSERT OR UPDATE OR DELETE ON expenses
     FOR EACH ROW EXECUTE FUNCTION public.audit_expenses_changes();
 
+-- ============================================================
+-- (10) توسيع تدقيق audit_log لبقية الجداول غير المغطاة
+-- ============================================================
+CREATE TRIGGER trg_audit_flocks
+    AFTER INSERT OR UPDATE OR DELETE ON flocks
+    FOR EACH ROW EXECUTE FUNCTION public.log_audit_changes();
+CREATE TRIGGER trg_audit_customers
+    AFTER INSERT OR UPDATE OR DELETE ON customers
+    FOR EACH ROW EXECUTE FUNCTION public.log_audit_changes();
+CREATE TRIGGER trg_audit_feed_consumption
+    AFTER INSERT OR UPDATE OR DELETE ON feed_consumption
+    FOR EACH ROW EXECUTE FUNCTION public.log_audit_changes();
+CREATE TRIGGER trg_audit_feed_received
+    AFTER INSERT OR UPDATE OR DELETE ON feed_received
+    FOR EACH ROW EXECUTE FUNCTION public.log_audit_changes();
+CREATE TRIGGER trg_audit_medications
+    AFTER INSERT OR UPDATE OR DELETE ON medications
+    FOR EACH ROW EXECUTE FUNCTION public.log_audit_changes();
+CREATE TRIGGER trg_audit_inventory_items
+    AFTER INSERT OR UPDATE OR DELETE ON inventory_items
+    FOR EACH ROW EXECUTE FUNCTION public.log_audit_changes();
+CREATE TRIGGER trg_audit_inventory_transactions
+    AFTER INSERT OR UPDATE OR DELETE ON inventory_transactions
+    FOR EACH ROW EXECUTE FUNCTION public.log_audit_changes();
+CREATE TRIGGER trg_audit_users
+    AFTER INSERT OR UPDATE OR DELETE ON users
+    FOR EACH ROW EXECUTE FUNCTION public.log_audit_changes();
+CREATE TRIGGER trg_audit_dispatch_requests
+    AFTER INSERT OR UPDATE OR DELETE ON dispatch_requests
+    FOR EACH ROW EXECUTE FUNCTION public.log_audit_changes();
+
 -- updated_at triggers
 CREATE TRIGGER update_feed_consumption_updated_at BEFORE UPDATE ON feed_consumption
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -960,17 +1025,27 @@ ALTER TABLE sync_changes ENABLE ROW LEVEL SECURITY;
 -- 8) سياسات المستخدمين والمزارع
 -- ============================================================
 
--- users: المرء يرى ويعدّل بياناته فقط
+-- users: المرء يرى بياناته فقط
 DROP POLICY IF EXISTS users_select_self ON users;
 CREATE POLICY users_select_self ON users
     FOR SELECT TO authenticated
     USING (id = auth.uid());
 
+-- P0: منع تصعيد الصلاحية — لا يُسمح للعامل بتعديل صفّه بالكامل.
+-- المرء يحدّث اسمه/هاتفه/الرمز فقط، ويمنع تعديل role/farm_id وغير نفسه.
+-- الحماية على مستوى الأعمدة تُفرض عبر trigger (protect_users_sensitive_columns)
+-- لأن RLS وحده لا يمكنه تقييد الأعمدة داخل الصف.
 DROP POLICY IF EXISTS users_update_self ON users;
 CREATE POLICY users_update_self ON users
     FOR UPDATE TO authenticated
-    USING (id = auth.uid())
-    WITH CHECK (id = auth.uid());
+    USING (id = auth.uid() OR current_user_role() = 'manager')
+    WITH CHECK (
+        id = auth.uid()
+        OR (
+            current_user_role() = 'manager'
+            AND farm_id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid
+        )
+    );
 
 -- المدير يرى مستخدمي مزرعته عبر JWT
 DROP POLICY IF EXISTS users_select_same_farm ON users;
@@ -980,6 +1055,54 @@ CREATE POLICY users_select_same_farm ON users
         (auth.jwt() -> 'user_metadata' ->> 'role') = 'manager'
         AND farm_id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid
     );
+
+-- P0: سد تصعيد الصلاحية على مستوى الأعمدة.
+-- منع أي مستخدم (غير مدير مزرعته) من:
+--   - تعديل row ليس ملكه
+--   - تغيير role أو farm_id أو pin_hash (الحسّاسة) لصفّه أو لصفوف المزرعة
+-- المدير (نفس المزرعة) فقط يمكنه تغيير role/farm_id.
+CREATE OR REPLACE FUNCTION public.protect_users_sensitive_columns()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_caller_role   text;
+    v_caller_farm   uuid;
+    v_target_farm   uuid;
+BEGIN
+    v_caller_role := public.current_user_role();
+    v_caller_farm := public.current_user_farm_id();
+
+    -- إن كان يعرض تعديل صف ليس ملكه فغير مدير → رفض
+    IF OLD.id <> auth.uid()
+       AND (v_caller_role IS DISTINCT FROM 'manager') THEN
+        RAISE EXCEPTION 'غير مصرح: لا يمكن تعديل مستخدم آخر';
+    END IF;
+
+    -- تغيير role/farm_id الحساس: للمدير (نفس المزرعة) فقط
+    IF (NEW.role IS DISTINCT FROM OLD.role)
+       OR (NEW.farm_id IS DISTINCT FROM OLD.farm_id)
+       OR (NEW.pin_hash IS DISTINCT FROM OLD.pin_hash) THEN
+        IF (v_caller_role IS DISTINCT FROM 'manager') THEN
+            RAISE EXCEPTION 'غير مصرح: تغيير الدور/المزرعة/الرمز للمدير فقط';
+        END IF;
+        -- حتى المدير لا يعدّل إلا مستخدمي مزرعته
+        v_target_farm := COALESCE(NEW.farm_id, OLD.farm_id);
+        IF v_target_farm IS DISTINCT FROM v_caller_farm THEN
+            RAISE EXCEPTION 'غير مصرح: المستخدم ليس من مزرعتك';
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_protect_users_sensitive_columns ON users;
+CREATE TRIGGER trg_protect_users_sensitive_columns
+    BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION public.protect_users_sensitive_columns();
 
 -- farms: قراءة عامة، كتابة للمدير
 DROP POLICY IF EXISTS farms_select_all ON farms;
@@ -1208,11 +1331,11 @@ BEGIN
         END IF;
 
         -- Role-based whitelist: العامل لا يصلاح إلا الجداول التشغيلية
+        -- P0: حُذف customers/flocks من وصول العامل — فلا يعدّل بيانات القطيع/الزبائن.
         IF v_user_role = 'worker' THEN
             IF v_table_name NOT IN (
                 'egg_production', 'mortality', 'feed_consumption',
-                'feed_received', 'egg_dispatch', 'medications',
-                'customers', 'flocks'
+                'feed_received', 'egg_dispatch', 'medications'
             ) THEN
                 v_errors := v_errors + 1;
                 v_result := v_result || jsonb_build_object(
@@ -1239,11 +1362,10 @@ BEGIN
                 CONTINUE;
             END IF;
         ELSE
-            -- supervisor أو أي دور آخر: جداول تشغيلية فقط
+            -- supervisor أو أي دور آخر: جداول تشغيلية فقط (بدون customers/flocks)
             IF v_table_name NOT IN (
                 'egg_production', 'mortality', 'feed_consumption',
-                'feed_received', 'egg_dispatch', 'medications',
-                'customers', 'flocks'
+                'feed_received', 'egg_dispatch', 'medications'
             ) THEN
                 v_errors := v_errors + 1;
                 v_result := v_result || jsonb_build_object(
@@ -1288,6 +1410,20 @@ BEGIN
             END IF;
         END IF;
 
+        -- P0: ملكية السجل — العامل لا يعدّل/يحذف إلا سجلاته هو.
+        -- (المدير/المشرف غير مقيدين بالملكية ضمن المزرعة).
+        IF v_user_role = 'worker' AND v_operation IN ('update', 'delete') THEN
+            IF (v_existing_record->>'worker_id') IS DISTINCT FROM auth.uid()::text THEN
+                v_errors := v_errors + 1;
+                v_result := v_result || jsonb_build_object(
+                    'record_id', v_record_id,
+                    'status', 'error',
+                    'message', 'غير مصرح: لا يمكن تعديل/حذف سجل ليس من إنشائك'
+                );
+                CONTINUE;
+            END IF;
+        END IF;
+
         -- column whitelist لكل جدول
         CASE v_table_name
             WHEN 'egg_production' THEN v_allowed_cols := ARRAY['flock_id','date','cartons','trays','loose_eggs','broken_eggs','dirty_eggs','tray_weight_kg','section_no','worker_id'];
@@ -1305,6 +1441,19 @@ BEGIN
             ELSE v_allowed_cols := ARRAY[]::text[];
         END CASE;
 
+        -- P0: منع العامل/المشرف من تعديل الأعمدة الحسّاسة (مالية/أسعار/حالة محاسبية)
+        -- حتى في الجداول التشغيلية. وكذلك منع تغيير ملكية السجل (worker_id).
+        IF v_user_role <> 'manager' THEN
+            IF v_table_name = 'feed_received' THEN
+                v_allowed_cols := array_remove(v_allowed_cols, 'price_per_kg');
+            ELSIF v_table_name = 'egg_dispatch' THEN
+                v_allowed_cols := array_remove(v_allowed_cols, 'payment_status');
+            ELSIF v_table_name IN ('flocks', 'customers') THEN
+                v_allowed_cols := ARRAY[]::text[];
+            END IF;
+            v_allowed_cols := array_remove(v_allowed_cols, 'worker_id');
+        END IF;
+
         BEGIN
             IF v_operation = 'insert' THEN
                 v_cols := ARRAY['id', 'farm_id', 'version'];
@@ -1315,11 +1464,16 @@ BEGIN
                 ];
                 FOR v_col IN SELECT jsonb_object_keys(v_data)
                 LOOP
-                    IF v_col = ANY(v_allowed_cols) THEN
+                    -- P0: العامل/المشرف لا يُدخل worker_id من الحمولة — يُلزمان بهويتهما لاحقاً
+                    IF v_col = ANY(v_allowed_cols) AND NOT (v_col = 'worker_id' AND v_user_role <> 'manager') THEN
                         v_cols := array_append(v_cols, v_col);
                         v_vals := array_append(v_vals, quote(v_data->>v_col));
                     END IF;
                 END LOOP;
+                IF v_user_role <> 'manager' THEN
+                    v_cols := array_append(v_cols, 'worker_id');
+                    v_vals := array_append(v_vals, quote_literal(auth.uid()::text));
+                END IF;
                 v_sql := format(
                     'INSERT INTO %I (%s) VALUES (%s)',
                     v_table_name,
@@ -1447,8 +1601,10 @@ CREATE TRIGGER trg_validate_flock_feed
 -- ============================================================
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+-- find_user_by_phone يُستدعى قبل Auth (لتسجيل الدخول)، لذا يُتاح لـ anon،
+-- لكنه لا يعود إلا بـ id/name/phone ولا يسرب الدور/المزرعة.
 GRANT EXECUTE ON FUNCTION public.find_user_by_phone(text) TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.bootstrap_create_farm_and_manager(text, text, text, text, text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.bootstrap_create_farm_and_manager(text, text, text, text, text, text) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_create_user(text, text, text, text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_update_user(text, text, text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_reset_pin(text, text) TO authenticated;
@@ -1477,8 +1633,11 @@ CREATE POLICY audit_select_manager ON audit_log
     );
 
 DROP POLICY IF EXISTS audit_insert_system ON audit_log;
-CREATE POLICY audit_insert_system ON audit_log
+CREATE POLICY audit_insert_manager ON audit_log
     FOR INSERT TO authenticated
-    WITH CHECK (farm_id = current_user_farm_id());
+    WITH CHECK (
+        farm_id = current_user_farm_id()
+        AND current_user_role() = 'manager'
+    );
 
 NOTIFY pgrst, 'reload schema';

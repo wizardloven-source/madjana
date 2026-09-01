@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core/core.dart';
 import '../../../core/providers.dart';
-import '../data/sync_repository_impl.dart';
-import '../data/sync_engine.dart';
+import '../data/connectivity_service.dart';
 
 /// حالة المزامنة
 class SyncState {
@@ -43,29 +43,40 @@ class SyncState {
 
 enum SyncConnectionStatus { connected, disconnected, unknown }
 
-/// Provider للمزامنة
+/// Provider للمزامنة — يعتمد على محرك بيانات واحد (data.SyncRepository)
 class SyncNotifier extends StateNotifier<SyncState> {
-  final MobileSyncRepository repository;
-  final SyncEngine engine;
-  StreamSubscription<bool>? _connectivitySub;
+  final SyncRepository repository;
+  final ConnectivityService connectivity;
 
-  SyncNotifier({required this.repository, required this.engine})
+  StreamSubscription<bool>? _connectivitySub;
+  Timer? _syncTimer;
+  String? _farmId;
+  bool _isSyncing = false;
+  int _consecutiveFailures = 0;
+  static const int _maxConsecutiveFailures = 5;
+  bool autoSyncEnabled = true;
+
+  SyncNotifier({required this.repository, required this.connectivity})
       : super(const SyncState()) {
     _init();
   }
 
   Future<void> _init() async {
     await _refreshCounts();
-    await engine.start();
     _watchConnectivity();
   }
 
   void setAutoSync(bool enabled) {
-    engine.autoSyncEnabled = enabled;
+    autoSyncEnabled = enabled;
+    if (!enabled) {
+      _stopPeriodicSync();
+    } else if (state.connectionStatus != SyncConnectionStatus.disconnected) {
+      _startPeriodicSync();
+    }
   }
 
   void _watchConnectivity() {
-    _connectivitySub = engine.connectivity.onConnectivityChanged.listen((connected) {
+    _connectivitySub = connectivity.onConnectivityChanged.listen((connected) {
       state = state.copyWith(
         connectionStatus: connected
             ? SyncConnectionStatus.connected
@@ -73,8 +84,24 @@ class SyncNotifier extends StateNotifier<SyncState> {
       );
       if (connected) {
         _refreshCounts();
+        if (autoSyncEnabled) _startPeriodicSync();
+      } else {
+        _stopPeriodicSync();
       }
     });
+  }
+
+  void _startPeriodicSync() {
+    _stopPeriodicSync();
+    _syncTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _syncOnce(),
+    );
+  }
+
+  void _stopPeriodicSync() {
+    _syncTimer?.cancel();
+    _syncTimer = null;
   }
 
   Future<void> _refreshCounts() async {
@@ -89,43 +116,49 @@ class SyncNotifier extends StateNotifier<SyncState> {
     );
   }
 
+  Future<void> _syncOnce() async {
+    final fid = _farmId;
+    if (fid == null || _isSyncing) return;
+    _isSyncing = true;
+    state = state.copyWith(isSyncing: true);
+    try {
+      await repository.syncNow(fid);
+      _consecutiveFailures = 0;
+      await _refreshCounts();
+    } catch (_) {
+      _consecutiveFailures++;
+      if (_consecutiveFailures >= _maxConsecutiveFailures) {
+        _stopPeriodicSync();
+      }
+    } finally {
+      _isSyncing = false;
+      state = state.copyWith(isSyncing: false, lastSyncAt: DateTime.now());
+    }
+  }
+
   /// ضبط المزرعة بعد الدخول — يفعّل السحب من السحابة
   void setFarmId(String farmId) {
-    final changed = engine.farmId != farmId;
-    engine.farmId = farmId;
-    // اسحب فوراً عند أول ضبط أو تغيّر الحساب
-    if (changed) engine.syncNow();
+    final changed = _farmId != farmId;
+    _farmId = farmId;
+    if (changed) syncNow();
   }
 
   /// مزامنة يدوية
   Future<void> syncNow() async {
-    state = state.copyWith(isSyncing: true);
-
-    try {
-      await engine.syncNow();
-      await _refreshCounts();
-      state = state.copyWith(
-        isSyncing: false,
-        lastSyncAt: DateTime.now(),
-      );
-    } catch (e) {
-      state = state.copyWith(isSyncing: false);
-    }
+    await _syncOnce();
   }
 
   @override
   void dispose() {
     _connectivitySub?.cancel();
-    engine.stop();
+    _stopPeriodicSync();
     super.dispose();
   }
 }
 
 final syncProvider = StateNotifierProvider<SyncNotifier, SyncState>((ref) {
-  final repository = ref.watch(mobileSyncRepositoryProvider);
-  final engine = SyncEngine(
-    repository: repository,
+  return SyncNotifier(
+    repository: ref.watch(syncRepositoryProvider),
     connectivity: ref.watch(connectivityServiceProvider),
   );
-  return SyncNotifier(repository: repository, engine: engine);
 });
