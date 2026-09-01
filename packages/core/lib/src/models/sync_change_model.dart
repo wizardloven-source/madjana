@@ -15,6 +15,7 @@ class SyncChangeModel {
   final SyncStatus status;
   final int? serverVersion;
   final String? errorMessage;
+  final int attempts;
 
   SyncChangeModel({
     this.id,
@@ -28,6 +29,7 @@ class SyncChangeModel {
     this.status = SyncStatus.pending,
     this.serverVersion,
     this.errorMessage,
+    this.attempts = 0,
   });
 
   /// إنشاء نموذج من خريطة قاعدة البيانات (SQLite/Supabase)
@@ -56,6 +58,7 @@ class SyncChangeModel {
       ),
       serverVersion: map['server_version'] as int?,
       errorMessage: map['error_message'] as String?,
+      attempts: (map['attempts'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -73,6 +76,7 @@ class SyncChangeModel {
       'status': status.name,
       if (serverVersion != null) 'server_version': serverVersion,
       if (errorMessage != null) 'error_message': errorMessage,
+      'attempts': attempts,
     };
   }
 
@@ -90,6 +94,7 @@ class SyncChangeModel {
     SyncStatus? status,
     int? serverVersion,
     String? errorMessage,
+    int? attempts,
     bool clearPayload = false,
     bool clearError = false,
     bool clearServerVersion = false,
@@ -106,6 +111,7 @@ class SyncChangeModel {
       status: status ?? this.status,
       serverVersion: clearServerVersion ? null : (serverVersion ?? this.serverVersion),
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+      attempts: attempts ?? this.attempts,
     );
   }
 }

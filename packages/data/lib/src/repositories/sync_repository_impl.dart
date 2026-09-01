@@ -29,12 +29,14 @@ class SyncRepositoryImpl implements SyncRepository {
   Future<List<SyncChangeModel>> getPendingChanges({int limit = 50}) async {
     try {
       final db = await LocalDatabase.database;
+      final now = DateTime.now().toIso8601String();
       final results = await db.rawQuery('''
         SELECT * FROM sync_queue
         WHERE status = 'pending'
+          AND (next_retry_at IS NULL OR next_retry_at <= ?)
         ORDER BY created_at ASC
         LIMIT ?
-      ''', [limit]);
+      ''', [now, limit]);
 
       final currentUser = _supabase.auth.currentUser;
       final farmId = currentUser?.userMetadata?['farm_id']?.toString() ?? '';
@@ -49,6 +51,8 @@ class SyncRepositoryImpl implements SyncRepository {
         'user_id': map['user_id'],
         'payload': map['payload'],
         'status': map['status'] ?? 'pending',
+        'attempts': map['attempts'] ?? 0,
+        'error_message': map['last_error'],
       })).toList();
     } catch (e) {
       return [];
@@ -127,6 +131,19 @@ class SyncRepositoryImpl implements SyncRepository {
       final db = await LocalDatabase.database;
       final result = await db.rawQuery(
         "SELECT COUNT(*) as count FROM sync_queue WHERE status = 'pending'",
+      );
+      return result.first['count'] as int? ?? 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  @override
+  Future<int> getSyncedCount() async {
+    try {
+      final db = await LocalDatabase.database;
+      final result = await db.rawQuery(
+        "SELECT COUNT(*) as count FROM sync_queue WHERE status = 'synced'",
       );
       return result.first['count'] as int? ?? 0;
     } catch (e) {
@@ -265,8 +282,18 @@ class SyncRepositoryImpl implements SyncRepository {
         throw Exception('Invalid response from sync function');
       }
     } catch (e) {
+      // خطأ شبكة/خادم عام: لا نُحوِّل العمليات إلى failed فوراً.
+      // نعيدها إلى pending مع زيادة attempts + جدولة retry لاحق.
+      final msg = e.toString();
+      final now = DateTime.now();
       for (var record in records) {
-        await markAsFailed(record.recordId, e.toString());
+        final attempts = record.attempts + 1;
+        final shouldKeepPending = attempts < _maxRetryAttempts;
+        if (shouldKeepPending) {
+          await _markPendingWithRetry(record.recordId, attempts, msg, now);
+        } else {
+          await markAsFailed(record.recordId, msg);
+        }
       }
       return BatchSyncResult(
         successIds: [],
@@ -274,6 +301,35 @@ class SyncRepositoryImpl implements SyncRepository {
         errorMessage: e.toString(),
       );
     }
+  }
+
+  static const int _maxRetryAttempts = 5;
+
+  /// يعيد العملية إلى pending مع زيادة عدد المحاولات وتحديد وقت إعادة المحاولة
+  Future<void> _markPendingWithRetry(String recordId, int attempts, String error, DateTime now) async {
+    try {
+      final db = await LocalDatabase.database;
+      final nextRetry = _backoffDelay(attempts);
+      final nextRetryAt = now.add(nextRetry).toIso8601String();
+      await db.rawUpdate('''
+        UPDATE sync_queue
+        SET status = 'pending',
+            attempts = ?,
+            last_error = ?,
+            last_error_code = 'RETRYABLE',
+            next_retry_at = ?,
+            updated_at = ?
+        WHERE record_id = ?
+      ''', [attempts, error, nextRetryAt, now.toIso8601String(), recordId]);
+    } catch (_) {}
+  }
+
+  /// فاصل زمني متزايد (exp backoff) للمحاولة المطلوبة:
+  /// 1→5s, 2→15s, 3→1m, 4→5m, 5→30m
+  static Duration _backoffDelay(int attempt) {
+    const table = [0, 5, 15, 60, 300, 1800];
+    final index = attempt < table.length ? attempt : table.length - 1;
+    return Duration(seconds: table[index]);
   }
 
   @override
@@ -301,21 +357,58 @@ class SyncRepositoryImpl implements SyncRepository {
       final downloadedCount = await pullRemoteRecords(farmId);
       await cleanupOldSyncedRecords(daysToKeep: 30);
 
-      return FullSyncResult(
+      final result = FullSyncResult(
         uploadedCount: uploadResult.successCount,
         downloadedCount: downloadedCount,
         failedCount: uploadResult.failedCount,
         completedAt: DateTime.now(),
         errorMessage: uploadResult.errorMessage,
       );
+
+      await _recordHistory(result);
+      return result;
     } catch (e) {
-      return FullSyncResult(
+      final result = FullSyncResult(
         uploadedCount: 0,
         downloadedCount: 0,
         failedCount: 1,
         completedAt: DateTime.now(),
         errorMessage: e.toString(),
       );
+      await _recordHistory(result);
+      return result;
+    }
+  }
+
+  @override
+  Future<List<SyncHistoryEntry>> getSyncHistory({int limit = 20}) async {
+    try {
+      final db = await LocalDatabase.database;
+      final rows = await db.query(
+        'sync_history',
+        orderBy: 'created_at DESC',
+        limit: limit,
+      );
+      return rows.map(SyncHistoryEntry.fromMap).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<void> _recordHistory(FullSyncResult result) async {
+    try {
+      final db = await LocalDatabase.database;
+      await db.insert('sync_history', {
+        'id': DateTime.now().microsecondsSinceEpoch.toString(),
+        'created_at': result.completedAt.toIso8601String(),
+        'uploaded': result.uploadedCount,
+        'downloaded': result.downloadedCount,
+        'failed': result.failedCount,
+        'errored_tables': '',
+        'error_message': result.errorMessage,
+      });
+    } catch (_) {
+      // السجل غير حرج — لا يمنع دورة المزامنة
     }
   }
 }

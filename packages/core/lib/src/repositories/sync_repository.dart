@@ -24,6 +24,12 @@ abstract class SyncRepository {
   /// الحصول على عدد السجلات الفاشلة
   Future<int> getFailedCount();
 
+  /// الحصول على عدد السجلات المزامَنة بنجاح
+  Future<int> getSyncedCount();
+
+  /// جلب سجل عمليات المزامنة الأخيرة (لسجل مركز المزامنة)
+  Future<List<SyncHistoryEntry>> getSyncHistory({int limit = 20});
+
   /// الحصول على عدد السجلات المتضاربة
   Future<int> getConflictCount();
 
@@ -76,4 +82,41 @@ class FullSyncResult {
   });
 
   bool get isSuccess => failedCount == 0;
+}
+
+/// إدخال في سجل عمليات المزامنة (مركز المزامنة)
+class SyncHistoryEntry {
+  final String id;
+  final DateTime createdAt;
+  final int uploaded;
+  final int downloaded;
+  final int failed;
+  final List<String> erroredTables;
+  final String? errorMessage;
+
+  const SyncHistoryEntry({
+    required this.id,
+    required this.createdAt,
+    required this.uploaded,
+    required this.downloaded,
+    required this.failed,
+    this.erroredTables = const [],
+    this.errorMessage,
+  });
+
+  factory SyncHistoryEntry.fromMap(Map<String, dynamic> map) {
+    return SyncHistoryEntry(
+      id: map['id'] as String,
+      createdAt: DateTime.tryParse(map['created_at'] as String? ?? '') ??
+          DateTime.now(),
+      uploaded: (map['uploaded'] as num?)?.toInt() ?? 0,
+      downloaded: (map['downloaded'] as num?)?.toInt() ?? 0,
+      failed: (map['failed'] as num?)?.toInt() ?? 0,
+      erroredTables: ((map['errored_tables'] as String?) ?? '')
+          .split(',')
+          .where((e) => e.isNotEmpty)
+          .toList(),
+      errorMessage: map['error_message'] as String?,
+    );
+  }
 }

@@ -13,7 +13,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 15;
+  static const int _dbVersion = 16;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -333,9 +333,24 @@ class LocalDatabase {
         user_id TEXT NOT NULL,
         attempts INTEGER DEFAULT 0,
         last_error TEXT,
+        last_error_code TEXT,
+        next_retry_at TEXT,
         status TEXT DEFAULT 'pending',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
+      )
+    ''');
+
+    // سجل عمليات المزامنة (مركز المزامنة - يعرض تاريخ كل مزامنة فعلية)
+    await db.execute('''
+      CREATE TABLE sync_history (
+        id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        uploaded INTEGER DEFAULT 0,
+        downloaded INTEGER DEFAULT 0,
+        failed INTEGER DEFAULT 0,
+        errored_tables TEXT,
+        error_message TEXT
       )
     ''');
 
@@ -717,6 +732,32 @@ class LocalDatabase {
             await db.execute('ALTER TABLE medications ADD COLUMN flock_id TEXT');
           } catch (_) {}
         }
+        // v16: سجل عمليات المزامنة + أعمدة إعادة المحاولة في sync_queue
+        if (oldVersion < 16) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS sync_history (
+              id TEXT PRIMARY KEY,
+              created_at TEXT NOT NULL,
+              uploaded INTEGER DEFAULT 0,
+              downloaded INTEGER DEFAULT 0,
+              failed INTEGER DEFAULT 0,
+              errored_tables TEXT,
+              error_message TEXT
+            )
+          ''');
+          if (!await _columnExists(db, 'sync_queue', 'last_error_code')) {
+            await db.execute('ALTER TABLE sync_queue ADD COLUMN last_error_code TEXT');
+          }
+          if (!await _columnExists(db, 'sync_queue', 'next_retry_at')) {
+            await db.execute('ALTER TABLE sync_queue ADD COLUMN next_retry_at TEXT');
+          }
+        }
+  }
+
+  /// يتحقق من وجود عمود في جدول (بدلاً من إخفاء أخطاء migration عبر catch عام)
+  static Future<bool> _columnExists(Database db, String table, String column) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    return rows.any((r) => r['name'] == column);
   }
 
   /// مسح قاعدة البيانات (عند تسجيل الخروج)
