@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:core/core.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../datasources/local/local_database.dart';
 
@@ -333,20 +334,170 @@ class SyncRepositoryImpl implements SyncRepository {
   }
 
   @override
-  Future<int> pullRemoteRecords(String farmId) async {
+  Future<PullResult> pullAndMerge(String farmId) async {
     try {
-      final result = await _supabase.rpc(
+      final db = await LocalDatabase.database;
+
+      // 1) قراءة آخر إصدار مُستلم
+      final stateRows = await db.query('sync_state', limit: 1);
+      final lastVersion = stateRows.isNotEmpty
+          ? (stateRows.first['last_pulled_version'] as int?) ?? 0
+          : 0;
+
+      // 2) استدعاء RPC للحصول على التغييرات الجديدة
+      final response = await _supabase.rpc(
         'pull_remote_changes',
-        params: {'p_farm_id': farmId},
+        params: {
+          'p_farm_id': farmId,
+          'p_from_version': lastVersion,
+        },
       );
 
-      if (result is int) {
-        return result;
+      if (response == null || response is! Map) {
+        return const PullResult();
       }
-      return 0;
+
+      final latestVersion = (response['latest_version'] as num?)?.toInt() ?? 0;
+      final changes = (response['changes'] as List?) ?? [];
+
+      if (changes.isEmpty) {
+        return PullResult(latestVersion: latestVersion);
+      }
+
+      // 3) دمج كل تغيير في SQLite
+      int applied = 0;
+      int conflicts = 0;
+
+      await db.transaction((txn) async {
+        for (final change in changes) {
+          final c = change as Map<String, dynamic>;
+          final tableName = c['table_name'] as String;
+          final recordId = c['record_id'] as String;
+          final operation = c['operation'] as String;
+          final payload = c['payload'] as Map<String, dynamic>? ?? {};
+
+          try {
+            // فحص الوجود المحلي
+            final existing = await txn.query(
+              tableName,
+              where: 'id = ?',
+              whereArgs: [recordId],
+              limit: 1,
+            );
+            final exists = existing.isNotEmpty;
+
+            if (operation == 'DELETE') {
+              if (exists) {
+                await txn.delete(tableName, where: 'id = ?', whereArgs: [recordId]);
+                applied++;
+              }
+            } else if (operation == 'INSERT') {
+              if (!exists) {
+                await _insertRecord(txn, tableName, recordId, payload);
+                applied++;
+              } else {
+                // السجل موجود مسبقاً (تم إنشاؤه محلياً)
+                // نُحدّثه بالبيانات البعيدة إذا كان الإصدار الأعلى
+                await _updateRecord(txn, tableName, recordId, payload);
+                applied++;
+              }
+            } else if (operation == 'UPDATE') {
+              if (exists) {
+                await _updateRecord(txn, tableName, recordId, payload);
+                applied++;
+              } else {
+                // السجل غير موجود محلياً — نُنشئه (coming from another device)
+                await _insertRecord(txn, tableName, recordId, payload);
+                applied++;
+              }
+            }
+          } catch (_) {
+            conflicts++;
+          }
+        }
+      });
+
+      // 4) تحديث آخر إصدار مُستلم
+      await db.rawInsert(
+        '''INSERT OR REPLACE INTO sync_state (id, last_pulled_version, updated_at)
+           VALUES ('local', ?, ?)''',
+        [latestVersion, DateTime.now().toIso8601String()],
+      );
+
+      return PullResult(
+        downloadedCount: changes.length,
+        appliedCount: applied,
+        conflictCount: conflicts,
+        latestVersion: latestVersion,
+      );
     } catch (e) {
-      return 0;
+      return PullResult(errorMessage: e.toString());
     }
+  }
+
+  /// إدراج سجل من البيانات البعيدة في SQLite
+  Future<void> _insertRecord(
+    DatabaseExecutor txn,
+    String tableName,
+    String recordId,
+    Map<String, dynamic> payload,
+  ) async {
+    // اكتشاف الأعمدة المدعومة في الجدول المحلي
+    final columns = await txn.rawQuery('PRAGMA table_info($tableName)');
+    final localCols = columns.map((c) => c['name'] as String).toSet();
+
+    // إضافة id إذا لم يكن موجوداً في payload
+    final data = Map<String, dynamic>.from(payload)..['id'] = recordId;
+
+    // فلترة الأعمدة غير المدعومة
+    final filtered = <String, dynamic>{};
+    for (final entry in data.entries) {
+      if (localCols.contains(entry.key)) {
+        filtered[entry.key] = entry.value;
+      }
+    }
+
+    if (filtered.isEmpty) return;
+
+    final cols = filtered.keys.join(', ');
+    final placeholders = List.filled(filtered.length, '?').join(', ');
+    final values = filtered.values.toList();
+
+    await txn.rawInsert(
+      'INSERT OR IGNORE INTO $tableName ($cols) VALUES ($placeholders)',
+      values,
+    );
+  }
+
+  /// تحديث سجل من البيانات البعيدة في SQLite
+  Future<void> _updateRecord(
+    DatabaseExecutor txn,
+    String tableName,
+    String recordId,
+    Map<String, dynamic> payload,
+  ) async {
+    final columns = await txn.rawQuery('PRAGMA table_info($tableName)');
+    final localCols = columns.map((c) => c['name'] as String).toSet();
+
+    final data = Map<String, dynamic>.from(payload)..['id'] = recordId;
+
+    final setParts = <String>[];
+    final values = <dynamic>[];
+
+    for (final entry in data.entries) {
+      if (localCols.contains(entry.key) && entry.key != 'id') {
+        setParts.add('${entry.key} = ?');
+        values.add(entry.value);
+      }
+    }
+
+    if (setParts.isEmpty) return;
+
+    values.add(recordId);
+    await txn.rawUpdate(
+      'UPDATE $tableName SET ${setParts.join(', ')} WHERE id = ?',
+      values,
+    );
   }
 
   @override
@@ -354,15 +505,15 @@ class SyncRepositoryImpl implements SyncRepository {
     try {
       final pending = await getPendingChanges(limit: 100);
       final uploadResult = await uploadBatch(pending);
-      final downloadedCount = await pullRemoteRecords(farmId);
+      final pullResult = await pullAndMerge(farmId);
       await cleanupOldSyncedRecords(daysToKeep: 30);
 
       final result = FullSyncResult(
         uploadedCount: uploadResult.successCount,
-        downloadedCount: downloadedCount,
-        failedCount: uploadResult.failedCount,
+        downloadedCount: pullResult.appliedCount,
+        failedCount: uploadResult.failedCount + pullResult.conflictCount,
         completedAt: DateTime.now(),
-        errorMessage: uploadResult.errorMessage,
+        errorMessage: uploadResult.errorMessage ?? pullResult.errorMessage,
       );
 
       await _recordHistory(result);

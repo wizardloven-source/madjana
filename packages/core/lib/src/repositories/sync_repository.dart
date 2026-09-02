@@ -39,10 +39,10 @@ abstract class SyncRepository {
   /// رفع مجموعة سجلات إلى السحابة
   Future<BatchSyncResult> uploadBatch(List<SyncChangeModel> records);
 
-  /// سحب السجلات البعيدة إلى القاعدة المحلية
-  Future<int> pullRemoteRecords(String farmId);
+  /// سحب السجلات البعيدة إلى القاعدة المحلية + دمجها
+  Future<PullResult> pullAndMerge(String farmId);
 
-  /// دورة مزامنة كاملة
+  /// دورة مزامنة كاملة (رفع → سحب → دمج)
   Future<FullSyncResult> syncNow(String farmId);
 }
 
@@ -82,6 +82,23 @@ class FullSyncResult {
   });
 
   bool get isSuccess => failedCount == 0;
+}
+
+/// نتيجة السحب من الخادم
+class PullResult {
+  final int downloadedCount;
+  final int appliedCount;
+  final int conflictCount;
+  final int latestVersion;
+  final String? errorMessage;
+
+  const PullResult({
+    this.downloadedCount = 0,
+    this.appliedCount = 0,
+    this.conflictCount = 0,
+    this.latestVersion = 0,
+    this.errorMessage,
+  });
 }
 
 /// إدخال في سجل عمليات المزامنة (مركز المزامنة)

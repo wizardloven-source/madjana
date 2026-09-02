@@ -354,6 +354,15 @@ class LocalDatabase {
       )
     ''');
 
+    // تتبع آخر إصدار مُستلم من الخادم (للسحب التزايدي)
+    await db.execute('''
+      CREATE TABLE sync_state (
+        id TEXT PRIMARY KEY DEFAULT 'local',
+        last_pulled_version INTEGER DEFAULT 0,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
     // جدول الجلسة
     await db.execute('''
       CREATE TABLE session (
@@ -752,6 +761,15 @@ class LocalDatabase {
             await db.execute('ALTER TABLE sync_queue ADD COLUMN next_retry_at TEXT');
           }
         }
+
+        // v16+: جدول تتبع آخر إصدار مُستلم من الخادم (للسحب التزايدي)
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS sync_state (
+            id TEXT PRIMARY KEY DEFAULT 'local',
+            last_pulled_version INTEGER DEFAULT 0,
+            updated_at TEXT NOT NULL
+          )
+        ''');
   }
 
   /// يتحقق من وجود عمود في جدول (بدلاً من إخفاء أخطاء migration عبر catch عام)
@@ -785,6 +803,7 @@ class LocalDatabase {
       'worker_reminders',
       'dispatch_requests',
       'opening_balances',
+      'sync_state',
     ];
     for (final table in tables) {
       await db.delete(table);

@@ -1370,6 +1370,10 @@ DECLARE
     v_sql text;
     v_upd_count int;
 BEGIN
+    -- تعطيل الـ trigger المُولِّد لـ sync_changes أثناء الدفعة
+    -- لمنع التكرار (العمليات تُكتب عبر sync_records_batch ولا حاجة لتكرارها)
+    PERFORM set_config('app.skip_sync_trigger', 'on', true);
+
     v_user_farm := public.current_user_farm_id();
     v_user_role := public.current_user_role();
     IF v_user_farm IS NULL THEN
@@ -1860,6 +1864,8 @@ GRANT EXECUTE ON FUNCTION public.current_user_farm_id() TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.app_password_from_pin(text) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.app_user_email(uuid) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.sync_records_batch(jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.pull_remote_changes(uuid, bigint) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.cleanup_old_sync_changes(int) TO authenticated;
 
 -- ============================================================
 -- 16) RLS للجداول الجديدة
@@ -2035,5 +2041,141 @@ CREATE POLICY farm_images_delete_farm_scoped ON storage.objects
         AND (storage.foldername(name))[1] = 'farms'
         AND (storage.foldername(name))[2] = COALESCE(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')
     );
+
+-- ============================================================
+-- 19) آلية السحب من الخادم (Server → Client Push)
+--     - trigger يُدخل في sync_changes عند كل تعديل على الجداول التشغيلية
+--     - pull_remote_changes RPC يستعلم عن التغييرات الجديدة
+--     - هذا ما يُكمل ربط Device B بـ Device A عبر السيرفر
+-- ============================================================
+
+-- الدالة المشتركة: تُولّد سجل في sync_changes بعد أي INSERT/UPDATE/DELETE
+-- على الجداول التشغيلية. تتجاوز الكتابة إذا كان الكاتب هو sync_records_batch
+-- (الذي يُعالج المزامنة العكسية) لتجنب التكرار.
+CREATE OR REPLACE FUNCTION public.populate_sync_changes()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_user_id uuid;
+    v_farm_id uuid;
+    v_op      text;
+    v_payload jsonb;
+    v_rec     record;
+BEGIN
+    -- لا تُدخل إذا كان داخل sync_records_batch (يكتب Subtransaction معزولة)
+    IF current_setting('app.skip_sync_trigger', true) = 'on' THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    -- لا تُدخل لعمليات المستخدم الافتراضي (00000000)
+    v_user_id := auth.uid();
+    IF v_user_id IS NULL OR v_user_id::text = '00000000-0000-0000-0000-000000000000' THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    v_farm_id := COALESCE(NEW.farm_id, OLD.farm_id);
+    IF v_farm_id IS NULL THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN v_op := 'INSERT';
+    ELSIF TG_OP = 'UPDATE' THEN v_op := 'UPDATE';
+    ELSE v_op := 'DELETE';
+    END IF;
+
+    -- بناء الـ payload من جميع أعمدة الصف (بدون tenant-irrelevant fields)
+    IF TG_OP = 'DELETE' THEN
+        v_payload := to_jsonb(OLD);
+    ELSE
+        v_payload := to_jsonb(NEW);
+    END IF;
+    -- إزالة أعمدة المเปลية (المزرعة + المُautogenerate) لتقليل الحجم
+    v_payload := v_payload - 'sync_status' - 'version' - 'deleted_at';
+
+    INSERT INTO sync_changes (table_name, record_id, operation, farm_id, user_id, payload)
+    VALUES (TG_TABLE_NAME, COALESCE(NEW.id, OLD.id), v_op, v_farm_id, v_user_id, v_payload);
+
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+-- تفعيل الـ trigger على كل الجداول التشغيلية (فقط تلك التي تحتوي farm_id)
+DO $$
+DECLARE
+    t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY[
+        'flocks', 'customers', 'egg_production', 'mortality',
+        'feed_consumption', 'feed_received', 'egg_dispatch', 'medications',
+        'expenses', 'inventory_items', 'inventory_transactions',
+        'opening_balances', 'dispatch_requests', 'payments',
+        'app_settings', 'app_notifications'
+    ] LOOP
+        EXECUTE format(
+            'DROP TRIGGER IF EXISTS trg_populate_sync ON %I; ' ||
+            'CREATE TRIGGER trg_populate_sync ' ||
+            'AFTER INSERT OR UPDATE OR DELETE ON %I ' ||
+            'FOR EACH ROW EXECUTE FUNCTION public.populate_sync_changes()',
+            t, t
+        );
+    END LOOP;
+END $$;
+
+-- RPC: السحب — يُرجع التغييرات منذ إصدار معين
+-- يستخدمه العميل لاكتشاف ما أضافه الأجهزة الأخرى.
+CREATE OR REPLACE FUNCTION public.pull_remote_changes(
+    p_farm_id uuid,
+    p_from_version bigint DEFAULT 0
+)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_latest bigint;
+    v_changes jsonb;
+BEGIN
+    -- التحقق من وجود المزرعة (أمان بسيط)
+    IF NOT EXISTS (SELECT 1 FROM farms WHERE id = p_farm_id) THEN
+        RAISE EXCEPTION 'المزرعة غير موجودة: %', p_farm_id;
+    END IF;
+
+    -- أحدث إصدار في sync_changes لهذه المزرعة
+    SELECT COALESCE(MAX(server_version), 0) INTO v_latest
+    FROM sync_changes WHERE farm_id = p_farm_id;
+
+    -- جلب التغييرات الأحدث من الإصدار المطلوب
+    SELECT jsonb_agg(jsonb_build_object(
+        'table_name', sc.table_name,
+        'record_id', sc.record_id,
+        'operation', sc.operation,
+        'payload', sc.payload,
+        'server_version', sc.server_version,
+        'created_at', sc.created_at
+    )) INTO v_changes
+    FROM sync_changes sc
+    WHERE sc.farm_id = p_farm_id
+      AND sc.server_version > p_from_version
+    ORDER BY sc.server_version ASC;
+
+    RETURN jsonb_build_object(
+        'latest_version', v_latest,
+        'changes', COALESCE(v_changes, '[]'::jsonb)
+    );
+END;
+$$;
+
+-- تنظيف sync_changes القديمة (استدعاء دوري أو في syncNow)
+CREATE OR REPLACE FUNCTION public.cleanup_old_sync_changes(
+    p_keep_days int DEFAULT 30
+)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    DELETE FROM sync_changes
+    WHERE created_at < NOW() - (p_keep_days || ' days')::interval;
+END;
+$$;
 
 NOTIFY pgrst, 'reload schema';
