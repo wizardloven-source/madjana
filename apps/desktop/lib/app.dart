@@ -6,6 +6,7 @@ import 'core/theme.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/shell/presentation/manager_shell.dart';
+import 'features/shell/presentation/system_admin_shell.dart';
 
 /// التطبيق الرئيسي لتطبيق سطح المكتب (للمدير)
 class MadjanaDesktopApp extends ConsumerWidget {
@@ -18,10 +19,12 @@ class MadjanaDesktopApp extends ConsumerWidget {
     final Widget home;
     if (!authState.isLoggedIn) {
       home = const LoginScreen();
-    } else if (authState.currentUser!.role != UserRole.manager) {
-      home = const _NotAuthorizedScreen();
-    } else {
+    } else if (authState.currentUser!.role == UserRole.system_admin) {
+      home = const SystemAdminShell();
+    } else if (authState.currentUser!.role == UserRole.manager) {
       home = const ManagerShell();
+    } else {
+      home = const _NotAuthorizedScreen();
     }
 
     return MaterialApp(

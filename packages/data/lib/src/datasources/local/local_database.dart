@@ -243,6 +243,7 @@ class LocalDatabase {
         name TEXT NOT NULL,
         phone TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'worker',
+        is_active INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL
       )
     ''');
@@ -770,6 +771,11 @@ class LocalDatabase {
             updated_at TEXT NOT NULL
           )
         ''');
+
+        // v17: إضافة is_active للمستخدمين
+        if (!await _columnExists(db, 'users', 'is_active')) {
+          await db.execute('ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
+        }
   }
 
   /// يتحقق من وجود عمود في جدول (بدلاً من إخفاء أخطاء migration عبر catch عام)

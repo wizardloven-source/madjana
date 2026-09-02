@@ -67,7 +67,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
           await ref.read(userAdminRepositoryProvider).getUsers(_farmId);
       _workers = users
           .where((u) =>
-              u.role == UserRole.worker || u.role == UserRole.supervisor)
+              u.role == UserRole.worker)
           .toList();
     } catch (_) {
       _workers = [];

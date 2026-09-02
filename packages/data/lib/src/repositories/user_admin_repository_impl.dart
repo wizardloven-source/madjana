@@ -2,7 +2,7 @@ import 'package:core/core.dart';
 import '../datasources/local/daos/user_dao.dart';
 import '../datasources/remote/supabase_user_admin_datasource.dart';
 
-/// تنفيذ إدارة المستخدمين - للمدير فقط
+/// تنفيذ إدارة المستخدمين
 ///
 /// يقرأ من السحابة أولاً ويزرع كاشاً محلياً، وعند تعذّر الاتصال
 /// يعرض الكاش المحلي حتى لا تفشل شاشة "المستخدمون".
@@ -26,6 +26,24 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
       return remote;
     } catch (_) {
       return _userDao.getByFarm(farmId);
+    }
+  }
+
+  @override
+  Future<List<UserModel>> getAllUsers() async {
+    try {
+      return await _remoteDatasource.getAllUsers();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  @override
+  Future<List<FarmModel>> getAllFarms() async {
+    try {
+      return await _remoteDatasource.getAllFarms();
+    } catch (_) {
+      return [];
     }
   }
 
@@ -65,9 +83,16 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
     String? name,
     String? phone,
     UserRole? role,
+    bool? isActive,
   }) async {
     try {
-      await _remoteDatasource.updateUser(uid: uid, name: name, phone: phone, role: role);
+      await _remoteDatasource.updateUser(
+        uid: uid,
+        name: name,
+        phone: phone,
+        role: role,
+        isActive: isActive,
+      );
     } catch (e) {
       throw Exception('تعذّر تعديل المستخدم');
     }

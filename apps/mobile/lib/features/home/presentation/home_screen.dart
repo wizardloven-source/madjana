@@ -26,7 +26,7 @@ class HomeScreen extends ConsumerWidget {
       });
     }
 
-    final isManager = user.role == UserRole.manager;
+    final isManager = user.role == UserRole.manager || user.role == UserRole.system_admin;
     final pendingCount = syncState.pendingCount;
     final persistentNotices =
         ref.watch(activeNoticesProvider(user.farmId ?? '')).value ??

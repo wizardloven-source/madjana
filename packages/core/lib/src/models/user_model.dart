@@ -7,6 +7,7 @@ class UserModel {
   final String phone;
   final UserRole role;
   final String? farmId;
+  final bool isActive;
   final DateTime createdAt;
 
   const UserModel({
@@ -15,6 +16,7 @@ class UserModel {
     required this.phone,
     required this.role,
     this.farmId,
+    this.isActive = true,
     required this.createdAt,
   });
 
@@ -28,6 +30,7 @@ class UserModel {
         orElse: () => UserRole.worker,
       ),
       farmId: json['farm_id'] as String?,
+      isActive: json['is_active'] as bool? ?? true,
       createdAt: json['created_at'] == null
           ? DateTime.now()
           : DateTime.parse(json['created_at'].toString()),
@@ -40,6 +43,7 @@ class UserModel {
         'phone': phone,
         'role': role.name,
         'farm_id': farmId,
+        'is_active': isActive,
         'created_at': createdAt.toIso8601String(),
       };
 
@@ -48,6 +52,7 @@ class UserModel {
     String? phone,
     UserRole? role,
     String? farmId,
+    bool? isActive,
   }) {
     return UserModel(
       uid: uid,
@@ -55,6 +60,7 @@ class UserModel {
       phone: phone ?? this.phone,
       role: role ?? this.role,
       farmId: farmId ?? this.farmId,
+      isActive: isActive ?? this.isActive,
       createdAt: createdAt,
     );
   }

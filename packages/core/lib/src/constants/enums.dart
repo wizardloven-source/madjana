@@ -1,25 +1,30 @@
 /// أدوار المستخدمين
 enum UserRole {
   worker,
-  supervisor,
-  manager;
+  manager,
+  system_admin;
 
   String get label {
     switch (this) {
       case UserRole.worker:
         return 'عامل';
-      case UserRole.supervisor:
-        return 'مشرف';
       case UserRole.manager:
         return 'مدير';
+      case UserRole.system_admin:
+        return 'مدير النظام';
     }
   }
 
   /// هل يمكنه رؤية البيانات المالية؟
-  bool get canViewFinancials => this == UserRole.manager;
+  bool get canViewFinancials =>
+      this == UserRole.manager || this == UserRole.system_admin;
 
   /// هل يمكنه التعديل/الحذف؟
-  bool get canEdit => this == UserRole.manager;
+  bool get canEdit =>
+      this == UserRole.manager || this == UserRole.system_admin;
+
+  /// هل هو مدير النظام (يرى كل المداجن)?
+  bool get isAdmin => this == UserRole.system_admin;
 }
 
 /// حالة القطيع

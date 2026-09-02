@@ -138,9 +138,9 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
                   items: const [
                     DropdownMenuItem(value: UserRole.worker, child: Text('عامل')),
                     DropdownMenuItem(
-                        value: UserRole.supervisor, child: Text('مشرف')),
-                    DropdownMenuItem(
                         value: UserRole.manager, child: Text('مدير')),
+                    DropdownMenuItem(
+                        value: UserRole.system_admin, child: Text('مدير النظام')),
                   ],
                   onChanged: (v) {
                     if (v != null) setDialog(() => role = v);

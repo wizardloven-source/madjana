@@ -18,9 +18,15 @@ abstract class FlockRepository {
   Future<void> endFlock(String flockId);
 }
 
-/// إدارة المستخدمين - للمدير فقط
+/// إدارة المستخدمين
 abstract class UserAdminRepository {
   Future<List<UserModel>> getUsers(String farmId);
+
+  /// جلب كل المستخدمين (system_admin فقط)
+  Future<List<UserModel>> getAllUsers();
+
+  /// جلب كل المداجن (system_admin فقط)
+  Future<List<FarmModel>> getAllFarms();
 
   Future<UserModel> createUser({
     required String farmId,
@@ -35,6 +41,7 @@ abstract class UserAdminRepository {
     String? name,
     String? phone,
     UserRole? role,
+    bool? isActive,
   });
 
   Future<void> resetPin({required String uid, required String newPin});

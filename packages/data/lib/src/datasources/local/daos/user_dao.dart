@@ -21,6 +21,7 @@ class UserDao {
           'name': u.name,
           'phone': u.phone,
           'role': u.role.name,
+          'is_active': u.isActive ? 1 : 0,
           'created_at': u.createdAt.toIso8601String(),
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
@@ -59,6 +60,7 @@ class UserDao {
         orElse: () => UserRole.worker,
       ),
       farmId: map['farm_id'] as String?,
+      isActive: (map['is_active'] as int?) == 1,
       createdAt: DateTime.tryParse(map['created_at'] as String? ?? '') ??
           DateTime.now(),
     );
