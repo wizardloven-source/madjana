@@ -15,6 +15,9 @@ abstract class SyncRepository {
   /// تحديث حالة السجل كـ "فشل" مع رسالة الخطأ
   Future<void> markAsFailed(String id, String errorMessage);
 
+  /// تحديث حالة السجل كـ "صراع" (يحتاج مراجعة يدوية)
+  Future<void> markAsConflict(String id);
+
   /// حذف السجلات القديمة المُزامَنة لتوفير المساحة
   Future<void> cleanupOldSyncedRecords({int daysToKeep = 30});
 

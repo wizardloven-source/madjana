@@ -113,6 +113,20 @@ class SyncRepositoryImpl implements SyncRepository {
   }
 
   @override
+  Future<void> markAsConflict(String id) async {
+    try {
+      final db = await LocalDatabase.database;
+      await db.rawUpdate('''
+        UPDATE sync_queue
+        SET status = 'conflict', last_error = 'conflict', updated_at = datetime('now')
+        WHERE record_id = ?
+      ''', [id]);
+    } catch (e) {
+      // silently fail
+    }
+  }
+
+  @override
   Future<void> cleanupOldSyncedRecords({int daysToKeep = 30}) async {
     try {
       final db = await LocalDatabase.database;

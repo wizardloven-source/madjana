@@ -76,10 +76,11 @@ CREATE TABLE users (
     name          TEXT,
     phone         TEXT UNIQUE,
     role          TEXT NOT NULL DEFAULT 'worker'
-                      CHECK (role IN ('worker', 'supervisor', 'manager')),
+                      CHECK (role IN ('worker', 'manager', 'system_admin')),
     pin_hash      TEXT,
     farm_id       UUID REFERENCES farms(id) ON DELETE SET NULL,
     remember_token TEXT,
+    is_active     BOOLEAN NOT NULL DEFAULT true,
     created_at    TIMESTAMPTZ DEFAULT NOW(),
     updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
@@ -513,14 +514,21 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+DECLARE
+    v_role text;
 BEGIN
-    INSERT INTO public.users (id, name, phone, role, farm_id)
+    v_role := NULLIF(NEW.raw_user_meta_data ->> 'role', '');
+    IF v_role = 'supervisor' THEN v_role := 'manager'; END IF;
+    IF v_role IS NULL THEN v_role := 'worker'; END IF;
+
+    INSERT INTO public.users (id, name, phone, role, farm_id, is_active)
     VALUES (
         NEW.id,
         NULLIF(NEW.raw_user_meta_data ->> 'full_name', ''),
         NULLIF(NEW.raw_user_meta_data ->> 'phone', ''),
-        'worker',
-        NULLIF(NEW.raw_user_meta_data ->> 'farm_id', '')::uuid
+        v_role,
+        NULLIF(NEW.raw_user_meta_data ->> 'farm_id', '')::uuid,
+        true
     )
     ON CONFLICT (id) DO NOTHING;
     RETURN NEW;
@@ -549,6 +557,18 @@ STABLE
 SET search_path = public, pg_temp
 AS $$
     SELECT u.farm_id FROM public.users AS u WHERE u.id = auth.uid() LIMIT 1;
+$$;
+
+-- هل المستخدم الحالي system_admin نشط؟
+CREATE OR REPLACE FUNCTION public.is_system_admin()
+RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.users
+        WHERE id = auth.uid() AND role = 'system_admin' AND is_active = true
+    );
 $$;
 
 -- تحويل PIN إلى "كلمة مرور" تُسلّم لـ GoTrue لتحقق منها بـ bcrypt
@@ -584,17 +604,20 @@ AS $$
     -- (الإغلاق الكامل لتسريب الوجود يتطلب تسجيل دخول بالهاتف مباشرة — خطة لاحقة.)
     SELECT u.id::uuid
     FROM public.users AS u
-    WHERE u.phone = p_phone
+    WHERE u.phone = p_phone AND u.is_active = true
     LIMIT 1;
 $$;
 
--- حارس: المدير فقط ومن نفس المزرعة
+-- حارس: المدير فقط ومن نفس المزرعة (system_admin يتجاوز عزل المزرعة)
 CREATE OR REPLACE FUNCTION public.assert_current_is_manager_of(p_farm_id uuid)
 RETURNS boolean
 LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
+    IF public.is_system_admin() THEN
+        RETURN true;
+    END IF;
     IF (SELECT public.current_user_role()) IS DISTINCT FROM 'manager' THEN
         RAISE EXCEPTION 'غير مصرح: هذه العملية للمدير فقط';
     END IF;
@@ -712,14 +735,23 @@ AS $$
 DECLARE
     v_auth_uuid uuid := gen_random_uuid();
     v_row       record;
+    v_caller    text;
 BEGIN
-    PERFORM public.assert_current_is_manager_of(p_farm_id::uuid);
+    v_caller := public.current_user_role();
+
+    IF v_caller = 'system_admin' THEN
+        IF p_role NOT IN ('worker', 'manager', 'system_admin') THEN
+            RAISE EXCEPTION 'الدور غير صالح';
+        END IF;
+    ELSE
+        PERFORM public.assert_current_is_manager_of(p_farm_id::uuid);
+        IF p_role NOT IN ('worker', 'manager') THEN
+            RAISE EXCEPTION 'المدير لا يمكنه إنشاء system_admin';
+        END IF;
+    END IF;
 
     IF p_pin !~ '^[0-9]{4}$' THEN
         RAISE EXCEPTION 'الرمز يجب أن يكون 4 أرقام';
-    END IF;
-    IF p_role NOT IN ('worker', 'supervisor', 'manager') THEN
-        RAISE EXCEPTION 'الدور غير صالح';
     END IF;
     IF EXISTS (SELECT 1 FROM users WHERE phone = p_phone) THEN
         RAISE EXCEPTION 'رقم الهاتف مسجل مسبقاً';
@@ -756,15 +788,16 @@ BEGIN
         'email', NOW(), NOW(), NOW()
     );
 
-    INSERT INTO users (id, name, phone, role, pin_hash, farm_id)
+    INSERT INTO users (id, name, phone, role, pin_hash, farm_id, is_active)
     VALUES (v_auth_uuid, p_name, p_phone, p_role,
-            extensions.crypt(public.app_password_from_pin(p_pin), extensions.gen_salt('bf')), p_farm_id::uuid)
+            extensions.crypt(public.app_password_from_pin(p_pin), extensions.gen_salt('bf')), p_farm_id::uuid, true)
     ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         phone = EXCLUDED.phone,
         role = EXCLUDED.role,
         pin_hash = EXCLUDED.pin_hash,
-        farm_id = EXCLUDED.farm_id
+        farm_id = EXCLUDED.farm_id,
+        is_active = EXCLUDED.is_active
     RETURNING * INTO v_row;
 
     RETURN to_jsonb(v_row);
@@ -775,7 +808,8 @@ CREATE OR REPLACE FUNCTION public.admin_update_user(
     p_uid text,
     p_name text DEFAULT NULL,
     p_phone text DEFAULT NULL,
-    p_role text DEFAULT NULL
+    p_role text DEFAULT NULL,
+    p_is_active boolean DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -784,13 +818,22 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_target_farm uuid;
+    v_caller      text;
 BEGIN
+    v_caller := public.current_user_role();
     SELECT farm_id INTO v_target_farm FROM users WHERE id = p_uid::uuid;
-    PERFORM public.assert_current_is_manager_of(v_target_farm);
 
-    IF p_role IS NOT NULL AND p_role NOT IN ('worker', 'supervisor', 'manager') THEN
-        RAISE EXCEPTION 'الدور غير صالح';
+    IF v_caller = 'system_admin' THEN
+        IF p_role IS NOT NULL AND p_role NOT IN ('worker', 'manager', 'system_admin') THEN
+            RAISE EXCEPTION 'الدور غير صالح';
+        END IF;
+    ELSE
+        PERFORM public.assert_current_is_manager_of(v_target_farm);
+        IF p_role IS NOT NULL AND p_role NOT IN ('worker', 'manager') THEN
+            RAISE EXCEPTION 'المدير لا يمكنه تعيين system_admin';
+        END IF;
     END IF;
+
     IF p_phone IS NOT NULL AND EXISTS (SELECT 1 FROM users WHERE phone = p_phone AND id <> p_uid::uuid) THEN
         RAISE EXCEPTION 'رقم الهاتف مسجل مسبقاً';
     END IF;
@@ -798,7 +841,8 @@ BEGIN
     UPDATE users SET
         name = COALESCE(p_name, name),
         phone = COALESCE(p_phone, phone),
-        role = COALESCE(p_role, role)
+        role = COALESCE(p_role, role),
+        is_active = COALESCE(p_is_active, is_active)
     WHERE id = p_uid::uuid;
 
     UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || jsonb_build_object(
@@ -817,12 +861,19 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_target_farm uuid;
+    v_caller      text;
 BEGIN
     IF p_new_pin !~ '^[0-9]{4}$' THEN
         RAISE EXCEPTION 'الرمز يجب أن يكون 4 أرقام';
     END IF;
+    v_caller := public.current_user_role();
     SELECT farm_id INTO v_target_farm FROM users WHERE id = p_uid::uuid;
-    PERFORM public.assert_current_is_manager_of(v_target_farm);
+
+    IF v_caller = 'system_admin' THEN
+        NULL;
+    ELSE
+        PERFORM public.assert_current_is_manager_of(v_target_farm);
+    END IF;
 
     UPDATE auth.users
     SET encrypted_password = extensions.crypt(public.app_password_from_pin(p_new_pin), extensions.gen_salt('bf')),
@@ -842,9 +893,17 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_target_farm uuid;
+    v_caller      text;
 BEGIN
+    v_caller := public.current_user_role();
     SELECT farm_id INTO v_target_farm FROM users WHERE id = p_uid::uuid;
-    PERFORM public.assert_current_is_manager_of(v_target_farm);
+
+    IF v_caller = 'system_admin' THEN
+        NULL;
+    ELSE
+        PERFORM public.assert_current_is_manager_of(v_target_farm);
+    END IF;
+
     IF p_uid::uuid = auth.uid() THEN
         RAISE EXCEPTION 'لا يمكنك حذف حسابك الحالي';
     END IF;
@@ -908,52 +967,60 @@ CREATE TRIGGER trg_calc_dispatch_total
 CREATE OR REPLACE FUNCTION public.update_flock_count_on_mortality()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_current_count INTEGER;
+    v_affected INTEGER;
     v_delta INTEGER;
     v_target_flock UUID;
 BEGIN
-    -- حدد أي قطيع يتأثر (الجديداً أو القديم حسب نوع العملية)
     v_target_flock := COALESCE(NEW.flock_id, OLD.flock_id);
     IF v_target_flock IS NULL THEN
         RETURN COALESCE(NEW, OLD);
     END IF;
 
     IF TG_OP = 'INSERT' THEN
-        SELECT current_count INTO v_current_count
-        FROM flocks WHERE id = NEW.flock_id;
-
-        IF v_current_count IS NOT NULL AND v_current_count < NEW.count THEN
-            RAISE EXCEPTION 'عدد النفوق (%) يتجاوز العدد الحالي (%)', NEW.count, v_current_count;
-        END IF;
-
         UPDATE flocks
         SET current_count = current_count - NEW.count, updated_at = NOW()
-        WHERE id = NEW.flock_id;
+        WHERE id = NEW.flock_id AND current_count >= NEW.count;
+
+        GET DIAGNOSTICS v_affected = ROW_COUNT;
+        IF v_affected = 0 THEN
+            RAISE EXCEPTION 'عدد النفوق (%) يتجاوز العدد الحالي في القطيع', NEW.count;
+        END IF;
 
     ELSIF TG_OP = 'UPDATE' THEN
-        -- soft delete: استرجاع العدد كما في حذف فعلي (لا حذف فيزيائي)
+        IF NEW.flock_id IS DISTINCT FROM OLD.flock_id THEN
+            RAISE EXCEPTION 'لا يمكن تغيير القطيع بعد إنشاء سجل النفوق';
+        END IF;
+
         IF OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
             UPDATE flocks
             SET current_count = current_count + OLD.count, updated_at = NOW()
-            WHERE id = NEW.flock_id;
+            WHERE id = OLD.flock_id;
         ELSIF OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL THEN
-            -- إعادة تفعيل سجل كان محذوفاً منطقياً
             UPDATE flocks
             SET current_count = current_count - NEW.count, updated_at = NOW()
-            WHERE id = NEW.flock_id;
+            WHERE id = NEW.flock_id AND current_count >= NEW.count;
+
+            GET DIAGNOSTICS v_affected = ROW_COUNT;
+            IF v_affected = 0 THEN
+                RAISE EXCEPTION 'العودة من الحذف: العدد المطلوب (%) يتجاوز الحالي', NEW.count;
+            END IF;
         ELSE
             v_delta := NEW.count - OLD.count;
 
-            SELECT current_count INTO v_current_count
-            FROM flocks WHERE id = NEW.flock_id;
+            IF v_delta > 0 THEN
+                UPDATE flocks
+                SET current_count = current_count - v_delta, updated_at = NOW()
+                WHERE id = NEW.flock_id AND current_count >= v_delta;
 
-            IF v_current_count IS NOT NULL AND (v_current_count - v_delta) < 0 THEN
-                RAISE EXCEPTION 'التعديل سيؤدي لعدد سالب (%)', v_current_count - v_delta;
+                GET DIAGNOSTICS v_affected = ROW_COUNT;
+                IF v_affected = 0 THEN
+                    RAISE EXCEPTION 'التعديل سيؤدي لعدد سالب (الفرق: %)', v_delta;
+                END IF;
+            ELSIF v_delta < 0 THEN
+                UPDATE flocks
+                SET current_count = current_count + ABS(v_delta), updated_at = NOW()
+                WHERE id = NEW.flock_id;
             END IF;
-
-            UPDATE flocks
-            SET current_count = current_count - v_delta, updated_at = NOW()
-            WHERE id = NEW.flock_id;
         END IF;
 
     ELSIF TG_OP = 'DELETE' THEN
@@ -1093,51 +1160,48 @@ ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS app_settings_manager_select ON app_settings;
 CREATE POLICY app_settings_manager_select ON app_settings
     FOR SELECT TO authenticated
-    USING (current_user_role() = 'manager');
+    USING (is_system_admin() OR current_user_role() = 'manager');
 DROP POLICY IF EXISTS app_settings_manager_write ON app_settings;
 CREATE POLICY app_settings_manager_write ON app_settings
     FOR INSERT TO authenticated
-    WITH CHECK (current_user_role() = 'manager');
+    WITH CHECK (is_system_admin() OR current_user_role() = 'manager');
 DROP POLICY IF EXISTS app_settings_manager_update ON app_settings;
 CREATE POLICY app_settings_manager_update ON app_settings
     FOR UPDATE TO authenticated
-    USING (current_user_role() = 'manager')
-    WITH CHECK (current_user_role() = 'manager');
+    USING (is_system_admin() OR current_user_role() = 'manager')
+    WITH CHECK (is_system_admin() OR current_user_role() = 'manager');
 
 -- ============================================================
 -- 8) سياسات المستخدمين والمزارع
 -- ============================================================
 
--- users: المرء يرى بياناته فقط
+-- users: المرء يرى بياناته فقط + system_admin يرى الجميع + المدير يرى مزرعته
 DROP POLICY IF EXISTS users_select_self ON users;
 CREATE POLICY users_select_self ON users
     FOR SELECT TO authenticated
-    USING (id = auth.uid());
+    USING (
+        id = auth.uid()
+        OR is_system_admin()
+        OR (
+            (auth.jwt() -> 'user_metadata' ->> 'role') = 'manager'
+            AND farm_id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid
+        )
+    );
 
--- P0: منع تصعيد الصلاحية — لا يُسمح للعامل بتعديل صفّه بالكامل.
--- المرء يحدّث اسمه/هاتفه/الرمز فقط، ويمنع تعديل role/farm_id وغير نفسه.
--- الحماية على مستوى الأعمدة تُفرض عبر trigger (protect_users_sensitive_columns)
--- لأن RLS وحده لا يمكنه تقييد الأعمدة داخل الصف.
 DROP POLICY IF EXISTS users_update_self ON users;
 CREATE POLICY users_update_self ON users
     FOR UPDATE TO authenticated
-    USING (id = auth.uid() OR current_user_role() = 'manager')
+    USING (id = auth.uid() OR is_system_admin() OR current_user_role() = 'manager')
     WITH CHECK (
         id = auth.uid()
+        OR is_system_admin()
         OR (
             current_user_role() = 'manager'
             AND farm_id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid
         )
     );
 
--- المدير يرى مستخدمي مزرعته عبر JWT
-DROP POLICY IF EXISTS users_select_same_farm ON users;
-CREATE POLICY users_select_same_farm ON users
-    FOR SELECT TO authenticated
-    USING (
-        (auth.jwt() -> 'user_metadata' ->> 'role') = 'manager'
-        AND farm_id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid
-    );
+-- (تم دمج users_select_same_farm في users_select_self أعلاه)
 
 -- P0: سد تصعيد الصلاحية على مستوى الأعمدة.
 -- منع أي مستخدم (غير مدير مزرعته) من:
@@ -1158,20 +1222,29 @@ BEGIN
     v_caller_role := public.current_user_role();
     v_caller_farm := public.current_user_farm_id();
 
-    -- إن كان يعرض تعديل صف ليس ملكه فغير مدير → رفض
+    IF public.is_system_admin() THEN
+        IF OLD.id = auth.uid() AND NEW.role IS DISTINCT FROM OLD.role THEN
+            RAISE EXCEPTION 'غير مصرح: لا يمكنك تغيير دورك من system_admin';
+        END IF;
+        RETURN NEW;
+    END IF;
+
     IF OLD.id <> auth.uid()
        AND (v_caller_role IS DISTINCT FROM 'manager') THEN
         RAISE EXCEPTION 'غير مصرح: لا يمكن تعديل مستخدم آخر';
     END IF;
 
-    -- تغيير role/farm_id الحساس: للمدير (نفس المزرعة) فقط
+    IF (NEW.role IS DISTINCT FROM OLD.role)
+       AND NEW.role = 'system_admin' THEN
+        RAISE EXCEPTION 'غير مصرح: لا يمكنك تصعيد دورك إلى system_admin';
+    END IF;
+
     IF (NEW.role IS DISTINCT FROM OLD.role)
        OR (NEW.farm_id IS DISTINCT FROM OLD.farm_id)
        OR (NEW.pin_hash IS DISTINCT FROM OLD.pin_hash) THEN
         IF (v_caller_role IS DISTINCT FROM 'manager') THEN
             RAISE EXCEPTION 'غير مصرح: تغيير الدور/المزرعة/الرمز للمدير فقط';
         END IF;
-        -- حتى المدير لا يعدّل إلا مستخدمي مزرعته
         v_target_farm := COALESCE(NEW.farm_id, OLD.farm_id);
         IF v_target_farm IS DISTINCT FROM v_caller_farm THEN
             RAISE EXCEPTION 'غير مصرح: المستخدم ليس من مزرعتك';
@@ -1192,23 +1265,23 @@ CREATE TRIGGER trg_protect_users_sensitive_columns
 DROP POLICY IF EXISTS farms_select_all ON farms;
 CREATE POLICY farms_select_own ON farms
     FOR SELECT TO authenticated
-    USING (id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid);
+    USING (is_system_admin() OR id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid);
 
 DROP POLICY IF EXISTS farms_insert_manager ON farms;
 CREATE POLICY farms_insert_manager ON farms
     FOR INSERT TO authenticated
-    WITH CHECK (current_user_role() = 'manager');
+    WITH CHECK (is_system_admin());
 
 DROP POLICY IF EXISTS farms_update_manager ON farms;
 CREATE POLICY farms_update_manager ON farms
     FOR UPDATE TO authenticated
-    USING (current_user_role() = 'manager')
-    WITH CHECK (current_user_role() = 'manager');
+    USING (is_system_admin() OR current_user_role() = 'manager')
+    WITH CHECK (is_system_admin() OR current_user_role() = 'manager');
 
 DROP POLICY IF EXISTS farms_delete_manager ON farms;
 CREATE POLICY farms_delete_manager ON farms
     FOR DELETE TO authenticated
-    USING (current_user_role() = 'manager');
+    USING (is_system_admin());
 
 -- ============================================================
 -- 9) سياسات الجداول التشغيلية
@@ -1224,10 +1297,10 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS op_insert ON %I', p_table);
     EXECUTE format('DROP POLICY IF EXISTS op_update ON %I', p_table);
     EXECUTE format('DROP POLICY IF EXISTS op_delete ON %I', p_table);
-    EXECUTE format('CREATE POLICY op_select ON %I FOR SELECT TO authenticated USING (farm_id = current_user_farm_id())', p_table);
-    EXECUTE format('CREATE POLICY op_insert ON %I FOR INSERT TO authenticated WITH CHECK (farm_id = current_user_farm_id())', p_table);
-    EXECUTE format('CREATE POLICY op_update ON %I FOR UPDATE TO authenticated USING (farm_id = current_user_farm_id()) WITH CHECK (farm_id = current_user_farm_id())', p_table);
-    EXECUTE format('CREATE POLICY op_delete ON %I FOR DELETE TO authenticated USING (farm_id = current_user_farm_id() AND current_user_role() = ''manager'')', p_table);
+    EXECUTE format('CREATE POLICY op_select ON %I FOR SELECT TO authenticated USING (is_system_admin() OR farm_id = current_user_farm_id())', p_table);
+    EXECUTE format('CREATE POLICY op_insert ON %I FOR INSERT TO authenticated WITH CHECK (is_system_admin() OR farm_id = current_user_farm_id())', p_table);
+    EXECUTE format('CREATE POLICY op_update ON %I FOR UPDATE TO authenticated USING (is_system_admin() OR farm_id = current_user_farm_id()) WITH CHECK (is_system_admin() OR farm_id = current_user_farm_id())', p_table);
+    EXECUTE format('CREATE POLICY op_delete ON %I FOR DELETE TO authenticated USING ((is_system_admin() OR farm_id = current_user_farm_id()) AND (is_system_admin() OR current_user_role() = ''manager''))', p_table);
 END;
 $$;
 
@@ -1251,7 +1324,7 @@ SET search_path = public, pg_temp
 AS $$
 BEGIN
     EXECUTE format('DROP POLICY IF EXISTS mgr_all ON %I', p_table);
-    EXECUTE format('CREATE POLICY mgr_all ON %I FOR ALL TO authenticated USING (current_user_role() = ''manager'') WITH CHECK (current_user_role() = ''manager'')', p_table);
+    EXECUTE format('CREATE POLICY mgr_all ON %I FOR ALL TO authenticated USING (is_system_admin() OR current_user_role() = ''manager'') WITH CHECK (is_system_admin() OR current_user_role() = ''manager'')', p_table);
 END;
 $$;
 
@@ -1266,12 +1339,14 @@ DROP POLICY IF EXISTS mgr_tx ON inventory_transactions;
 CREATE POLICY mgr_tx ON inventory_transactions
     FOR ALL TO authenticated
     USING (
-        current_user_role() = 'manager'
-        AND item_id IN (SELECT i.id FROM inventory_items i WHERE i.farm_id = current_user_farm_id())
+        is_system_admin()
+        OR (current_user_role() = 'manager'
+            AND item_id IN (SELECT i.id FROM inventory_items i WHERE i.farm_id = current_user_farm_id()))
     )
     WITH CHECK (
-        current_user_role() = 'manager'
-        AND item_id IN (SELECT i.id FROM inventory_items i WHERE i.farm_id = current_user_farm_id())
+        is_system_admin()
+        OR (current_user_role() = 'manager'
+            AND item_id IN (SELECT i.id FROM inventory_items i WHERE i.farm_id = current_user_farm_id()))
     );
 
 -- medicines_catalog
@@ -1283,8 +1358,8 @@ CREATE POLICY catalog_select ON medicines_catalog
 DROP POLICY IF EXISTS catalog_manager ON medicines_catalog;
 CREATE POLICY catalog_manager ON medicines_catalog
     FOR ALL TO authenticated
-    USING (current_user_role() = 'manager')
-    WITH CHECK (current_user_role() = 'manager');
+    USING (is_system_admin() OR current_user_role() = 'manager')
+    WITH CHECK (is_system_admin() OR current_user_role() = 'manager');
 
 -- ============================================================
 -- 11) سياسات الإشعارات وطلبات التخريج
@@ -1292,34 +1367,34 @@ CREATE POLICY catalog_manager ON medicines_catalog
 DROP POLICY IF EXISTS notif_read ON app_notifications;
 CREATE POLICY notif_read ON app_notifications
     FOR SELECT TO authenticated
-    USING (farm_id = current_user_farm_id());
+    USING (is_system_admin() OR farm_id = current_user_farm_id());
 
 DROP POLICY IF EXISTS notif_manager ON app_notifications;
 CREATE POLICY notif_manager ON app_notifications
     FOR ALL TO authenticated
-    USING (current_user_role() = 'manager' AND farm_id = current_user_farm_id())
-    WITH CHECK (current_user_role() = 'manager' AND farm_id = current_user_farm_id());
+    USING (is_system_admin() OR (current_user_role() = 'manager' AND farm_id = current_user_farm_id()))
+    WITH CHECK (is_system_admin() OR (current_user_role() = 'manager' AND farm_id = current_user_farm_id()));
 
 DROP POLICY IF EXISTS dreq_select ON dispatch_requests;
 CREATE POLICY dreq_select ON dispatch_requests
     FOR SELECT TO authenticated
-    USING (farm_id = current_user_farm_id());
+    USING (is_system_admin() OR farm_id = current_user_farm_id());
 
 DROP POLICY IF EXISTS dreq_insert ON dispatch_requests;
 CREATE POLICY dreq_insert ON dispatch_requests
     FOR INSERT TO authenticated
-    WITH CHECK (farm_id = current_user_farm_id());
+    WITH CHECK (is_system_admin() OR farm_id = current_user_farm_id());
 
 DROP POLICY IF EXISTS dreq_manager ON dispatch_requests;
 CREATE POLICY dreq_manager ON dispatch_requests
     FOR UPDATE TO authenticated
-    USING (current_user_role() = 'manager' AND farm_id = current_user_farm_id())
-    WITH CHECK (current_user_role() = 'manager' AND farm_id = current_user_farm_id());
+    USING (is_system_admin() OR (current_user_role() = 'manager' AND farm_id = current_user_farm_id()))
+    WITH CHECK (is_system_admin() OR (current_user_role() = 'manager' AND farm_id = current_user_farm_id()));
 
 DROP POLICY IF EXISTS dreq_manager_delete ON dispatch_requests;
 CREATE POLICY dreq_manager_delete ON dispatch_requests
     FOR DELETE TO authenticated
-    USING (current_user_role() = 'manager' AND farm_id = current_user_farm_id());
+    USING (is_system_admin() OR (current_user_role() = 'manager' AND farm_id = current_user_farm_id()));
 
 -- sync_changes
 DROP POLICY IF EXISTS sync_changes_insert ON sync_changes;
@@ -1330,7 +1405,7 @@ CREATE POLICY sync_changes_insert ON sync_changes
 DROP POLICY IF EXISTS sync_changes_select ON sync_changes;
 CREATE POLICY sync_changes_select ON sync_changes
     FOR SELECT TO authenticated
-    USING (farm_id = current_user_farm_id());
+    USING (is_system_admin() OR farm_id = current_user_farm_id());
 
 -- ============================================================
 -- 12) الصلاحيات العامة + إعادة تحميل مخطط PostgREST
@@ -1576,15 +1651,15 @@ BEGIN
         -- column whitelist لكل جدول
         CASE v_table_name
             WHEN 'egg_production' THEN v_allowed_cols := ARRAY['flock_id','date','cartons','trays','loose_eggs','broken_eggs','dirty_eggs','tray_weight_kg','section_no','worker_id'];
-            WHEN 'mortality' THEN v_allowed_cols := ARRAY['flock_id','date','count','reason','reason_other','notes','image_url','worker_id','section_no'];
+            WHEN 'mortality' THEN v_allowed_cols := ARRAY['date','count','reason','reason_other','notes','image_url','worker_id','section_no'];
             WHEN 'feed_consumption' THEN v_allowed_cols := ARRAY['flock_id','date','entry_mode','bags_count','quantity_kg','worker_id','section_no'];
             WHEN 'feed_received' THEN v_allowed_cols := ARRAY['date','entry_mode','quantity','quantity_kg','feed_type','supplier','invoice_number','notes','price_per_kg','section_no','worker_id'];
             WHEN 'egg_dispatch' THEN v_allowed_cols := ARRAY['date','customer_id','cartons','trays','tray_weight_kg','notes','payment_status','worker_id'];
             WHEN 'medications' THEN v_allowed_cols := ARRAY['flock_id','date','type','medicine_name','dosage','administration_route','treatment_days','withdrawal_days','notes','worker_id'];
             WHEN 'customers' THEN v_allowed_cols := ARRAY['name','phone','notes'];
-            WHEN 'flocks' THEN v_allowed_cols := ARRAY['breed','start_date','initial_count','current_count','status','sections_count'];
+            WHEN 'flocks' THEN v_allowed_cols := ARRAY['breed','start_date','initial_count','status','sections_count'];
             WHEN 'expenses' THEN v_allowed_cols := ARRAY['date','category','description','amount'];
-            WHEN 'inventory_items' THEN v_allowed_cols := ARRAY['name','unit','quantity','low_stock_threshold','notes'];
+            WHEN 'inventory_items' THEN v_allowed_cols := ARRAY['name','unit','low_stock_threshold','notes'];
             WHEN 'inventory_transactions' THEN v_allowed_cols := ARRAY['item_id','date','type','quantity','note','user_id'];
             WHEN 'opening_balances' THEN v_allowed_cols := ARRAY['flock_id','eggs_produced','eggs_dispatched','feed_consumed_kg','initial_birds','mortality_count','total_payments','total_revenues','sections'];
             ELSE v_allowed_cols := ARRAY[]::text[];
@@ -1856,11 +1931,12 @@ REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
 GRANT EXECUTE ON FUNCTION public.find_user_by_phone(text) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.bootstrap_create_farm_and_manager(text, text, text, text, text, text) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_create_user(text, text, text, text, text) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_update_user(text, text, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_update_user(text, text, text, text, boolean) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_reset_pin(text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_delete_user(text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.current_user_role() TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.current_user_farm_id() TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.is_system_admin() TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.app_password_from_pin(text) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.app_user_email(uuid) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.sync_records_batch(jsonb) TO authenticated;
@@ -1880,16 +1956,16 @@ DROP POLICY IF EXISTS audit_select_manager ON audit_log;
 CREATE POLICY audit_select_manager ON audit_log
     FOR SELECT TO authenticated
     USING (
-        farm_id = current_user_farm_id()
-        AND current_user_role() = 'manager'
+        is_system_admin()
+        OR (farm_id = current_user_farm_id() AND current_user_role() = 'manager')
     );
 
 DROP POLICY IF EXISTS audit_insert_system ON audit_log;
 CREATE POLICY audit_insert_manager ON audit_log
     FOR INSERT TO authenticated
     WITH CHECK (
-        farm_id = current_user_farm_id()
-        AND current_user_role() = 'manager'
+        is_system_admin()
+        OR (farm_id = current_user_farm_id() AND current_user_role() = 'manager')
     );
 
 -- ============================================================
@@ -2177,5 +2253,151 @@ BEGIN
     WHERE created_at < NOW() - (p_keep_days || ' days')::interval;
 END;
 $$;
+
+-- ============================================================
+-- 20) RPCs لنظام الإدارة + جدول صراعات المزامنة
+-- ============================================================
+
+-- جلب كل المستخدمين (system_admin فقط)
+CREATE OR REPLACE FUNCTION public.admin_select_all_users()
+RETURNS SETOF users
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT u.* FROM public.users u WHERE public.is_system_admin() ORDER BY u.created_at;
+$$;
+
+-- جلب كل المداجن (system_admin فقط)
+CREATE OR REPLACE FUNCTION public.admin_select_all_farms()
+RETURNS SETOF farms
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT f.* FROM public.farms f WHERE public.is_system_admin() ORDER BY f.created_at;
+$$;
+
+-- إنشاء مدجنة + مدير في معاملة واحدة (system_admin فقط)
+CREATE OR REPLACE FUNCTION public.create_farm_with_manager(
+    p_farm_name text,
+    p_location text,
+    p_manager_name text,
+    p_phone text,
+    p_pin text
+)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_farm_id   uuid;
+    v_user_id   uuid;
+    v_result    jsonb;
+BEGIN
+    IF NOT public.is_system_admin() THEN
+        RAISE EXCEPTION 'غير مصرح: فقط system_admin يمكنه إنشاء مدجنة جديدة';
+    END IF;
+
+    IF p_pin !~ '^[0-9]{4}$' THEN
+        RAISE EXCEPTION 'الرمز يجب أن يكون 4 أرقام';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM users WHERE phone = p_phone) THEN
+        RAISE EXCEPTION 'رقم الهاتف مسجل مسبقاً';
+    END IF;
+
+    INSERT INTO farms (name, location)
+    VALUES (p_farm_name, NULLIF(p_location, ''))
+    RETURNING id INTO v_farm_id;
+
+    v_user_id := gen_random_uuid();
+
+    INSERT INTO auth.users (
+        instance_id, id, aud, role, email, encrypted_password,
+        email_confirmed_at, created_at, updated_at,
+        raw_app_meta_data, raw_user_meta_data,
+        confirmation_token, recovery_token
+    ) VALUES (
+        '00000000-0000-0000-0000-000000000000',
+        v_user_id,
+        'authenticated', 'authenticated',
+        public.app_user_email(v_user_id),
+        extensions.crypt(public.app_password_from_pin(p_pin), extensions.gen_salt('bf')),
+        NOW(), NOW(), NOW(),
+        '{"provider":"email","providers":["email"]}',
+        jsonb_build_object(
+            'role', 'manager',
+            'farm_id', v_farm_id::text,
+            'phone', p_phone,
+            'full_name', p_manager_name
+        ),
+        '', ''
+    );
+
+    INSERT INTO auth.identities (
+        provider_id, user_id, identity_data, provider,
+        last_sign_in_at, created_at, updated_at
+    ) VALUES (
+        v_user_id::text, v_user_id,
+        jsonb_build_object('sub', v_user_id::text),
+        'email', NOW(), NOW(), NOW()
+    );
+
+    INSERT INTO users (id, name, phone, role, pin_hash, farm_id, is_active)
+    VALUES (
+        v_user_id, p_manager_name, p_phone, 'manager',
+        extensions.crypt(public.app_password_from_pin(p_pin), extensions.gen_salt('bf')),
+        v_farm_id, true
+    );
+
+    SELECT jsonb_build_object(
+        'user_id', v_user_id,
+        'farm_id', v_farm_id,
+        'email', public.app_user_email(v_user_id)
+    ) INTO v_result;
+
+    RETURN v_result;
+END;
+$$;
+
+-- جدول صراعات المزامنة
+CREATE TABLE IF NOT EXISTS sync_conflicts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    table_name TEXT NOT NULL,
+    record_id UUID NOT NULL,
+    farm_id UUID NOT NULL,
+    local_data JSONB NOT NULL,
+    remote_data JSONB NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'resolved', 'ignored')),
+    resolution TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_sync_conflicts_status ON sync_conflicts(status);
+CREATE INDEX IF NOT EXISTS idx_sync_conflicts_farm ON sync_conflicts(farm_id);
+ALTER TABLE sync_conflicts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY conflicts_manager ON sync_conflicts
+    FOR ALL TO authenticated
+    USING (is_system_admin() OR (current_user_role() = 'manager' AND farm_id = current_user_farm_id()))
+    WITH CHECK (is_system_admin() OR (current_user_role() = 'manager' AND farm_id = current_user_farm_id()));
+
+-- حماية inventory_items.quantity من الكتابة المباشرة
+CREATE OR REPLACE FUNCTION public.protect_inventory_quantity()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.quantity IS DISTINCT FROM OLD.quantity THEN
+        RAISE EXCEPTION 'لا يمكن تعديل الرصيد مباشرة. استخدم معاملات المخزون';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_protect_inventory_quantity ON inventory_items;
+CREATE TRIGGER trg_protect_inventory_quantity
+    BEFORE UPDATE ON inventory_items
+    FOR EACH ROW EXECUTE FUNCTION public.protect_inventory_quantity();
+
+-- GRANT للدوال الجديدة
+GRANT EXECUTE ON FUNCTION public.admin_select_all_users() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_select_all_farms() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_farm_with_manager(text, text, text, text, text) TO authenticated;
 
 NOTIFY pgrst, 'reload schema';
