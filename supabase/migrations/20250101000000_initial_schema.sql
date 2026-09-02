@@ -711,6 +711,9 @@ BEGIN
         pin_hash = EXCLUDED.pin_hash,
         farm_id = EXCLUDED.farm_id;
 
+    -- إبطال توكن bootstrap بعد أول استخدام ناجح: بوابة التهيئة سرّ لمرة واحدة.
+    DELETE FROM public.app_settings WHERE key = 'secure.bootstrap_token';
+
     RETURN jsonb_build_object(
         'user_id', v_auth_uuid::text,
         'farm_id', v_farm_id::text,
@@ -1183,8 +1186,8 @@ CREATE POLICY users_select_self ON users
         id = auth.uid()
         OR is_system_admin()
         OR (
-            (auth.jwt() -> 'user_metadata' ->> 'role') = 'manager'
-            AND farm_id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid
+            current_user_role() = 'manager'
+            AND farm_id = current_user_farm_id()
         )
     );
 
@@ -1197,7 +1200,7 @@ CREATE POLICY users_update_self ON users
         OR is_system_admin()
         OR (
             current_user_role() = 'manager'
-            AND farm_id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid
+            AND farm_id = current_user_farm_id()
         )
     );
 
@@ -1261,11 +1264,11 @@ CREATE TRIGGER trg_protect_users_sensitive_columns
     FOR EACH ROW EXECUTE FUNCTION public.protect_users_sensitive_columns();
 
 -- farms: قراءة عامة، كتابة للمدير
--- P0/21: عزل المستأجرين — كل مستخدم يرى مزرعته فقط (من JWT المُصادَق)
+-- P0/21: عزل المستأجرين — كل مستخدم يرى مزرعته فقط (المصدر الموثوق: جدول users)
 DROP POLICY IF EXISTS farms_select_all ON farms;
 CREATE POLICY farms_select_own ON farms
     FOR SELECT TO authenticated
-    USING (is_system_admin() OR id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid);
+    USING (is_system_admin() OR id = current_user_farm_id());
 
 DROP POLICY IF EXISTS farms_insert_manager ON farms;
 CREATE POLICY farms_insert_manager ON farms
@@ -1651,7 +1654,7 @@ BEGIN
         -- column whitelist لكل جدول
         CASE v_table_name
             WHEN 'egg_production' THEN v_allowed_cols := ARRAY['flock_id','date','cartons','trays','loose_eggs','broken_eggs','dirty_eggs','tray_weight_kg','section_no','worker_id'];
-            WHEN 'mortality' THEN v_allowed_cols := ARRAY['date','count','reason','reason_other','notes','image_url','worker_id','section_no'];
+            WHEN 'mortality' THEN v_allowed_cols := ARRAY['flock_id','date','count','reason','reason_other','notes','image_url','worker_id','section_no'];
             WHEN 'feed_consumption' THEN v_allowed_cols := ARRAY['flock_id','date','entry_mode','bags_count','quantity_kg','worker_id','section_no'];
             WHEN 'feed_received' THEN v_allowed_cols := ARRAY['date','entry_mode','quantity','quantity_kg','feed_type','supplier','invoice_number','notes','price_per_kg','section_no','worker_id'];
             WHEN 'egg_dispatch' THEN v_allowed_cols := ARRAY['date','customer_id','cartons','trays','tray_weight_kg','notes','payment_status','worker_id'];
@@ -1941,7 +1944,8 @@ GRANT EXECUTE ON FUNCTION public.app_password_from_pin(text) TO anon, authentica
 GRANT EXECUTE ON FUNCTION public.app_user_email(uuid) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.sync_records_batch(jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.pull_remote_changes(uuid, bigint) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.cleanup_old_sync_changes(int) TO authenticated;
+-- cleanup_old_sync_changes: لا يُمنح للمستخدمين. يُستدعى عبر Edge Function/pg_cron بصلاحية service_role أو manager فقط.
+GRANT EXECUTE ON FUNCTION public.cleanup_old_sync_changes(int, uuid) TO authenticated;
 
 -- ============================================================
 -- 16) RLS للجداول الجديدة
@@ -2091,7 +2095,7 @@ CREATE POLICY farm_images_insert_farm_scoped ON storage.objects
     WITH CHECK (
         bucket_id = 'farm-images'
         AND (storage.foldername(name))[1] = 'farms'
-        AND (storage.foldername(name))[2] = COALESCE(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')
+        AND (storage.foldername(name))[2] = COALESCE(current_user_farm_id()::text, '')
         AND (storage.foldername(name))[3] = 'mortality'
     );
 
@@ -2101,12 +2105,12 @@ CREATE POLICY farm_images_update_farm_scoped ON storage.objects
     USING (
         bucket_id = 'farm-images'
         AND (storage.foldername(name))[1] = 'farms'
-        AND (storage.foldername(name))[2] = COALESCE(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')
+        AND (storage.foldername(name))[2] = COALESCE(current_user_farm_id()::text, '')
     )
     WITH CHECK (
         bucket_id = 'farm-images'
         AND (storage.foldername(name))[1] = 'farms'
-        AND (storage.foldername(name))[2] = COALESCE(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')
+        AND (storage.foldername(name))[2] = COALESCE(current_user_farm_id()::text, '')
     );
 
 DROP POLICY IF EXISTS farm_images_delete_farm_scoped ON storage.objects;
@@ -2115,7 +2119,7 @@ CREATE POLICY farm_images_delete_farm_scoped ON storage.objects
     USING (
         bucket_id = 'farm-images'
         AND (storage.foldername(name))[1] = 'farms'
-        AND (storage.foldername(name))[2] = COALESCE(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')
+        AND (storage.foldername(name))[2] = COALESCE(current_user_farm_id()::text, '')
     );
 
 -- ============================================================
@@ -2198,6 +2202,8 @@ END $$;
 
 -- RPC: السحب — يُرجع التغييرات منذ إصدار معين
 -- يستخدمه العميل لاكتشاف ما أضافه الأجهزة الأخرى.
+-- الأمان: فقط المدير (أو system_admin) الخاص بالمزرعة يمكنه السحب؛
+-- العامل لا يملك صلاحية السحب لأن sync_changes قد تحوي بيانات مالية محمية.
 CREATE OR REPLACE FUNCTION public.pull_remote_changes(
     p_farm_id uuid,
     p_from_version bigint DEFAULT 0
@@ -2207,16 +2213,34 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-    v_latest bigint;
-    v_changes jsonb;
+    v_role     text;
+    v_latest   bigint;
+    v_min_keep bigint;
+    v_changes  jsonb;
 BEGIN
-    -- التحقق من وجود المزرعة (أمان بسيط)
-    IF NOT EXISTS (SELECT 1 FROM farms WHERE id = p_farm_id) THEN
-        RAISE EXCEPTION 'المزرعة غير موجودة: %', p_farm_id;
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'AUTHORIZATION_DENIED: غير مسجل الدخول';
+    END IF;
+
+    -- السماح: system_admin (كل المداجن) أو manager الخاص بهذه المزرعة فقط.
+    IF NOT public.is_system_admin() THEN
+        SELECT public.current_user_role() INTO v_role;
+        IF v_role <> 'manager' THEN
+            RAISE EXCEPTION 'AUTHORIZATION_DENIED: العامل لا يستطيع سحب المزامنة';
+        END IF;
+        -- إجبار p_farm_id على مزرعة المدير؛ تجاهل أي قيمة أخرى من العميل.
+        IF p_farm_id IS DISTINCT FROM public.current_user_farm_id() THEN
+            RAISE EXCEPTION 'AUTHORIZATION_DENIED: مزرعة غير مصرح بها';
+        END IF;
     END IF;
 
     -- أحدث إصدار في sync_changes لهذه المزرعة
     SELECT COALESCE(MAX(server_version), 0) INTO v_latest
+    FROM sync_changes WHERE farm_id = p_farm_id;
+
+    -- أقل نسخة محفوظة (أقدم server_version محتجز في sync_changes بعد التنظيف)
+    -- لتمكين اكتشاف الأجهزة المتأخرة أكثر من فترة الاحتفاظ → RESYNC_REQUIRED.
+    SELECT COALESCE(MIN(server_version), v_latest) INTO v_min_keep
     FROM sync_changes WHERE farm_id = p_farm_id;
 
     -- جلب التغييرات الأحدث من الإصدار المطلوب
@@ -2233,24 +2257,52 @@ BEGIN
       AND sc.server_version > p_from_version
     ORDER BY sc.server_version ASC;
 
+    -- إذا كان الجهاز متأخراً عن أقل نسخة محفوظة، لا يمكنه تطبيق delta ناقص
+    IF p_from_version > 0 AND p_from_version < v_min_keep THEN
+        RETURN jsonb_build_object(
+            'resync_required', true,
+            'message', 'بيانات الجهاز أقدم من فترة الاحتفاظ، يلزم إعادة مزامنة كاملة',
+            'latest_version', v_latest
+        );
+    END IF;
+
     RETURN jsonb_build_object(
+        'resync_required', false,
         'latest_version', v_latest,
         'changes', COALESCE(v_changes, '[]'::jsonb)
     );
 END;
 $$;
 
--- تنظيف sync_changes القديمة (استدعاء دوري أو في syncNow)
+-- تنظيف sync_changes القديمة — مقصور على المدير/system_admin فقط.
+-- يُستدعى دورياً من Edge Function أو pg_cron بصلاحية manager، وليس من العمال.
 CREATE OR REPLACE FUNCTION public.cleanup_old_sync_changes(
-    p_keep_days int DEFAULT 30
+    p_keep_days int DEFAULT 30,
+    p_farm_id uuid DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
-    DELETE FROM sync_changes
-    WHERE created_at < NOW() - (p_keep_days || ' days')::interval;
+    IF NOT (public.is_system_admin() OR public.current_user_role() = 'manager') THEN
+        RAISE EXCEPTION 'AUTHORIZATION_DENIED: غير مسموح بتنظيف المزامنة';
+    END IF;
+
+    IF p_keep_days < 1 THEN
+        RAISE EXCEPTION 'VALIDATION_ERROR: فترة الاحتفاظ يجب أن تكون يوماً واحداً على الأقل';
+    END IF;
+
+    -- المدير ينظف بيانات مزرعته فقط؛ system_admin ينظف كل المزارع (أو المزرعة المعطاة).
+    IF public.is_system_admin() THEN
+        DELETE FROM sync_changes
+        WHERE created_at < NOW() - (p_keep_days || ' days')::interval
+          AND (p_farm_id IS NULL OR farm_id = p_farm_id);
+    ELSE
+        DELETE FROM sync_changes
+        WHERE farm_id = public.current_user_farm_id()
+          AND created_at < NOW() - (p_keep_days || ' days')::interval;
+    END IF;
 END;
 $$;
 

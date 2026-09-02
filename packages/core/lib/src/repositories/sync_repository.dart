@@ -74,6 +74,7 @@ class FullSyncResult {
   final int downloadedCount;
   final int failedCount;
   final DateTime completedAt;
+  final bool resyncRequired;
   final String? errorMessage;
 
   FullSyncResult({
@@ -81,6 +82,7 @@ class FullSyncResult {
     required this.downloadedCount,
     required this.failedCount,
     required this.completedAt,
+    this.resyncRequired = false,
     this.errorMessage,
   });
 
@@ -93,6 +95,7 @@ class PullResult {
   final int appliedCount;
   final int conflictCount;
   final int latestVersion;
+  final bool resyncRequired;
   final String? errorMessage;
 
   const PullResult({
@@ -100,6 +103,7 @@ class PullResult {
     this.appliedCount = 0,
     this.conflictCount = 0,
     this.latestVersion = 0,
+    this.resyncRequired = false,
     this.errorMessage,
   });
 }

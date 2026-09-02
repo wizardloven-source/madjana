@@ -17,7 +17,7 @@ CREATE POLICY farms_select_own ON farms
     FOR SELECT TO authenticated
     USING (
         is_system_admin()
-        OR id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid
+        OR id = current_user_farm_id()
     );
 
 DROP POLICY IF EXISTS farms_insert_manager ON farms;
@@ -46,8 +46,8 @@ CREATE POLICY users_select_self ON users
         id = auth.uid()
         OR is_system_admin()
         OR (
-            (auth.jwt() -> 'user_metadata' ->> 'role') = 'manager'
-            AND farm_id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid
+            current_user_role() = 'manager'
+            AND farm_id = current_user_farm_id()
         )
     );
 
@@ -67,7 +67,7 @@ CREATE POLICY users_update_self ON users
         OR is_system_admin()
         OR (
             current_user_role() = 'manager'
-            AND farm_id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid
+            AND farm_id = current_user_farm_id()
         )
     );
 

@@ -372,7 +372,14 @@ class SyncRepositoryImpl implements SyncRepository {
       }
 
       final latestVersion = (response['latest_version'] as num?)?.toInt() ?? 0;
+      final resyncRequired = response['resync_required'] as bool? ?? false;
       final changes = (response['changes'] as List?) ?? [];
+
+      // الجهاز متأخر أكثر من فترة الاحتفاظ — لا يمكن تطبيق delta ناقص،
+      // يلزم إعادة مزامنة كاملة (يُعالجها المتصل بنفسه).
+      if (resyncRequired) {
+        return PullResult(latestVersion: latestVersion, resyncRequired: true);
+      }
 
       if (changes.isEmpty) {
         return PullResult(latestVersion: latestVersion);
@@ -527,6 +534,7 @@ class SyncRepositoryImpl implements SyncRepository {
         downloadedCount: pullResult.appliedCount,
         failedCount: uploadResult.failedCount + pullResult.conflictCount,
         completedAt: DateTime.now(),
+        resyncRequired: pullResult.resyncRequired,
         errorMessage: uploadResult.errorMessage ?? pullResult.errorMessage,
       );
 

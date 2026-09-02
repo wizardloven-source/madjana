@@ -130,15 +130,25 @@ Deno.serve(async (req) => {
     //   400 — حمولة غير صالحة، 401 — توكن غير صالح/منتهي،
     //   403 — رفض صلاحيات (RLS/دور) من دالة SQL،
     //   405 — طريقة خاطئة، 500 — خطأ خادم غير متوقع.
-    const RPC_AUTHZ_MARKERS = [
-      "غير مصرح",
-      "ممنوع",
-      "الحذف للمدير",
-      "لا يمكن تحديد المزرعة",
-      "الدور الحالي غير معروف",
-      "لا ينتمي",
-      "ليست من مزرعتك",
-    ];
+    //
+    // تمييز 403 بشكل موثوق: نعتمد على بادئة رمز خطأ منظمة تُصدّرها دالة SQL
+    // (AUTHORIZATION_DENIED:) بدلاً من تحليل النص العربي الهش.
+    const AUTHZ_CODE_PREFIX = "AUTHORIZATION_DENIED:";
+
+    function isAuthzDenied(message: string): boolean {
+      const msg = message ?? "";
+      if (msg.includes(AUTHZ_CODE_PREFIX)) return true;
+      // سقوط احتياطي لقيم قديمة (لم تعد تصدّر، لكن نُبقيها للتعامل مع نسخ قديمة من DB)
+      return [
+        "غير مصرح",
+        "ممنوع",
+        "الحذف للمدير",
+        "لا يمكن تحديد المزرعة",
+        "الدور الحالي غير معروف",
+        "لا ينتمي",
+        "ليست من مزرعتك",
+      ].some((m) => msg.includes(m));
+    }
 
     // إزالة السجلات غير الصالحة مع توليد استجابة مفصلة لكل سجل مرفوض
     const normalized: SyncRecord[] = [];
@@ -180,12 +190,10 @@ Deno.serve(async (req) => {
     if (error) {
       console.error('Sync error:', error);
       // P0/16: تمييز رفض الصلاحيات (403) عن أخطاء الخادم العامة (500)
-      const isAuthzDenied = RPC_AUTHZ_MARKERS.some((m) =>
-        (error.message ?? "").includes(m)
-      );
+      const denied = isAuthzDenied(error.message ?? "");
       return new Response(
         JSON.stringify({ error: error.message }),
-        { status: isAuthzDenied ? 403 : 500, headers: corsHeaders },
+        { status: denied ? 403 : 500, headers: corsHeaders },
       );
     }
 
