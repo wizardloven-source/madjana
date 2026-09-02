@@ -44,9 +44,10 @@ class MortalityRepositoryImpl implements MortalityRepository {
   }
 
   /// رفع صورة إلى السحابة
-  Future<String?> uploadImage(File imageFile, String recordId) async {
+  Future<String?> uploadImage(File imageFile, String recordId,
+      {required String farmId}) async {
     try {
-      return await _remoteDatasource.uploadImage(imageFile, recordId);
+      return await _remoteDatasource.uploadImage(imageFile, recordId, farmId);
     } catch (e) {
       // في حالة فشل الرفع، نكمل بدون صورة (Offline-first)
       return null;

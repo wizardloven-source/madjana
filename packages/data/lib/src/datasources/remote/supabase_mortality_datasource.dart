@@ -20,9 +20,10 @@ class SupabaseMortalityDatasource {
   }
 
   /// رفع صورة النفوق إلى Storage
-  Future<String> uploadImage(File imageFile, String recordId) async {
+  /// P0/28: مسار معزول بالمزرعة — farms/{farm_id}/mortality/{record_id}/...
+  Future<String> uploadImage(File imageFile, String recordId, String farmId) async {
     final fileName = '${DateTime.now().millisecondsSinceEpoch}_$recordId.jpg';
-    final path = 'mortality/$fileName';
+    final path = 'farms/$farmId/mortality/$recordId/$fileName';
 
     await _client.storage.from('farm-images').upload(
           path,

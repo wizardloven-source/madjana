@@ -51,7 +51,7 @@ class MortalityNotifier extends StateNotifier<bool> {
     // رفع الصورة أولاً إن وجدت
     String? imageUrl = record.imageUrl;
     if (imageFile != null) {
-      imageUrl = await _repository.uploadImage(imageFile, record.id ?? '');
+      imageUrl = await _repository.uploadImage(imageFile, record.id ?? '', farmId: record.farmId);
       record = MortalityModel(
         id: record.id,
         farmId: record.farmId,

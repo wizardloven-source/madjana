@@ -148,7 +148,10 @@ CREATE TABLE egg_production (
 CREATE INDEX idx_egg_production_farm ON egg_production(farm_id);
 CREATE INDEX idx_egg_production_flock ON egg_production(flock_id);
 CREATE INDEX idx_egg_production_date ON egg_production(date);
-CREATE UNIQUE INDEX idx_egg_production_flock_date ON egg_production(flock_id, date) WHERE deleted_at IS NULL;
+-- P0/9: فهرس فريد بوحدات الأقسام — مزرعة الأقسام تستطيع تسجيل إنتاج لكل قسم
+-- في نفس اليوم؛ بدون أقسام (section_no = NULL → 0) يبقى سجل واحد فقط لليوم.
+CREATE UNIQUE INDEX idx_egg_production_flock_date_section ON egg_production(flock_id, date, COALESCE(section_no, 0)) WHERE deleted_at IS NULL;
+DROP INDEX IF EXISTS idx_egg_production_flock_date;
 
 CREATE TABLE mortality (
     id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -196,7 +199,14 @@ CREATE TABLE feed_consumption (
     updated_at   TIMESTAMPTZ DEFAULT NOW(),
     -- (13) version لتفعيل OCC في sync_records_batch
     version      BIGINT NOT NULL DEFAULT 1,
-    deleted_at   TIMESTAMPTZ
+    deleted_at   TIMESTAMPTZ,
+    -- P0/10: اتساق وضع الإدخال — بوضع الأكياس يجب أن يكون العدد > 0
+    -- وأن تكون الكميات مطابقة (كيس = 24 كغ، وهو ثابت AppConstants.kgPerBag).
+    -- بوضع الكيلوغرام لا قيد إضافي لأن الكمية تُدخل مباشرة.
+    CONSTRAINT check_feed_consumption_mode CHECK (
+        (entry_mode = 'kg') OR
+        (entry_mode = 'bags' AND bags_count > 0 AND quantity_kg = bags_count * 24)
+    )
 );
 
 CREATE TABLE feed_received (
@@ -219,7 +229,16 @@ CREATE TABLE feed_received (
     version      BIGINT NOT NULL DEFAULT 1,
     created_at   TIMESTAMPTZ DEFAULT NOW(),
     updated_at   TIMESTAMPTZ DEFAULT NOW(),
-    deleted_at   TIMESTAMPTZ
+    deleted_at   TIMESTAMPTZ,
+    -- P0/11: اتساق وضع الإدخال في الاستلام — quantity = وحدة الوضع،
+    -- و quantity_kg يُحسب منها (كيس=24، طن=1000). نفس ثوابت التطبيق.
+    CONSTRAINT check_feed_received_mode CHECK (
+        (quantity > 0) AND (
+            (entry_mode = 'bags' AND quantity_kg = quantity * 24) OR
+            (entry_mode = 'kg'   AND quantity_kg = quantity)     OR
+            (entry_mode = 'ton'  AND quantity_kg = quantity * 1000)
+        )
+    )
 );
 
 CREATE TABLE egg_dispatch (
@@ -385,6 +404,7 @@ CREATE TABLE idempotency_log (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     operation_id    TEXT NOT NULL UNIQUE,
     user_id         UUID REFERENCES users(id),
+    farm_id         UUID REFERENCES farms(id),
     table_name      TEXT NOT NULL,
     record_id       UUID NOT NULL,
     operation       TEXT NOT NULL,
@@ -393,6 +413,27 @@ CREATE TABLE idempotency_log (
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX idx_idempotency_op ON idempotency_log(operation_id);
+CREATE INDEX idx_idempotency_user ON idempotency_log(user_id, operation_id);
+
+-- ============================================================
+-- إعدادات النظام (مطلوبة بواسطة bootstrap_create_farm_and_manager)
+-- ============================================================
+-- P0: كان bootstrap يشير إلى app_settings دون إنشائه، فكان يفشل
+-- وقت التشغيل. الآن الجدول موجود ويُزرع فيه توكن تهيئة عشوائي قوي
+-- في كل قاعدة جديدة (128-bit عبر md5(gen_random_uuid())). يجب على
+-- المسؤول استبدال القيمة بـ SECRET قوي قبل النشر الفعلي، أو استخدام
+-- القيمة المولدة تلقائياً عند تهيئة أول مزرعة.
+CREATE TABLE app_settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+-- توكن تهيئة عشوائي (مختلف لكل قاعدة) — يُقرأ مرة واحدة أثناء bootstrap
+INSERT INTO app_settings (key, value, updated_at)
+SELECT 'secure.bootstrap_token',
+       md5(gen_random_uuid()::text || clock_timestamp()::text),
+       NOW()
+WHERE NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'secure.bootstrap_token');
 
 CREATE TABLE app_notifications (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -533,11 +574,15 @@ $$;
 -- البحث بالهاتف — يستخدمه تطبيق تسجيل الدخول لربط رقم الهاتف بـ auth uid.
 -- P0: لا يعود بالأدوار/المزارع لتفادي تسريب معلومات؛ ويمنع الوصول العام (anon).
 CREATE OR REPLACE FUNCTION public.find_user_by_phone(p_phone text)
-RETURNS TABLE (id uuid, name text, phone text)
+RETURNS TABLE (id uuid)
 LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-    SELECT u.id::uuid, u.name::text, u.phone::text
+    -- P0/6: لا نسرب الاسم/الهاتف (تعداد مستخدمين لـ anon).
+    -- id فقط يُعاد لأنه مطلوب لبناء البريد الاصطناعي لتسجيل الدخول؛
+    -- الاسم/الهاتف/الدور/المزرعة تُقرأ لاحقاً من الـ JWT المُصادَق.
+    -- (الإغلاق الكامل لتسريب الوجود يتطلب تسجيل دخول بالهاتف مباشرة — خطة لاحقة.)
+    SELECT u.id::uuid
     FROM public.users AS u
     WHERE u.phone = p_phone
     LIMIT 1;
@@ -812,8 +857,22 @@ $$;
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.calc_total_eggs()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_carton int;
+    v_tray   int;
 BEGIN
-    NEW.total_eggs := (NEW.cartons * 360) + (NEW.trays * 30) + NEW.loose_eggs;
+    -- P0/8: قراءة إعدادات المزرعة (farms.eggs_per_carton/eggs_per_tray)
+    -- بدلاً من 360/30 المثبتة كودياً — مع fallback للقيم الافتراضية.
+    SELECT fr.eggs_per_carton, fr.eggs_per_tray
+    INTO v_carton, v_tray
+    FROM flocks f
+    JOIN farms fr ON fr.id = f.farm_id
+    WHERE f.id = NEW.flock_id;
+    v_carton := COALESCE(v_carton, 360);
+    v_tray   := COALESCE(v_tray, 30);
+    NEW.total_eggs := (COALESCE(NEW.cartons, 0) * v_carton)
+                    + (COALESCE(NEW.trays, 0) * v_tray)
+                    + COALESCE(NEW.loose_eggs, 0);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -824,8 +883,20 @@ CREATE TRIGGER trg_calc_total_eggs
 
 CREATE OR REPLACE FUNCTION public.calc_dispatch_total()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_carton int;
+    v_tray   int;
 BEGIN
-    NEW.total_eggs := (NEW.cartons * 360) + (NEW.trays * 30);
+    -- P0/8: نفس المنطق — إعدادات المزرعة عبر customer_id → farms.
+    SELECT fr.eggs_per_carton, fr.eggs_per_tray
+    INTO v_carton, v_tray
+    FROM customers c
+    JOIN farms fr ON fr.id = c.farm_id
+    WHERE c.id = NEW.customer_id;
+    v_carton := COALESCE(v_carton, 360);
+    v_tray   := COALESCE(v_tray, 30);
+    NEW.total_eggs := (COALESCE(NEW.cartons, 0) * v_carton)
+                    + (COALESCE(NEW.trays, 0) * v_tray);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -908,12 +979,16 @@ DECLARE
 BEGIN
     v_user_id := (SELECT u.id FROM public.users AS u WHERE u.id = auth.uid());
     v_farm_id := COALESCE(NEW.farm_id, OLD.farm_id);
-    INSERT INTO audit_log (farm_id, user_id, action, table_name, record_id, old_values, new_values)
+    -- P0/19: device_id/correlation_id تُملا من GUC عندما يضبطها الوسيط
+    -- (مثل Edge Function عند المزامنة)؛ في المسارات المباشرة تبقى NULL (أفضل جهد).
+    INSERT INTO audit_log (farm_id, user_id, action, table_name, record_id, old_values, new_values, device_id, correlation_id)
     VALUES (
         v_farm_id, v_user_id, TG_OP, TG_TABLE_NAME,
         COALESCE(NEW.id, OLD.id),
         CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE NULL END,
-        CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN to_jsonb(NEW) ELSE NULL END
+        CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN to_jsonb(NEW) ELSE NULL END,
+        NULLIF(current_setting('app.device_id', true), ''),
+        NULLIF(current_setting('app.correlation_id', true), '')
     );
     RETURN COALESCE(NEW, OLD);
 END;
@@ -935,22 +1010,12 @@ CREATE TRIGGER trg_audit_dispatch
     AFTER INSERT OR UPDATE OR DELETE ON egg_dispatch
     FOR EACH ROW EXECUTE FUNCTION public.log_audit_changes();
 
-CREATE OR REPLACE FUNCTION public.audit_expenses_changes()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO audit_log (user_id, action, table_name, record_id, new_values)
-    VALUES (
-        auth.uid(), TG_OP, 'expenses',
-        COALESCE(NEW.id, OLD.id),
-        to_jsonb(COALESCE(NEW, OLD))
-    );
-    RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
-
-CREATE TRIGGER expenses_audit_trigger
+-- (19) توحيد تدقيق المصروفات: كان يُستخدم دالة مجزأة بلا old_values/farm_id؛
+-- الآن عبر الدالة الموحدة log_audit_changes.
+DROP TRIGGER IF EXISTS expenses_audit_trigger ON expenses;
+CREATE TRIGGER trg_audit_expenses
     AFTER INSERT OR UPDATE OR DELETE ON expenses
-    FOR EACH ROW EXECUTE FUNCTION public.audit_expenses_changes();
+    FOR EACH ROW EXECUTE FUNCTION public.log_audit_changes();
 
 -- ============================================================
 -- (10) توسيع تدقيق audit_log لبقية الجداول غير المغطاة
@@ -1020,6 +1085,24 @@ ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dispatch_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sync_changes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
+
+-- app_settings: غير قابل للقراءة/الكتابة عبر SQL العادي إلا للمديرين
+-- (ُقصد به الإعدادات مثل secure.bootstrap_token). الدوال SECURITY DEFINER
+-- تتجاوز هذه السياسات عند الحاجة.
+DROP POLICY IF EXISTS app_settings_manager_select ON app_settings;
+CREATE POLICY app_settings_manager_select ON app_settings
+    FOR SELECT TO authenticated
+    USING (current_user_role() = 'manager');
+DROP POLICY IF EXISTS app_settings_manager_write ON app_settings;
+CREATE POLICY app_settings_manager_write ON app_settings
+    FOR INSERT TO authenticated
+    WITH CHECK (current_user_role() = 'manager');
+DROP POLICY IF EXISTS app_settings_manager_update ON app_settings;
+CREATE POLICY app_settings_manager_update ON app_settings
+    FOR UPDATE TO authenticated
+    USING (current_user_role() = 'manager')
+    WITH CHECK (current_user_role() = 'manager');
 
 -- ============================================================
 -- 8) سياسات المستخدمين والمزارع
@@ -1105,10 +1188,11 @@ CREATE TRIGGER trg_protect_users_sensitive_columns
     FOR EACH ROW EXECUTE FUNCTION public.protect_users_sensitive_columns();
 
 -- farms: قراءة عامة، كتابة للمدير
+-- P0/21: عزل المستأجرين — كل مستخدم يرى مزرعته فقط (من JWT المُصادَق)
 DROP POLICY IF EXISTS farms_select_all ON farms;
-CREATE POLICY farms_select_all ON farms
+CREATE POLICY farms_select_own ON farms
     FOR SELECT TO authenticated
-    USING (true);
+    USING (id = NULLIF(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')::uuid);
 
 DROP POLICY IF EXISTS farms_insert_manager ON farms;
 CREATE POLICY farms_insert_manager ON farms
@@ -1300,20 +1384,59 @@ BEGIN
         v_operation_id := v_record->>'operation_id';
         v_data        := v_record->>'data';
 
+        -- (19) تمرير device_id/correlation_id إلى GUC ليقرأها audit trigger
+        -- (null-safe: إذا لم تُرسل تبقى تلقائيات NULL).
+        PERFORM set_config('app.device_id', COALESCE(v_record->>'device_id', ''), true);
+        PERFORM set_config('app.correlation_id', COALESCE(v_record->>'correlation_id', ''), true);
+
         IF v_data IS NULL THEN
             v_data := '{}'::jsonb;
         END IF;
 
-        -- Idempotency check: إذا تم تنفيذ العملية مسبقاً، أرجع النتيجة المحفوظة
+        -- Idempotency check: إذا تم تنفيذ العملية مسبقاً بواسطة هذا المستخدم
+        -- ونفس الصف/الجدول/العملية، أرجع النتيجة المحفوظة.
+        -- P0: نطاق الـ operation_id = (المستخدم + المزرعة + الصف + الجدول + العملية)
+        -- حتى لا يُعاد استعمال operation_id مسرَّب من مستخدم/صف آخر،
+        -- ويُرفض إعادة استخدام نفس operation_id مع عملية مختلفة.
         IF v_operation_id IS NOT NULL AND length(v_operation_id) > 0 THEN
             DECLARE
                 v_prev_result jsonb;
+                v_mismatch int;
             BEGIN
                 SELECT result INTO v_prev_result
                 FROM idempotency_log
-                WHERE operation_id = v_operation_id AND status = 'done';
+                WHERE operation_id = v_operation_id
+                  AND user_id = auth.uid()
+                  AND farm_id = v_user_farm
+                  AND table_name = v_table_name
+                  AND record_id = v_record_id
+                  AND operation = v_operation
+                  AND status = 'done'
+                LIMIT 1;
                 IF v_prev_result IS NOT NULL THEN
                     v_result := v_result || v_prev_result;
+                    CONTINUE;
+                END IF;
+
+                -- نفس operation_id موجود لكن بتوقيع مختلف (مستخدم/صف/عملية أخرى)
+                SELECT 1 INTO v_mismatch
+                FROM idempotency_log
+                WHERE operation_id = v_operation_id
+                  AND NOT (
+                      user_id = auth.uid()
+                      AND farm_id = v_user_farm
+                      AND table_name = v_table_name
+                      AND record_id = v_record_id
+                      AND operation = v_operation
+                  )
+                LIMIT 1;
+                IF v_mismatch IS NOT NULL THEN
+                    v_errors := v_errors + 1;
+                    v_result := v_result || jsonb_build_object(
+                        'record_id', v_record_id,
+                        'status', 'error',
+                        'message', 'operation_id مستخدم بالفعل لعملية أخرى'
+                    );
                     CONTINUE;
                 END IF;
             END;
@@ -1361,8 +1484,9 @@ BEGIN
                 );
                 CONTINUE;
             END IF;
-        ELSE
-            -- supervisor أو أي دور آخر: جداول تشغيلية فقط (بدون customers/flocks)
+        ELSIF v_user_role = 'supervisor' THEN
+            -- supervisor: جداول تشغيلية فقط (بدون customers/flocks)،
+            -- محدوداً بالحذف (manager-only في كل الطبقات — يُفحص لاحقاً).
             IF v_table_name NOT IN (
                 'egg_production', 'mortality', 'feed_consumption',
                 'feed_received', 'egg_dispatch', 'medications'
@@ -1371,10 +1495,19 @@ BEGIN
                 v_result := v_result || jsonb_build_object(
                     'record_id', v_record_id,
                     'status', 'error',
-                    'message', 'الدور الحالي لا يملك صلاحية المزامنة للجدول: ' || v_table_name
+                    'message', 'المشرف لا يملك صلاحية المزامنة للجدول: ' || v_table_name
                 );
                 CONTINUE;
             END IF;
+        ELSE
+            -- أي دور غير معروف: يُرفض صراحةً (لا نعتمد على انخفاض الأذونات الضمنية)
+            v_errors := v_errors + 1;
+            v_result := v_result || jsonb_build_object(
+                'record_id', v_record_id,
+                'status', 'error',
+                'message', 'الدور الحالي غير معروف أو غير مصرح: ' || COALESCE(v_user_role, 'null')
+            );
+            CONTINUE;
         END IF;
 
         IF v_operation IN ('update', 'delete') THEN
@@ -1424,6 +1557,18 @@ BEGIN
             END IF;
         END IF;
 
+        -- P0/2: مصفوفة صلاحيات موحدة مع RLS — الحذف للمدير فقط في كل الطبقات.
+        -- (RLS: op_delete → current_user_role()='manager'؛ وهنا مثلها تماماً)
+        IF v_operation = 'delete' AND v_user_role <> 'manager' THEN
+            v_errors := v_errors + 1;
+            v_result := v_result || jsonb_build_object(
+                'record_id', v_record_id,
+                'status', 'error',
+                'message', 'غير مصرح: الحذف للمدير فقط'
+            );
+            CONTINUE;
+        END IF;
+
         -- column whitelist لكل جدول
         CASE v_table_name
             WHEN 'egg_production' THEN v_allowed_cols := ARRAY['flock_id','date','cartons','trays','loose_eggs','broken_eggs','dirty_eggs','tray_weight_kg','section_no','worker_id'];
@@ -1452,6 +1597,45 @@ BEGIN
                 v_allowed_cols := ARRAY[]::text[];
             END IF;
             v_allowed_cols := array_remove(v_allowed_cols, 'worker_id');
+        END IF;
+
+        -- P0/1: التكامل المرجعي عبر المزرعة — أي عمود علني (foreign key) في الحمولة
+        -- يجب أن يشير لصف داخل نفس مزرعة المستخدم، وإلا Rفضٌ صريح.
+        -- لا نعتمد على FK وحده (الوجود لا يعني نفس المزرعة).
+        IF v_operation IN ('insert', 'update') THEN
+            IF v_table_name = 'egg_dispatch' AND (v_data ? 'customer_id') THEN
+                IF NOT EXISTS (SELECT 1 FROM customers WHERE id = (v_data->>'customer_id')::uuid AND farm_id = v_user_farm) THEN
+                    v_errors := v_errors + 1;
+                    v_result := v_result || jsonb_build_object(
+                        'record_id', v_record_id, 'status', 'error',
+                        'message', 'customer_id لا ينتمي لمزرعتك'
+                    );
+                    CONTINUE;
+                END IF;
+            END IF;
+
+            IF v_table_name IN ('egg_production', 'mortality', 'feed_consumption', 'medications', 'opening_balances')
+               AND (v_data ? 'flock_id') AND (v_data->>'flock_id') IS NOT NULL AND (v_data->>'flock_id') <> 'null' THEN
+                IF NOT EXISTS (SELECT 1 FROM flocks WHERE id = (v_data->>'flock_id')::uuid AND farm_id = v_user_farm) THEN
+                    v_errors := v_errors + 1;
+                    v_result := v_result || jsonb_build_object(
+                        'record_id', v_record_id, 'status', 'error',
+                        'message', 'flock_id لا ينتمي لمزرعتك'
+                    );
+                    CONTINUE;
+                END IF;
+            END IF;
+
+            IF v_table_name = 'inventory_transactions' AND (v_data ? 'item_id') THEN
+                IF NOT EXISTS (SELECT 1 FROM inventory_items WHERE id = (v_data->>'item_id')::uuid AND farm_id = v_user_farm) THEN
+                    v_errors := v_errors + 1;
+                    v_result := v_result || jsonb_build_object(
+                        'record_id', v_record_id, 'status', 'error',
+                        'message', 'item_id لا ينتمي لمزرعتك'
+                    );
+                    CONTINUE;
+                END IF;
+            END IF;
         END IF;
 
         BEGIN
@@ -1514,11 +1698,22 @@ BEGIN
                 v_affected := v_affected + v_upd_count;
 
             ELSIF v_operation = 'delete' THEN
+                -- P0/3: حذف ناعم مع OCC — يتطلب previous_version مطابقاً،
+                -- ويُعتبر تعارضاً (conflict) عندما لا يتطابق (ROW_COUNT = 0).
                 EXECUTE format(
-                    'UPDATE %I SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1 AND farm_id = $2 AND deleted_at IS NULL',
+                    'UPDATE %I SET deleted_at = NOW(), updated_at = NOW(), version = version + 1 WHERE id = $1 AND farm_id = $2 AND version = $3 AND deleted_at IS NULL',
                     v_table_name
-                ) USING v_record_id, v_user_farm;
+                ) USING v_record_id, v_user_farm, (v_record->>'previous_version')::bigint;
                 GET DIAGNOSTICS v_upd_count = ROW_COUNT;
+                IF v_upd_count = 0 THEN
+                    v_errors := v_errors + 1;
+                    v_result := v_result || jsonb_build_object(
+                        'record_id', v_record_id,
+                        'status', 'conflict',
+                        'message', 'تعارض في الإصدار أثناء الحذف'
+                    );
+                    CONTINUE;
+                END IF;
                 v_affected := v_affected + v_upd_count;
             END IF;
 
@@ -1535,8 +1730,8 @@ BEGIN
 
                 -- حفظ في سجل الـ idempotency
                 IF v_operation_id IS NOT NULL AND length(v_operation_id) > 0 THEN
-                    INSERT INTO idempotency_log (operation_id, user_id, table_name, record_id, operation, status, result)
-                    VALUES (v_operation_id, auth.uid(), v_table_name, v_record_id, v_operation, 'done', v_detail);
+                    INSERT INTO idempotency_log (operation_id, user_id, farm_id, table_name, record_id, operation, status, result)
+                    VALUES (v_operation_id, auth.uid(), v_user_farm, v_table_name, v_record_id, v_operation, 'done', v_detail);
                 END IF;
             END;
 
@@ -1596,13 +1791,64 @@ CREATE TRIGGER trg_validate_flock_feed
     BEFORE INSERT OR UPDATE ON feed_consumption
     FOR EACH ROW EXECUTE FUNCTION public.validate_flock_farm();
 
+-- P0/13: تغطية باقي الجداول التي تحمل flock_id — same cross-farm guard
+DROP TRIGGER IF EXISTS trg_validate_flock_med ON medications;
+CREATE TRIGGER trg_validate_flock_med
+    BEFORE INSERT OR UPDATE ON medications
+    FOR EACH ROW EXECUTE FUNCTION public.validate_flock_farm();
+
+DROP TRIGGER IF EXISTS trg_validate_flock_ob ON opening_balances;
+CREATE TRIGGER trg_validate_flock_ob
+    BEFORE INSERT OR UPDATE ON opening_balances
+    FOR EACH ROW EXECUTE FUNCTION public.validate_flock_farm();
+
+-- P0/13: طلب التوزيع — يُملك flock_id و customer_id معاً؛
+-- يجب أن ينتمي كلاهما لنفس المزرعة (RLS وحده لا يتحقق من الصفوف المرجعية).
+CREATE OR REPLACE FUNCTION public.validate_dispatch_refs()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_flock_farm uuid;
+    v_cust_farm  uuid;
+BEGIN
+    IF NEW.flock_id IS NOT NULL THEN
+        SELECT farm_id INTO v_flock_farm FROM flocks WHERE id = NEW.flock_id;
+        IF v_flock_farm IS NULL THEN
+            RAISE EXCEPTION 'القطيع غير موجود: %', NEW.flock_id;
+        END IF;
+        IF v_flock_farm != NEW.farm_id THEN
+            RAISE EXCEPTION 'القطيع لا ينتمي لهذه المزرعة';
+        END IF;
+    END IF;
+    IF NEW.customer_id IS NOT NULL THEN
+        SELECT farm_id INTO v_cust_farm FROM customers WHERE id = NEW.customer_id;
+        IF v_cust_farm IS NULL THEN
+            RAISE EXCEPTION 'الزبون غير موجود: %', NEW.customer_id;
+        END IF;
+        IF v_cust_farm != NEW.farm_id THEN
+            RAISE EXCEPTION 'الزبون لا ينتمي لهذه المزرعة';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DROP TRIGGER IF EXISTS trg_validate_dispatch_refs ON dispatch_requests;
+CREATE TRIGGER trg_validate_dispatch_refs
+    BEFORE INSERT OR UPDATE ON dispatch_requests
+    FOR EACH ROW EXECUTE FUNCTION public.validate_dispatch_refs();
+
 -- ============================================================
 -- 15) الصلاحيات العامة + إعادة تحميل مخطط PostgREST
 -- ============================================================
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+-- P0/20: anon لا يحصل على أي CRUD على الجداول — يصل فقط عبر الدوال RPC
+-- الضرورية الممنوحة أدناه. RLS هو فقط عزل الصفوف بين الـ tenants؛
+-- وليس طبقة حماية anon من الوصول للجداول. authenticated يبقى على CRUD
+-- (مُقَيَّد بالكامل عبر RLS).
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
 -- find_user_by_phone يُستدعى قبل Auth (لتسجيل الدخول)، لذا يُتاح لـ anon،
--- لكنه لا يعود إلا بـ id/name/phone ولا يسرب الدور/المزرعة.
+-- لكنه لا يعيد إلا id (مطلوب لتسجيل الدخول) — لا اسم/هاتف لمنع التعداد.
 GRANT EXECUTE ON FUNCTION public.find_user_by_phone(text) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.bootstrap_create_farm_and_manager(text, text, text, text, text, text) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_create_user(text, text, text, text, text) TO authenticated;
@@ -1638,6 +1884,156 @@ CREATE POLICY audit_insert_manager ON audit_log
     WITH CHECK (
         farm_id = current_user_farm_id()
         AND current_user_role() = 'manager'
+    );
+
+-- ============================================================
+-- 17) قيود المجال المالية (P0/25 + P0/26)
+--    - payments → egg_dispatch: نفس الزبون ونفس المزرعة.
+--    - customers.total_debt مُشتق ولا يُكتب مباشرة (يمنع الانجراف).
+-- ============================================================
+
+-- حارس العمليات (25): تشغيل قبل إدراج/تحديث payment لضمان
+-- تطابق الزبون/الطلب/المزرعة.
+CREATE OR REPLACE FUNCTION public.validate_payment_refs()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_dispatch_customer uuid;
+    v_dispatch_farm     uuid;
+    v_customer_farm     uuid;
+BEGIN
+    -- payment.customer_id يجب أن ينتمي لنفس مزرعة الصف
+    SELECT farm_id INTO v_customer_farm FROM customers WHERE id = NEW.customer_id;
+    IF v_customer_farm IS NULL THEN
+        RAISE EXCEPTION 'الزبون غير موجود: %', NEW.customer_id;
+    END IF;
+    IF v_customer_farm != NEW.farm_id THEN
+        RAISE EXCEPTION 'الزبون لا ينتمي لهذه المزرعة';
+    END IF;
+
+    -- إن ارتبط بـ dispatch فيجب أن يكون لنفس الزبون ونفس المزرعة (25)
+    IF NEW.dispatch_id IS NOT NULL THEN
+        SELECT c.farm_id, d.customer_id
+        INTO v_dispatch_farm, v_dispatch_customer
+        FROM egg_dispatch d
+        JOIN customers c ON c.id = d.customer_id
+        WHERE d.id = NEW.dispatch_id;
+        IF v_dispatch_customer IS NULL THEN
+            RAISE EXCEPTION 'الطلب غير موجود: %', NEW.dispatch_id;
+        END IF;
+        IF v_dispatch_customer != NEW.customer_id THEN
+            RAISE EXCEPTION 'الدفع مرتبط بطلب زبون آخر';
+        END IF;
+        IF v_dispatch_farm != NEW.farm_id THEN
+            RAISE EXCEPTION 'الطلب لا ينتمي لهذه المزرعة';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_validate_payment_refs ON payments;
+CREATE TRIGGER trg_validate_payment_refs
+    BEFORE INSERT OR UPDATE ON payments
+    FOR EACH ROW EXECUTE FUNCTION public.validate_payment_refs();
+
+-- (26): total_debt لا يُكتب مباشرة — فقط يُعاد حسابه من payments.
+-- الاستثناء عبر GUC موقت داخل الدالة المعتمدة (recalc).
+CREATE OR REPLACE FUNCTION public.guard_customers_total_debt()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF current_setting('app.allow_debt_update', true) IS NULL THEN
+        NEW.total_debt := OLD.total_debt;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_guard_customer_debt ON customers;
+CREATE TRIGGER trg_guard_customer_debt
+    BEFORE UPDATE ON customers
+    FOR EACH ROW EXECUTE FUNCTION public.guard_customers_total_debt();
+
+-- إعادة حساب الديون تلقائياً عند أي تغيير في payments.
+CREATE OR REPLACE FUNCTION public.recalc_customer_debt()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_new_cust uuid;
+    v_old_cust uuid;
+    v_custs uuid[];
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        v_custs := ARRAY[OLD.customer_id];
+    ELSIF TG_OP = 'INSERT' THEN
+        v_custs := ARRAY[NEW.customer_id];
+    ELSE
+        v_custs := ARRAY[OLD.customer_id, NEW.customer_id];
+    END IF;
+
+    PERFORM set_config('app.allow_debt_update', 'on', true);
+    FOR v_new_cust IN
+        SELECT DISTINCT unnest(v_custs) WHERE unnest(v_custs) IS NOT NULL
+    LOOP
+        UPDATE customers
+        SET total_debt = COALESCE((
+            SELECT SUM(total_due - amount_paid)
+            FROM payments
+            WHERE customer_id = v_new_cust AND deleted_at IS NULL
+        ), 0),
+        updated_at = NOW()
+        WHERE id = v_new_cust;
+    END LOOP;
+    PERFORM set_config('app.allow_debt_update', 'off', true);
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DROP TRIGGER IF EXISTS trg_recalc_customer_debt ON payments;
+CREATE TRIGGER trg_recalc_customer_debt
+    AFTER INSERT OR UPDATE OR DELETE ON payments
+    FOR EACH ROW EXECUTE FUNCTION public.recalc_customer_debt();
+
+-- ============================================================
+-- 18) سياسات Storage (P0/28) — مسار معزول tenant:
+--     farms/{farm_id}/mortality/{record_id}/...
+--     الرفع/الحذف مقيد بمزرعة المستخدم. القراءة العامة تبقى خياراً مطبوعاً
+--     (الملاحظة: التطبيق يعرض الصور عبر الرابط العام بدون headers) —
+--     الذهاب إلى خاصية signed URLs يتطلب تغييراً في واجهة العرض.
+-- ============================================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('farm-images', 'farm-images', false)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS farm_images_insert_farm_scoped ON storage.objects;
+CREATE POLICY farm_images_insert_farm_scoped ON storage.objects
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        bucket_id = 'farm-images'
+        AND (storage.foldername(name))[1] = 'farms'
+        AND (storage.foldername(name))[2] = COALESCE(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')
+        AND (storage.foldername(name))[3] = 'mortality'
+    );
+
+DROP POLICY IF EXISTS farm_images_update_farm_scoped ON storage.objects;
+CREATE POLICY farm_images_update_farm_scoped ON storage.objects
+    FOR UPDATE TO authenticated
+    USING (
+        bucket_id = 'farm-images'
+        AND (storage.foldername(name))[1] = 'farms'
+        AND (storage.foldername(name))[2] = COALESCE(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')
+    )
+    WITH CHECK (
+        bucket_id = 'farm-images'
+        AND (storage.foldername(name))[1] = 'farms'
+        AND (storage.foldername(name))[2] = COALESCE(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')
+    );
+
+DROP POLICY IF EXISTS farm_images_delete_farm_scoped ON storage.objects;
+CREATE POLICY farm_images_delete_farm_scoped ON storage.objects
+    FOR DELETE TO authenticated
+    USING (
+        bucket_id = 'farm-images'
+        AND (storage.foldername(name))[1] = 'farms'
+        AND (storage.foldername(name))[2] = COALESCE(auth.jwt() -> 'user_metadata' ->> 'farm_id', '')
     );
 
 NOTIFY pgrst, 'reload schema';

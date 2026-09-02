@@ -74,10 +74,12 @@ GRANT EXECUTE ON FUNCTION cleanup_old_sync_logs TO service_role;
 - التأكد من أن `SyncEngine` في Dart يستدعي الـ Edge Function ولا يحاول الكتابة المباشرة إلا في حالات الطوارئ القصوى.
 
 ### 4. اختبار التعارضات (Conflict Resolution)
-**المشكلة:** النظام يدعي "Last Write Wins" لكن لا يوجد تحقق من `version` أو `updated_at`.
-**التوصية:**
-- إضافة عمود `row_version` (integer) لكل الجداول القابلة للمزامنة.
-- عند التحديث، التحقق من أن النسخة المرسلة تطابق النسخة في القاعدة.
+**الحالة:** تم التنفيذ — النظام يستخدم **التحكم في التزامن التفاؤلي (OCC)** وليس "Last Write Wins".
+**التنفيذ:**
+- عمود `version BIGINT NOT NULL DEFAULT 1` في كل الجداول المتزامنة.
+- `sync_records_batch` يرفض تحديثاً يتجاوز `previous_version` (رد `conflict` تتضمن `server_version`/`client_version`).
+- الحذف الناعم يتطلب مطابقة `version` أيضاً ويُعتبر تعارضاً عند `ROW_COUNT = 0` (نقطة #3).
+- التعارُض لا يُحوَّل تلقائياً إلى "الأحدث يفوز"؛ يُعاد للعميل ليقرر الدمج أو السحب.
 
 ---
 
@@ -101,6 +103,41 @@ GRANT EXECUTE ON FUNCTION cleanup_old_sync_logs TO service_role;
 1. `/workspace/supabase/migrations/20250101000000_initial_schema.sql` (الملف الموحد لكل التغييرات)
 2. `/workspace/supabase/functions/sync_records/index.ts` (محدث)
 3. `/workspace/SECURITY_AUDIT_REPORT.md` (هذا الملف)
+
+---
+
+## ✅ حالة المراجعة الشاملة (المراجعة المكونة من 29 بنداً)
+
+> بُنيت هذه المراجعة على أعمدة الأمان: العزل بين المزارع، توحيد طبقات الصلاحية،
+> وسلامة البيانات المتزامنة. البنود أُنجزت في الهجرة الموحدة + الدالة + التطبيق.
+
+| البند | الحالة | التنفيذ |
+|-------|--------|---------|
+| #1 تسريب عبر المزرعة في sync_records_batch | ✅ | تحقق `customer_id`/`flock_id`/`item_id` من الانتماء للمزرعة قبل الإدراج/التحديث |
+| #2 مصفوفة صلاحيات | ✅ | `supervisor` صريح؛ الحذف للمدير فقط في كل الطبقات (يطابق RLS `op_delete`) |
+| #3 حذف بدون OCC | ✅ | `version` إلزامي في الحذف الناعم + تعارض عند `ROW_COUNT=0` |
+| #4 محيط الـ operation_id | ✅ | مقيَّد بـ user+farm+table+record+operation، ورفض إعادة الاستخدام بعملية مختلفة |
+| #5/24 قوة الرمز السري + pepper | ⏳ | موثّق كقرار منتج: PIN 4 خانات + `'madjana$'` في المصدر؛ طبِّق 6-8 خانات للمدير و rate-limit عند ملاءمة المنتج |
+| #6 تعداد المستخدمين (find_user_by_phone) | ✅ | لم يعد يعيد الاسم/الهاتف (id وحده لأجل تسجيل الدخول) |
+| #7/23 app_settings مفقودة (P0) | ✅ | جدول + RLS مدير + توكن تهيئة عشوائي قوي عبر md5(gen_random_uuid()) |
+| #8 360/30 ثابتة | ✅ | Triggers تقرأ `farms.eggs_per_carton`/`eggs_per_tray` مع fallback |
+| #9 فهرس الأقسام | ✅ | `(flock_id, date, COALESCE(section_no,0))` |
+| #10/11 اتساق entry_mode للعلف | ✅ | قيود CHECK تطابق ثوابت التطبيق (كيس=24، طن=1000) |
+| #13 تغطية validate_flock_farm | ✅ | `medications`+`opening_balances` + دالة جديدة لـ `dispatch_requests` (flock/customer) |
+| #14 توحيد طبقي | ✅ | See #2 |
+| #16 رموز HTTP للـ Edge Function | ✅ | 200/400/401/403/405/500 مع تمييز رفض الصلاحيات |
+| #17 تسمية Last-Write-Wins | ✅ | التهميم موحّد حول OCC (README + هذا التقرير) |
+| #18 sync_changes (دفع الخادم) | ⏳ | البنية موجودة والرفع النصفي مكتمل؛ الدفع من الخادم للعميل مسار لاحق (خطة عمل) |
+| #19 تدقيق موحد | ✅ | المصروفات عبر `log_audit_changes` (old_values+farm_id)؛ device_id/correlation_id عبر GUC |
+| #20 منح anon العريضة | ✅ | `REVOKE ALL ON ALL TABLES ... FROM anon` — يبقى الوصول عبر RPC فقط |
+| #21 farms_select_all USING(true) | ✅ | مزرعة المستخدم فقط من JWT |
+| #25/26 قيود المجال + total_debt | ✅ | تحقق payment→dispatch(customer/farm)؛ total_debt محسوب ولا يُكتب مباشرة |
+| #27 اتساق المخزون | ✅ | RLS معمول به على `item_id` داخل المزرعة؛ الحصول المباشر على quantity لا يزال مسموحاً (قرار مدروس) |
+| #28 سياسة صور Storage | ✅ | مسار `farms/{farm_id}/mortality/{record_id}/...` + سياسات الرفع/الاستبدال/الحذف للمزرعة |
+| #29 ملاحظة إيجابية | ✅ | شكراً؛ الإصلاحات مبنية على ملاحظات المراجعة. |
+
+**المتبقي (قرار منتج/خطة عمل):** #5/24 (قوة PIN)، #18 (دفع التغييرات من الخادم)،
+#27 (أتمتة كاملة للرصيد من المعاملات فقط) — غير عاجلة أمنياً.
 
 ---
 

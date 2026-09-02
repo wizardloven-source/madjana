@@ -51,11 +51,12 @@ class SupabaseAuthDatasource {
         throw AuthException('انتهت مهلة تسجيل الدخول');
       });
 
-      // 3) الدور/المزرعة تُقرأ من الـ JWT (مصدر مُصادَق) وليس من بحث الهاتف المكشوف
+      // 3) الدور/المزرعة تُقرأ من الـ JWT (مصدر مُصادَق) وليس من البحث المكشوف
+      // (find_user_by_phone لا يعيد إلا id لمنع تعداد المستخدمين — نقطة #6)
       final sessionUser = _client.auth.currentUser;
       final meta = sessionUser?.userMetadata ?? const {};
-      final resolvedName = (meta['full_name'] as String?) ?? userData['name'];
-      final resolvedPhone = (meta['phone'] as String?) ?? userData['phone'];
+      final resolvedName = (meta['full_name'] as String?) ?? '';
+      final resolvedPhone = (meta['phone'] as String?) ?? phone;
       final resolvedRole = (meta['role'] as String?) ?? 'worker';
       final resolvedFarmId = (meta['farm_id'] as String?) ?? '';
 

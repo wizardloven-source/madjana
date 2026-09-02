@@ -26,5 +26,6 @@ abstract class MortalityRepository {
   Future<void> deleteRecord(String id);
 
   /// رفع صورة إلى السحابة
-  Future<String?> uploadImage(File imageFile, String recordId);
+  Future<String?> uploadImage(File imageFile, String recordId,
+      {required String farmId});
 }

@@ -123,6 +123,23 @@ Deno.serve(async (req) => {
       );
     }
 
+    // P0/16: مصفوفة رموز الحالة الموحدة:
+    //   200 — نجاح (حتى مع نجاح جزئي؛ التفاصيل لكل سجل داخل details:
+    //        ok/conflict/error/skipped) — لأن عميل Flutter (functions.invoke)
+    //        يقذف استثناءً على أي رد غير 2xx، فـ 207/409 سيكسر معالجة التعارض.
+    //   400 — حمولة غير صالحة، 401 — توكن غير صالح/منتهي،
+    //   403 — رفض صلاحيات (RLS/دور) من دالة SQL،
+    //   405 — طريقة خاطئة، 500 — خطأ خادم غير متوقع.
+    const RPC_AUTHZ_MARKERS = [
+      "غير مصرح",
+      "ممنوع",
+      "الحذف للمدير",
+      "لا يمكن تحديد المزرعة",
+      "الدور الحالي غير معروف",
+      "لا ينتمي",
+      "ليست من مزرعتك",
+    ];
+
     // إزالة السجلات غير الصالحة مع توليد استجابة مفصلة لكل سجل مرفوض
     const normalized: SyncRecord[] = [];
     const rejected: { record_id: string; message: string }[] = [];
@@ -162,9 +179,13 @@ Deno.serve(async (req) => {
 
     if (error) {
       console.error('Sync error:', error);
+      // P0/16: تمييز رفض الصلاحيات (403) عن أخطاء الخادم العامة (500)
+      const isAuthzDenied = RPC_AUTHZ_MARKERS.some((m) =>
+        (error.message ?? "").includes(m)
+      );
       return new Response(
         JSON.stringify({ error: error.message }),
-        { status: 500, headers: corsHeaders },
+        { status: isAuthzDenied ? 403 : 500, headers: corsHeaders },
       );
     }
 
