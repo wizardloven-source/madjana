@@ -1,5 +1,3 @@
-import 'package:core/core.dart';
-
 /// نموذج تعارض المزامنة
 class ConflictModel {
   final String id;

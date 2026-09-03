@@ -44,13 +44,18 @@ class ResolveConflictUseCase {
 
   Future<void> _retrySync(ConflictModel conflict) async {
     // إعادة إنشاء سجل مزامنة جديد
-    await _syncRepo.addChange(
-      tableName: conflict.tableName,
-      recordId: conflict.recordId,
-      operation: 'UPDATE', // نعتبرها تحديث
-      payload: conflict.clientData,
-      farmId: conflict.clientData['farm_id'],
-      userId: conflict.clientData['worker_id'] ?? conflict.clientData['created_by'],
+    await _syncRepo.queueChange(
+      SyncChangeModel(
+        farmId: conflict.clientData['farm_id'] as String? ?? '',
+        tableName: conflict.tableName,
+        recordId: conflict.recordId,
+        operation: SyncOperation.update, // نعتبرها تحديث
+        changedAt: DateTime.now(),
+        userId: (conflict.clientData['worker_id'] ??
+                conflict.clientData['created_by'])
+            as String?,
+        payload: conflict.clientData,
+      ),
     );
   }
 
@@ -60,13 +65,18 @@ class ResolveConflictUseCase {
     }
 
     // إعادة إرسال بيانات السيرفر كـ upsert محلي
-    await _syncRepo.addChange(
-      tableName: conflict.tableName,
-      recordId: conflict.recordId,
-      operation: 'UPSERT',
-      payload: conflict.serverData!,
-      farmId: conflict.serverData!['farm_id'],
-      userId: conflict.serverData!['worker_id'] ?? conflict.serverData!['created_by'],
+    await _syncRepo.queueChange(
+      SyncChangeModel(
+        farmId: conflict.serverData!['farm_id'] as String? ?? '',
+        tableName: conflict.tableName,
+        recordId: conflict.recordId,
+        operation: SyncOperation.update,
+        changedAt: DateTime.now(),
+        userId: (conflict.serverData!['worker_id'] ??
+                conflict.serverData!['created_by'])
+            as String?,
+        payload: conflict.serverData!,
+      ),
     );
   }
 }

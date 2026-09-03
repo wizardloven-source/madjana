@@ -24,6 +24,8 @@ export 'src/models/notification_models.dart';
 export 'src/models/opening_balance_model.dart';
 export 'src/models/sync_change_model.dart';
 export 'src/models/batch_upload_result.dart';
+export 'src/models/conflict_model.dart';
+export 'src/models/pro_features_models.dart';
 
 // الأدوات
 export 'src/utils/egg_calculator.dart';
@@ -43,6 +45,7 @@ export 'src/repositories/sync_repository.dart';
 export 'src/repositories/admin_repositories.dart';
 export 'src/repositories/ops_repositories.dart';
 export 'src/repositories/opening_balance_repository.dart';
+export 'src/repositories/conflict_repository.dart';
 
 // حالات الاستخدام
 export 'src/usecases/save_egg_production_usecase.dart';
@@ -51,3 +54,4 @@ export 'src/usecases/save_feed_consumption_usecase.dart';
 export 'src/usecases/save_dispatch_usecase.dart';
 export 'src/usecases/save_medication_usecase.dart';
 export 'src/usecases/sync_data_usecase.dart';
+export 'src/usecases/conflict_usecases.dart';

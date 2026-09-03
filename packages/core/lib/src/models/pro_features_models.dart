@@ -1,140 +1,5 @@
-import 'package:core/core.dart';
-
-/// نموذج عنصر المخزون
-class InventoryItemModel extends Entity {
-  final String? id;
-  final String farmId;
-  final String name;
-  final String category; // feed, medicine, equipment
-  final String? barcode;
-  final double quantity;
-  final String unit; // kg, box, liter
-  final double minStockLevel;
-  final DateTime? expiryDate;
-  final String? locationBin;
-  final DateTime createdAt;
-  final DateTime? updatedAt;
-  final DateTime? deletedAt;
-
-  const InventoryItemModel({
-    this.id,
-    required this.farmId,
-    required this.name,
-    required this.category,
-    this.barcode,
-    this.quantity = 0,
-    required this.unit,
-    this.minStockLevel = 0,
-    this.expiryDate,
-    this.locationBin,
-    required this.createdAt,
-    this.updatedAt,
-    this.deletedAt,
-  });
-
-  factory InventoryItemModel.fromJson(Map<String, dynamic> json) {
-    return InventoryItemModel(
-      id: json['id'] as String?,
-      farmId: json['farm_id'] as String,
-      name: json['name'] as String,
-      category: json['category'] as String,
-      barcode: json['barcode'] as String?,
-      quantity: (json['quantity'] as num).toDouble(),
-      unit: json['unit'] as String,
-      minStockLevel: (json['min_stock_level'] as num?)?.toDouble() ?? 0,
-      expiryDate: json['expiry_date'] != null 
-          ? DateTime.parse(json['expiry_date'] as String) 
-          : null,
-      locationBin: json['location_bin'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: json['updated_at'] != null 
-          ? DateTime.parse(json['updated_at'] as String) 
-          : null,
-      deletedAt: json['deleted_at'] != null 
-          ? DateTime.parse(json['deleted_at'] as String) 
-          : null,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      if (id != null) 'id': id,
-      'farm_id': farmId,
-      'name': name,
-      'category': category,
-      'barcode': barcode,
-      'quantity': quantity,
-      'unit': unit,
-      'min_stock_level': minStockLevel,
-      'expiry_date': expiryDate?.toIso8601String(),
-      'location_bin': locationBin,
-      'created_at': createdAt.toIso8601String(),
-      'updated_at': updatedAt?.toIso8601String(),
-      'deleted_at': deletedAt?.toIso8601String(),
-    };
-  }
-
-  bool get isLowStock => quantity <= minStockLevel;
-  bool get isExpired => expiryDate != null && expiryDate!.isBefore(DateTime.now());
-
-  @override
-  String toString() => 'InventoryItem(id: $id, name: $name, qty: $quantity $unit)';
-}
-
-/// نموذج حركة المخزون
-class InventoryTransactionModel extends Entity {
-  final String? id;
-  final String itemId;
-  final String farmId;
-  final String transactionType; // IN, OUT, ADJUSTMENT
-  final double quantity;
-  final String? reason;
-  final String? performedBy;
-  final DateTime createdAt;
-
-  const InventoryTransactionModel({
-    this.id,
-    required this.itemId,
-    required this.farmId,
-    required this.transactionType,
-    required this.quantity,
-    this.reason,
-    this.performedBy,
-    required this.createdAt,
-  });
-
-  factory InventoryTransactionModel.fromJson(Map<String, dynamic> json) {
-    return InventoryTransactionModel(
-      id: json['id'] as String?,
-      itemId: json['item_id'] as String,
-      farmId: json['farm_id'] as String,
-      transactionType: json['transaction_type'] as String,
-      quantity: (json['quantity'] as num).toDouble(),
-      reason: json['reason'] as String?,
-      performedBy: json['performed_by'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      if (id != null) 'id': id,
-      'item_id': itemId,
-      'farm_id': farmId,
-      'transaction_type': transactionType,
-      'quantity': quantity,
-      'reason': reason,
-      'performed_by': performedBy,
-      'created_at': createdAt.toIso8601String(),
-    };
-  }
-
-  @override
-  String toString() => 'InventoryTransaction(type: $transactionType, qty: $quantity)';
-}
-
 /// نموذج السجل الصحي
-class HealthLogModel extends Entity {
+class HealthLogModel {
   final String? id;
   final String flockId;
   final String farmId;
@@ -214,7 +79,7 @@ class HealthLogModel extends Entity {
 }
 
 /// نموذج وردية العامل
-class WorkerShiftModel extends Entity {
+class WorkerShiftModel {
   final String? id;
   final String farmId;
   final String workerName;
@@ -247,7 +112,7 @@ class WorkerShiftModel extends Entity {
     } else if (tasksJson is String) {
       // Handle JSONB string if needed
       try {
-        final decoded = (tasksJson as String).replaceAll('"', '').split(',');
+        final decoded = tasksJson.replaceAll('"', '').split(',');
         tasks = decoded.where((e) => e.isNotEmpty).toList();
       } catch (_) {}
     }

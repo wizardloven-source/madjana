@@ -54,3 +54,4 @@ export 'src/repositories/expense_repository_impl.dart';
 export 'src/repositories/inventory_repository_impl.dart';
 export 'src/repositories/farm_repository_impl.dart';
 export 'src/repositories/opening_balance_repository_impl.dart';
+export 'src/repositories/impl/conflict_repository_impl.dart';

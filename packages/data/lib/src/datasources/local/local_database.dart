@@ -13,7 +13,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 16;
+  static const int _dbVersion = 17;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -429,6 +429,23 @@ class LocalDatabase {
       )
     ''');
 
+    // جدول تعارضات المزامنة
+    await db.execute('''
+      CREATE TABLE conflicts (
+        id TEXT PRIMARY KEY,
+        table_name TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        client_data TEXT,
+        server_data TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        suggested_action TEXT,
+        resolution TEXT,
+        created_at TEXT NOT NULL,
+        resolved_at TEXT,
+        ignored_at TEXT
+      )
+    ''');
+
     // فهارس للأداء
     await db.execute(
         'CREATE INDEX idx_egg_production_sync ON egg_production(sync_status)');
@@ -772,6 +789,23 @@ class LocalDatabase {
           )
         ''');
 
+        // v17: جدول تعارضات المزامنة (مراجعة يدوية للنزاعات)
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS conflicts (
+            id TEXT PRIMARY KEY,
+            table_name TEXT NOT NULL,
+            record_id TEXT NOT NULL,
+            client_data TEXT,
+            server_data TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            suggested_action TEXT,
+            resolution TEXT,
+            created_at TEXT NOT NULL,
+            resolved_at TEXT,
+            ignored_at TEXT
+          )
+        ''');
+
         // v17: إضافة is_active للمستخدمين
         if (!await _columnExists(db, 'users', 'is_active')) {
           await db.execute('ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
@@ -810,6 +844,7 @@ class LocalDatabase {
       'dispatch_requests',
       'opening_balances',
       'sync_state',
+      'conflicts',
     ];
     for (final table in tables) {
       await db.delete(table);
