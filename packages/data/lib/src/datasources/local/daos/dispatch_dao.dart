@@ -29,6 +29,22 @@ class DispatchDao {
       'created_at': now,
     });
 
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'INSERT',
+      payload: {
+        'date': record.date.toIso8601String().split('T').first,
+        'customer_id': record.customerId,
+        'cartons': record.cartons,
+        'trays': record.trays,
+        'tray_weight_kg': record.trayWeightKg,
+        'notes': record.notes,
+        'payment_status': record.paymentStatus.name,
+        'worker_id': record.workerId,
+      },
+    );
+
     return id;
   }
 
@@ -100,6 +116,12 @@ class DispatchDao {
       {'payment_status': status.name},
       where: 'id = ?',
       whereArgs: [id],
+    );
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'UPDATE',
+      payload: {'payment_status': status.name},
     );
   }
 

@@ -28,6 +28,17 @@ class CustomerDao {
       'updated_at': now,
     });
 
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'INSERT',
+      payload: {
+        'name': customer.name,
+        'phone': customer.phone,
+        'notes': customer.notes,
+      },
+    );
+
     return id;
   }
 
@@ -107,11 +118,27 @@ class CustomerDao {
       where: 'id = ?',
       whereArgs: [customer.id],
     );
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: customer.id!,
+      action: 'UPDATE',
+      payload: {
+        'name': customer.name,
+        'phone': customer.phone,
+        'notes': customer.notes,
+      },
+    );
   }
 
   Future<void> deleteById(String id) async {
     final db = await LocalDatabase.database;
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'DELETE',
+      payload: {'id': id},
+    );
   }
 
   CustomerModel _fromMap(Map<String, dynamic> map) {

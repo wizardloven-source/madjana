@@ -24,6 +24,19 @@ class FeedDao {
       'created_at': DateTime.now().toIso8601String(),
     });
 
+    await LocalDatabase.enqueueChange(
+      tableName: 'feed_consumption',
+      recordId: id,
+      action: 'INSERT',
+      payload: {
+        'date': record.date.toIso8601String().split('T').first,
+        'entry_mode': record.entryMode.name,
+        'bags_count': record.bagsCount,
+        'quantity_kg': record.quantityKg,
+        'worker_id': record.workerId,
+      },
+    );
+
     return id;
   }
 
@@ -175,6 +188,12 @@ class FeedDao {
   Future<void> deleteConsumption(String id) async {
     final db = await LocalDatabase.database;
     await db.delete('feed_consumption', where: 'id = ?', whereArgs: [id]);
+    await LocalDatabase.enqueueChange(
+      tableName: 'feed_consumption',
+      recordId: id,
+      action: 'DELETE',
+      payload: {'id': id},
+    );
   }
 
   // ===================== استلام العلف =====================
@@ -198,6 +217,24 @@ class FeedDao {
       'sync_status': SyncStatus.pending.name,
       'created_at': DateTime.now().toIso8601String(),
     });
+
+    await LocalDatabase.enqueueChange(
+      tableName: 'feed_received',
+      recordId: id,
+      action: 'INSERT',
+      payload: {
+        'date': data['date'],
+        'entry_mode': data['entry_mode'],
+        'quantity': data['quantity'],
+        'quantity_kg': data['quantity_kg'],
+        'feed_type': data['feed_type'],
+        'supplier': data['supplier'],
+        'invoice_number': data['invoice_number'],
+        if (data['price_per_kg'] != null) 'price_per_kg': data['price_per_kg'],
+        'notes': data['notes'],
+        'worker_id': data['worker_id'] ?? '',
+      },
+    );
 
     return id;
   }

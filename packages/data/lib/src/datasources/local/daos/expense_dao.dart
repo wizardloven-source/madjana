@@ -90,6 +90,17 @@ class ExpenseDao {
       'created_at': (expense.createdAt ?? DateTime.now()).toIso8601String(),
       'updated_at': DateTime.now().toIso8601String(),
     });
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'INSERT',
+      payload: {
+        'date': expense.date.toIso8601String().split('T').first,
+        'category': expense.category.name,
+        'description': expense.description,
+        'amount': expense.amount,
+      },
+    );
     return id;
   }
 
@@ -108,11 +119,28 @@ class ExpenseDao {
       where: 'id = ?',
       whereArgs: [id],
     );
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'UPDATE',
+      payload: {
+        'date': expense.date.toIso8601String().split('T').first,
+        'category': expense.category.name,
+        'description': expense.description,
+        'amount': expense.amount,
+      },
+    );
   }
 
   Future<void> delete(String id) async {
     final db = await LocalDatabase.database;
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'DELETE',
+      payload: {'id': id},
+    );
   }
 
   /// حفظ مجموعة قادمة من الخادم (تحديث الكاش المحلي)

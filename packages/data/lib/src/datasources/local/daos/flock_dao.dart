@@ -55,6 +55,18 @@ class FlockDao {
       'status': flock.status.name,
       'sections_count': flock.sectionsCount,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: flock.id,
+      action: 'INSERT',
+      payload: {
+        'breed': flock.breed,
+        'start_date': flock.startDate.toIso8601String().split('T').first,
+        'initial_count': flock.initialCount,
+        'status': flock.status.name,
+        'sections_count': flock.sectionsCount,
+      },
+    );
   }
 
   /// إنهاء دورة قطيع محلياً
@@ -65,6 +77,12 @@ class FlockDao {
       {'status': FlockStatus.depleted.name},
       where: 'id = ?',
       whereArgs: [id],
+    );
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'UPDATE',
+      payload: {'status': FlockStatus.depleted.name},
     );
   }
 

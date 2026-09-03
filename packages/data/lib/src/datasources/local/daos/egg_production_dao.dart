@@ -33,6 +33,24 @@ class EggProductionDao {
       'updated_at': now,
     });
 
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'INSERT',
+      payload: {
+        'flock_id': record.flockId,
+        'date': record.date.toIso8601String().split('T').first,
+        'cartons': record.cartons,
+        'trays': record.trays,
+        'loose_eggs': record.looseEggs,
+        'broken_eggs': record.brokenEggs,
+        'dirty_eggs': record.dirtyEggs,
+        'tray_weight_kg': record.trayWeightKg,
+        'section_no': record.sectionNo,
+        'worker_id': record.workerId,
+      },
+    );
+
     return id;
   }
 
@@ -163,6 +181,12 @@ class EggProductionDao {
   Future<void> delete(String id) async {
     final db = await LocalDatabase.database;
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'DELETE',
+      payload: {'id': id},
+    );
   }
 
   /// تحويل Map إلى Model

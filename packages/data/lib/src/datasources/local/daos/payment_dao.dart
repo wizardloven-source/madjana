@@ -31,6 +31,24 @@ class PaymentDao {
       'sync_status': SyncStatus.pending.name,
     });
 
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'INSERT',
+      payload: {
+        'dispatch_id': payment.dispatchId,
+        'customer_id': payment.customerId,
+        'date': payment.date.toIso8601String().split('T').first,
+        'price_per_carton': payment.pricePerCarton,
+        'total_due': payment.totalDue,
+        'amount_paid': payment.amountPaid,
+        'payment_method': payment.paymentMethod.name,
+        'due_date': payment.dueDate?.toIso8601String().split('T').first,
+        'notes': payment.notes,
+        'manager_id': payment.managerId,
+      },
+    );
+
     return id;
   }
   

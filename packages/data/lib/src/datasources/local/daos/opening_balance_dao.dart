@@ -46,6 +46,22 @@ class OpeningBalanceDao {
       'total_revenues': balance.totalRevenues,
       'sections': jsonEncode(balance.sections.map((s) => s.toJson()).toList()),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: balance.id,
+      action: 'INSERT',
+      payload: {
+        'flock_id': balance.flockId,
+        'eggs_produced': balance.eggsProduced,
+        'eggs_dispatched': balance.eggsDispatched,
+        'feed_consumed_kg': balance.feedConsumedKg,
+        'initial_birds': balance.initialBirds,
+        'mortality_count': balance.mortalityCount,
+        'total_payments': balance.totalPayments,
+        'total_revenues': balance.totalRevenues,
+        'sections': jsonEncode(balance.sections.map((s) => s.toJson()).toList()),
+      },
+    );
   }
 
   Future<void> deleteForFlock(String farmId, String flockId) async {

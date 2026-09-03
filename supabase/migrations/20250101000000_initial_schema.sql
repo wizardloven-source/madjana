@@ -1735,7 +1735,7 @@ BEGIN
         END IF;
 
         -- جداول محظورة نهائياً: لا يجوز لأي دور مزامنتها عبر RPC
-        IF v_table_name IN ('payments', 'users', 'farms') THEN
+        IF v_table_name IN ('users', 'farms') THEN
             v_errors := v_errors + 1;
             v_result := v_result || jsonb_build_object(
                 'record_id', v_record_id,
@@ -1764,7 +1764,7 @@ BEGIN
             IF v_table_name NOT IN (
                 'egg_production', 'mortality', 'feed_consumption',
                 'feed_received', 'egg_dispatch', 'medications',
-                'customers', 'flocks', 'expenses',
+                'customers', 'flocks', 'expenses', 'payments',
                 'inventory_items', 'inventory_transactions',
                 'opening_balances'
             ) THEN
@@ -1875,6 +1875,7 @@ BEGIN
             WHEN 'inventory_items' THEN v_allowed_cols := ARRAY['name','unit','low_stock_threshold','notes'];
             WHEN 'inventory_transactions' THEN v_allowed_cols := ARRAY['item_id','date','type','quantity','note','user_id'];
             WHEN 'opening_balances' THEN v_allowed_cols := ARRAY['flock_id','eggs_produced','eggs_dispatched','feed_consumed_kg','initial_birds','mortality_count','total_payments','total_revenues','sections'];
+            WHEN 'payments' THEN v_allowed_cols := ARRAY['dispatch_id','customer_id','date','price_per_carton','total_due','amount_paid','payment_method','due_date','notes','manager_id'];
             ELSE v_allowed_cols := ARRAY[]::text[];
         END CASE;
 
@@ -2008,6 +2009,31 @@ BEGIN
                 END IF;
                 v_affected := v_affected + v_upd_count;
             END IF;
+
+            -- P0: تسجيل التغيير في sync_changes ليراه الأجهزة الأخرى عبر pull.
+            -- يحل مشكلة: sync_records_batch كان يكتب مباشرة بدون trigger
+            -- (لأنه قام بتعطيله)، فلم يُسجَّل أي تغيير في sync_changes.
+            DECLARE
+                v_sc_record jsonb;
+                v_sc_payload jsonb;
+            BEGIN
+                -- قراءة الصف بعد التعديل (يفعل INSERT/UPDATE/DELETE الناعم)
+                EXECUTE format(
+                    'SELECT to_jsonb(t) FROM %I t WHERE t.id = $1 AND t.farm_id = $2',
+                    v_table_name
+                ) INTO v_sc_record
+                USING v_record_id, v_user_farm;
+
+                IF v_sc_record IS NOT NULL THEN
+                    -- إزالة sync_status و deleted_at فقط (نحتفظ بـ version لصحة OCC)
+                    v_sc_payload := v_sc_record - 'sync_status' - 'deleted_at';
+                ELSE
+                    v_sc_payload := jsonb_build_object('id', v_record_id);
+                END IF;
+
+                INSERT INTO sync_changes (table_name, record_id, operation, farm_id, user_id, payload)
+                VALUES (v_table_name, v_record_id, upper(v_operation), v_user_farm, auth.uid(), v_sc_payload);
+            END;
 
             DECLARE
                 v_detail jsonb;
@@ -2380,7 +2406,8 @@ BEGIN
         v_payload := to_jsonb(NEW);
     END IF;
     -- إزالة أعمدة المเปลية (المزرعة + المُautogenerate) لتقليل الحجم
-    v_payload := v_payload - 'sync_status' - 'version' - 'deleted_at';
+    -- P0: نحتفظ بـ version في الـ payload لأن الأجهزة المستقبلة تحتاجه لعمليات OCC.
+    v_payload := v_payload - 'sync_status' - 'deleted_at';
 
     INSERT INTO sync_changes (table_name, record_id, operation, farm_id, user_id, payload)
     VALUES (TG_TABLE_NAME, COALESCE(NEW.id, OLD.id), v_op, v_farm_id, v_user_id, v_payload);

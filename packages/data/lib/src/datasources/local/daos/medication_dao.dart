@@ -29,6 +29,23 @@ class MedicationDao {
       'created_at': DateTime.now().toIso8601String(),
     });
 
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'INSERT',
+      payload: {
+        'date': record.date.toIso8601String().split('T').first,
+        'type': record.type.name,
+        'medicine_name': record.medicineName,
+        'dosage': record.dosage,
+        'administration_route': record.administrationRoute.name,
+        'treatment_days': record.treatmentDays,
+        'withdrawal_days': record.withdrawalDays,
+        'notes': record.notes,
+        'worker_id': record.workerId,
+      },
+    );
+
     return id;
   }
 

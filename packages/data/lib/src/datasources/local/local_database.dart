@@ -1,5 +1,6 @@
 ﻿import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -942,5 +943,64 @@ class LocalDatabase {
     } catch (_) {
       return false;
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // الجسر: كتابات DAOs → sync_queue
+  // ═══════════════════════════════════════════════════════════════
+
+  /// إدخال تغيير في طابور المزامنة بعد كل عملية كتابة محلية.
+  /// تقرأ user_id/farm_id من جدول الجلسة، وتولّد operation_id فريداً.
+  /// تstrip الأعمدة النظامية (sync_status, deleted_at) من الـ payload.
+  static Future<void> enqueueChange({
+    required String tableName,
+    required String recordId,
+    required String action,
+    required Map<String, dynamic> payload,
+  }) async {
+    try {
+      final db = await database;
+
+      // قراءة الجلسة الحالية
+      final session = await db.query('session', where: 'id = 1', limit: 1);
+      final userId = session.isNotEmpty ? (session.first['user_id'] ?? '') : '';
+
+      // توليد operation_id فريد
+      final operationId = _generateUniqueId();
+
+      // إزالة الأعمدة النظامية من الـ payload
+      final cleanPayload = Map<String, dynamic>.from(payload)
+        ..remove('id')
+        ..remove('farm_id')
+        ..remove('version')
+        ..remove('sync_status')
+        ..remove('deleted_at')
+        ..remove('created_at')
+        ..remove('updated_at');
+
+      await db.insert('sync_queue', {
+        'id': operationId,
+        'operation_id': operationId,
+        'table_name': tableName,
+        'record_id': recordId,
+        'action': action.toUpperCase(),
+        'payload': jsonEncode(cleanPayload),
+        'user_id': userId,
+        'status': 'pending',
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      // فشل إدخال في الطابور غير حرج لعملية الحفظ المحلية نفسها،
+      // لكنه يمنع رفع السجل. نسجّله ولا نُخفيه.
+      print('enqueueChange($tableName/$recordId) failed: $e');
+    }
+  }
+
+  /// توليد معرّف فريد ( UUID-like ) باستخدام timestamp + أرقام عشوائية
+  static String _generateUniqueId() {
+    final ts = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+    final rand = Random.secure().nextInt(0xFFFFFFFF).toRadixString(36);
+    return '$ts-$rand';
   }
 }

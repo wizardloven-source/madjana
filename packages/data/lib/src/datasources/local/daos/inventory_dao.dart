@@ -34,8 +34,30 @@ class InventoryDao {
     );
     if (exists.isEmpty) {
       await db.insert(_itemsTable, values);
+      await LocalDatabase.enqueueChange(
+        tableName: _itemsTable,
+        recordId: id,
+        action: 'INSERT',
+        payload: {
+          'name': item.name,
+          'unit': item.unit.name,
+          'low_stock_threshold': item.lowStockThreshold,
+          'notes': item.notes,
+        },
+      );
     } else {
       await db.update(_itemsTable, values, where: 'id = ?', whereArgs: [id]);
+      await LocalDatabase.enqueueChange(
+        tableName: _itemsTable,
+        recordId: id,
+        action: 'UPDATE',
+        payload: {
+          'name': item.name,
+          'unit': item.unit.name,
+          'low_stock_threshold': item.lowStockThreshold,
+          'notes': item.notes,
+        },
+      );
     }
   }
 
@@ -68,6 +90,12 @@ class InventoryDao {
   Future<void> deleteItem(String id) async {
     final db = await LocalDatabase.database;
     await db.delete(_itemsTable, where: 'id = ?', whereArgs: [id]);
+    await LocalDatabase.enqueueChange(
+      tableName: _itemsTable,
+      recordId: id,
+      action: 'DELETE',
+      payload: {'id': id},
+    );
   }
 
   /// حركات عنصر مخزون معيّن
@@ -106,6 +134,19 @@ class InventoryDao {
       'note': transaction.note,
       'user_id': transaction.userId,
     });
+    await LocalDatabase.enqueueChange(
+      tableName: _transactionsTable,
+      recordId: id,
+      action: 'INSERT',
+      payload: {
+        'item_id': transaction.itemId,
+        'date': transaction.date.toIso8601String(),
+        'type': transaction.isInput ? 'in' : 'out',
+        'quantity': transaction.quantity,
+        'note': transaction.note,
+        'user_id': transaction.userId,
+      },
+    );
   }
 
   InventoryItemModel _fromMap(Map<String, dynamic> map) {

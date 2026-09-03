@@ -27,6 +27,21 @@ class MortalityDao {
       'created_at': DateTime.now().toIso8601String(),
     });
 
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'INSERT',
+      payload: {
+        'flock_id': record.flockId,
+        'date': record.date.toIso8601String().split('T').first,
+        'count': record.count,
+        'reason': record.reason.name,
+        'reason_other': record.reasonOther,
+        'notes': record.notes,
+        'worker_id': record.workerId,
+      },
+    );
+
     return id;
   }
 
@@ -152,6 +167,12 @@ class MortalityDao {
   Future<void> delete(String id) async {
     final db = await LocalDatabase.database;
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'DELETE',
+      payload: {'id': id},
+    );
   }
 
   MortalityModel _fromMap(Map<String, dynamic> map) {
