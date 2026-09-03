@@ -262,7 +262,7 @@ class SyncRepositoryImpl implements SyncRepository {
         for (final d in details) {
           if (d is Map) {
             final rid = d['record_id'] as String?;
-            if (rid != null) detailByRecordId[rid] = d;
+            if (rid != null) detailByRecordId[rid] = d as Map<String, dynamic>;
           }
         }
 
