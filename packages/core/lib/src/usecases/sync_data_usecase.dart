@@ -23,15 +23,8 @@ class SyncDataUseCase {
 
       final result = await repository.uploadBatch(pendingRecords);
 
-      for (final record in pendingRecords) {
-        if (result.successIds.contains(record.recordId)) {
-          await repository.markAsSynced([record.recordId]);
-        } else if (result.conflictIds.contains(record.recordId)) {
-          await repository.markAsConflict(record.recordId);
-        } else {
-          await repository.markAsFailed(record.recordId, result.errorMessage ?? 'Unknown error');
-        }
-      }
+      // uploadBatch ‏يقوم داخلياً بتحديث حالة كل عملية (synced/conflict/failed)
+      // بمفتاح operation_id المستقل، فلا نحتاج لإعادة وضع الحالة هنا.
 
       return SyncResult.success(
         uploadedCount: result.successIds.length,

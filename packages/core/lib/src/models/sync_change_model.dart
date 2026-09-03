@@ -4,6 +4,7 @@ import '../constants/enums.dart';
 enum SyncOperation { insert, update, delete }
 
 class SyncChangeModel {
+  final String? operationId; // معرّف فريد لكل عملية (لا يشبه recordId)
   final int? id; // BigInt ID from DB
   final String farmId;
   final String tableName;
@@ -18,6 +19,7 @@ class SyncChangeModel {
   final int attempts;
 
   SyncChangeModel({
+    this.operationId,
     this.id,
     required this.farmId,
     required this.tableName,
@@ -35,6 +37,7 @@ class SyncChangeModel {
   /// إنشاء نموذج من خريطة قاعدة البيانات (SQLite/Supabase)
   factory SyncChangeModel.fromMap(Map<String, dynamic> map) {
     return SyncChangeModel(
+      operationId: map['operation_id'] as String?,
       id: map['id'] is int ? map['id'] : int.tryParse(map['id']?.toString() ?? ''),
       farmId: map['farm_id'] as String,
       tableName: map['table_name'] as String,
@@ -66,6 +69,7 @@ class SyncChangeModel {
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
+      if (operationId != null) 'operation_id': operationId,
       'farm_id': farmId,
       'table_name': tableName,
       'record_id': recordId,
@@ -83,6 +87,7 @@ class SyncChangeModel {
   /// إنشاء نسخة محدثة من النموذج
   /// ملاحظة: استخدم علم (sentinel) للسماح بإفراغ الحقول nullable مثل payload.
   SyncChangeModel copyWith({
+    String? operationId,
     int? id,
     String? farmId,
     String? tableName,
@@ -100,6 +105,7 @@ class SyncChangeModel {
     bool clearServerVersion = false,
   }) {
     return SyncChangeModel(
+      operationId: operationId ?? this.operationId,
       id: id ?? this.id,
       farmId: farmId ?? this.farmId,
       tableName: tableName ?? this.tableName,

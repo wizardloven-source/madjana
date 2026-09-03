@@ -13,7 +13,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 17;
+  static const int _dbVersion = 18;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -327,6 +327,7 @@ class LocalDatabase {
     await db.execute('''
       CREATE TABLE sync_queue (
         id TEXT PRIMARY KEY,
+        operation_id TEXT,
         table_name TEXT NOT NULL,
         record_id TEXT NOT NULL,
         action TEXT NOT NULL,
@@ -809,6 +810,13 @@ class LocalDatabase {
         // v17: إضافة is_active للمستخدمين
         if (!await _columnExists(db, 'users', 'is_active')) {
           await db.execute('ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
+        }
+
+        // v18: عمود operation_id المستقل لكل عملية (فصل هوية العملية عن هوية السجل)
+        if (!await _columnExists(db, 'sync_queue', 'operation_id')) {
+          await db.execute('ALTER TABLE sync_queue ADD COLUMN operation_id TEXT');
+          // backfill: في قواعد البيانات القديمة operation_id == id
+          await db.execute('UPDATE sync_queue SET operation_id = id WHERE operation_id IS NULL OR operation_id = \'\'');
         }
   }
 

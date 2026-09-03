@@ -2429,20 +2429,26 @@ DECLARE
     v_min_keep bigint;
     v_changes  jsonb;
     v_cp       record;
+    v_operational_only boolean := false;
 BEGIN
     IF auth.uid() IS NULL THEN
         RAISE EXCEPTION 'AUTHORIZATION_DENIED: غير مسجل الدخول';
     END IF;
 
-    -- السماح: system_admin (كل المداجن) أو manager الخاص بهذه المزرعة فقط.
+    -- السماح: system_admin (كل المداجن) أو manager/worker لمزرعته.
+    -- العامل يسحب البيانات التشغيلية فقط (يُستبعد الجدولان الماليان).
     IF NOT public.is_system_admin() THEN
         SELECT public.current_user_role() INTO v_role;
-        IF v_role <> 'manager' THEN
-            RAISE EXCEPTION 'AUTHORIZATION_DENIED: العامل لا يستطيع سحب المزامنة';
+        IF v_role NOT IN ('manager', 'worker') THEN
+            RAISE EXCEPTION 'AUTHORIZATION_DENIED: دور غير مصرح بسحب المزامنة';
         END IF;
-        -- إجبار p_farm_id على مزرعة المدير؛ تجاهل أي قيمة أخرى من العميل.
+        -- إجبار p_farm_id على مزرعة المستخدم؛ تجاهل أي قيمة أخرى من العميل.
         IF p_farm_id IS DISTINCT FROM public.current_user_farm_id() THEN
             RAISE EXCEPTION 'AUTHORIZATION_DENIED: مزرعة غير مصرح بها';
+        END IF;
+        -- العامل: الوصول التشغيلي فقط (لا يطّلع على المالية: payments/expenses).
+        IF v_role = 'worker' THEN
+            v_operational_only := true;
         END IF;
     END IF;
 
@@ -2468,19 +2474,50 @@ BEGIN
             updated_at     = NOW();
     END IF;
 
-    -- جلب التغييرات الأحدث من الإصدار المطلوب
-    SELECT jsonb_agg(jsonb_build_object(
-        'table_name', sc.table_name,
-        'record_id', sc.record_id,
-        'operation', sc.operation,
-        'payload', sc.payload,
-        'server_version', sc.server_version,
-        'created_at', sc.created_at
-    )) INTO v_changes
-    FROM sync_changes sc
-    WHERE sc.farm_id = p_farm_id
-      AND sc.server_version > p_from_version
-    ORDER BY sc.server_version ASC;
+    -- جلب التغييرات الأحدث من الإصدار المطلوب.
+    -- للعامل: نستبعد الجداول المالية ونعيد watermark فرعي للعمليات التشغيلية
+    -- حتى لا يخزّن جهاز العامل watermark يتجاوز تغييراته المسموح بها.
+    IF v_operational_only THEN
+        SELECT jsonb_agg(jsonb_build_object(
+            'table_name', sc.table_name,
+            'record_id', sc.record_id,
+            'operation', sc.operation,
+            'payload', sc.payload,
+            'server_version', sc.server_version,
+            'created_at', sc.created_at
+        )) INTO v_changes
+        FROM sync_changes sc
+        WHERE sc.farm_id = p_farm_id
+          AND sc.table_name NOT IN ('payments', 'expenses')
+          AND sc.server_version > p_from_version
+        ORDER BY sc.server_version ASC;
+
+        -- watermark العامل = أعلى نسخة تشغيلية أعيدت له (باستثناء المالية).
+        SELECT COALESCE(MAX(server_version), p_from_version) INTO v_latest
+        FROM sync_changes
+        WHERE farm_id = p_farm_id
+          AND table_name NOT IN ('payments', 'expenses')
+          AND server_version > p_from_version;
+
+        -- أقل نسخة تشغيلية محفوظة بعد الضغط/الاحتفاظ (لمعرفة ما إذا تأخر الجهاز).
+        SELECT COALESCE(MIN(server_version), v_latest) INTO v_min_keep
+        FROM sync_changes
+        WHERE farm_id = p_farm_id
+          AND table_name NOT IN ('payments', 'expenses');
+    ELSE
+        SELECT jsonb_agg(jsonb_build_object(
+            'table_name', sc.table_name,
+            'record_id', sc.record_id,
+            'operation', sc.operation,
+            'payload', sc.payload,
+            'server_version', sc.server_version,
+            'created_at', sc.created_at
+        )) INTO v_changes
+        FROM sync_changes sc
+        WHERE sc.farm_id = p_farm_id
+          AND sc.server_version > p_from_version
+        ORDER BY sc.server_version ASC;
+    END IF;
 
     -- إذا كان الجهاز متأخراً عن أقل نسخة محفوظة، لا يمكنه تطبيق delta ناقص
     IF p_from_version > 0 AND p_from_version < v_min_keep THEN

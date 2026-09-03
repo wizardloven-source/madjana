@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:math';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:core/core.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -28,102 +30,102 @@ class SyncRepositoryImpl implements SyncRepository {
 
   @override
   Future<List<SyncChangeModel>> getPendingChanges({int limit = 50}) async {
-    try {
-      final db = await LocalDatabase.database;
-      final now = DateTime.now().toIso8601String();
-      final results = await db.rawQuery('''
-        SELECT * FROM sync_queue
-        WHERE status = 'pending'
-          AND (next_retry_at IS NULL OR next_retry_at <= ?)
-        ORDER BY created_at ASC
-        LIMIT ?
-      ''', [now, limit]);
+    final db = await LocalDatabase.database;
+    final now = DateTime.now().toIso8601String();
+    final results = await db.rawQuery('''
+      SELECT * FROM sync_queue
+      WHERE status = 'pending'
+        AND (next_retry_at IS NULL OR next_retry_at <= ?)
+      ORDER BY created_at ASC
+      LIMIT ?
+    ''', [now, limit]);
 
-      final currentUser = _supabase.auth.currentUser;
-      final farmId = currentUser?.userMetadata?['farm_id']?.toString() ?? '';
+    final currentUser = _supabase.auth.currentUser;
+    final farmId = currentUser?.userMetadata?['farm_id']?.toString() ?? '';
 
-      return results.map((map) => SyncChangeModel.fromMap({
-        'id': 0,
-        'farm_id': farmId.isNotEmpty ? farmId : (map['farm_id'] ?? ''),
-        'table_name': map['table_name'],
-        'record_id': map['record_id'],
-        'operation': (map['action'] as String? ?? 'INSERT').toLowerCase(),
-        'changed_at': map['created_at'] ?? DateTime.now().toIso8601String(),
-        'user_id': map['user_id'],
-        'payload': map['payload'],
-        'status': map['status'] ?? 'pending',
-        'attempts': map['attempts'] ?? 0,
-        'error_message': map['last_error'],
-      })).toList();
-    } catch (e) {
-      return [];
-    }
+    return results.map((map) => SyncChangeModel.fromMap({
+      'operation_id': map['operation_id'],
+      'farm_id': farmId.isNotEmpty ? farmId : (map['farm_id'] ?? ''),
+      'table_name': map['table_name'],
+      'record_id': map['record_id'],
+      'operation': (map['action'] as String? ?? 'INSERT').toLowerCase(),
+      'changed_at': map['created_at'] ?? DateTime.now().toIso8601String(),
+      'user_id': map['user_id'],
+      'payload': map['payload'],
+      'status': map['status'] ?? 'pending',
+      'attempts': map['attempts'] ?? 0,
+      'error_message': map['last_error'],
+    })).toList();
   }
 
   @override
   Future<void> queueChange(SyncChangeModel change) async {
-    try {
-      final db = await LocalDatabase.database;
-      await db.insert('sync_queue', {
-        'id': change.recordId,
-        'table_name': change.tableName,
-        'record_id': change.recordId,
-        'action': change.operation.name.toUpperCase(),
-        'payload': change.payload != null ? jsonEncode(change.payload) : '',
-        'user_id': change.userId ?? '',
-        'attempts': 0,
-        'status': change.status.name,
-        'created_at': change.changedAt.toIso8601String(),
-        'updated_at': DateTime.now().toIso8601String(),
-      });
-    } catch (e) {
-      rethrow;
-    }
+    final db = await LocalDatabase.database;
+    // هوية فريدة لكل عملية — وليست هوية السجل.
+    final operationId =
+        (change.operationId == null || change.operationId!.isEmpty)
+            ? _newOperationId()
+            : change.operationId;
+    await db.insert('sync_queue', {
+      'id': operationId,
+      'operation_id': operationId,
+      'table_name': change.tableName,
+      'record_id': change.recordId,
+      'action': change.operation.name.toUpperCase(),
+      'payload': change.payload != null ? jsonEncode(change.payload) : '',
+      'user_id': change.userId ?? '',
+      'attempts': 0,
+      'status': change.status.name,
+      'created_at': change.changedAt.toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  /// يولّد معرّف عملية فريد (UUID v4) مستقل عن السجل.
+  String _newOperationId() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rng.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0F) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3F) | 0x80; // variant
+    final hex = bytes
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
+        '${hex.substring(20)}';
   }
 
   @override
   Future<void> markAsSynced(List<String> ids) async {
     if (ids.isEmpty) return;
-    try {
-      final db = await LocalDatabase.database;
-      for (var id in ids) {
-        await db.rawUpdate('''
-          UPDATE sync_queue
-          SET status = 'synced', updated_at = datetime('now')
-          WHERE record_id = ?
-        ''', [id]);
-      }
-    } catch (e) {
-      rethrow;
+    final db = await LocalDatabase.database;
+    for (var id in ids) {
+      await db.rawUpdate('''
+        UPDATE sync_queue
+        SET status = 'synced', updated_at = datetime('now')
+        WHERE id = ?
+      ''', [id]);
     }
   }
 
   @override
   Future<void> markAsFailed(String id, String errorMessage) async {
-    try {
-      final db = await LocalDatabase.database;
-      await db.rawUpdate('''
-        UPDATE sync_queue
-        SET status = 'failed', last_error = ?, updated_at = datetime('now')
-        WHERE record_id = ?
-      ''', [errorMessage, id]);
-    } catch (e) {
-      // silently fail
-    }
+    final db = await LocalDatabase.database;
+    await db.rawUpdate('''
+      UPDATE sync_queue
+      SET status = 'failed', last_error = ?, updated_at = datetime('now')
+      WHERE id = ?
+    ''', [errorMessage, id]);
   }
 
   @override
   Future<void> markAsConflict(String id) async {
-    try {
-      final db = await LocalDatabase.database;
-      await db.rawUpdate('''
-        UPDATE sync_queue
-        SET status = 'conflict', last_error = 'conflict', updated_at = datetime('now')
-        WHERE record_id = ?
-      ''', [id]);
-    } catch (e) {
-      // silently fail
-    }
+    final db = await LocalDatabase.database;
+    await db.rawUpdate('''
+      UPDATE sync_queue
+      SET status = 'conflict', last_error = 'conflict', updated_at = datetime('now')
+      WHERE id = ?
+    ''', [id]);
   }
 
   @override
@@ -136,60 +138,45 @@ class SyncRepositoryImpl implements SyncRepository {
         AND updated_at < datetime('now', '-$daysToKeep days')
       ''');
     } catch (e) {
-      // silently fail
+      // تنظيف قديم: غير حرج لدورة المزامنة، لكن لا نخفيه — نسجّله.
+      debugPrint('cleanupOldSyncedRecords failed: $e');
     }
   }
 
   @override
   Future<int> getPendingCount() async {
-    try {
-      final db = await LocalDatabase.database;
-      final result = await db.rawQuery(
-        "SELECT COUNT(*) as count FROM sync_queue WHERE status = 'pending'",
-      );
-      return result.first['count'] as int? ?? 0;
-    } catch (e) {
-      return 0;
-    }
+    final db = await LocalDatabase.database;
+    final result = await db.rawQuery(
+      "SELECT COUNT(*) as count FROM sync_queue WHERE status = 'pending'",
+    );
+    return result.first['count'] as int? ?? 0;
   }
 
   @override
   Future<int> getSyncedCount() async {
-    try {
-      final db = await LocalDatabase.database;
-      final result = await db.rawQuery(
-        "SELECT COUNT(*) as count FROM sync_queue WHERE status = 'synced'",
-      );
-      return result.first['count'] as int? ?? 0;
-    } catch (e) {
-      return 0;
-    }
+    final db = await LocalDatabase.database;
+    final result = await db.rawQuery(
+      "SELECT COUNT(*) as count FROM sync_queue WHERE status = 'synced'",
+    );
+    return result.first['count'] as int? ?? 0;
   }
 
   @override
   Future<int> getFailedCount() async {
-    try {
-      final db = await LocalDatabase.database;
-      final result = await db.rawQuery(
-        "SELECT COUNT(*) as count FROM sync_queue WHERE status = 'failed'",
-      );
-      return result.first['count'] as int? ?? 0;
-    } catch (e) {
-      return 0;
-    }
+    final db = await LocalDatabase.database;
+    final result = await db.rawQuery(
+      "SELECT COUNT(*) as count FROM sync_queue WHERE status = 'failed'",
+    );
+    return result.first['count'] as int? ?? 0;
   }
 
   @override
   Future<int> getConflictCount() async {
-    try {
-      final db = await LocalDatabase.database;
-      final result = await db.rawQuery(
-        "SELECT COUNT(*) as count FROM sync_queue WHERE status = 'conflict'",
-      );
-      return result.first['count'] as int? ?? 0;
-    } catch (e) {
-      return 0;
-    }
+    final db = await LocalDatabase.database;
+    final result = await db.rawQuery(
+      "SELECT COUNT(*) as count FROM sync_queue WHERE status = 'conflict'",
+    );
+    return result.first['count'] as int? ?? 0;
   }
 
   /// تحديث version السجل في SQLite بعد المزامنة الناجحة
@@ -207,8 +194,10 @@ class SyncRepositoryImpl implements SyncRepository {
           [newVersion, recordId],
         );
       }
-    } catch (_) {
-      // silently fail
+    } catch (e) {
+      // تحديث version محلي best-effort: فشله غير حرج للمزامنة نفسها،
+      // لكن لا نخفيه — نسجّله للإشراف.
+      debugPrint('_updateLocalVersion($tableName, $recordId) failed: $e');
     }
   }
 
@@ -220,7 +209,7 @@ class SyncRepositoryImpl implements SyncRepository {
         "DELETE FROM sync_queue WHERE status = 'pending'",
       );
     } catch (e) {
-      // silently fail
+      debugPrint('clearAllPending failed: $e');
     }
   }
 
@@ -233,11 +222,14 @@ class SyncRepositoryImpl implements SyncRepository {
     try {
       final payload = records.map((r) {
         final p = r.payload ?? {};
+        final opId = (r.operationId == null || r.operationId!.isEmpty)
+            ? r.recordId
+            : r.operationId;
         return {
           'table_name': r.tableName,
           'record_id': r.recordId,
           'operation': r.operation.name,
-          'operation_id': r.recordId,
+          'operation_id': opId,
           'data': p,
           'previous_version': p['previous_version'] ?? p['version'],
         };
@@ -252,46 +244,64 @@ class SyncRepositoryImpl implements SyncRepository {
         final resp = response.data as Map;
         final details = resp['details'] as List<dynamic>? ?? [];
 
-        final successIds = <String>[];
-        final failedIds = <String>[];
-        final conflictIds = <String>[];
+        final successOps = <String>[];
+        final failedOps = <String>[];
+        final conflictOps = <String>[];
+        final successRecordIds = <String>[];
+        final failedRecordIds = <String>[];
+        final conflictRecordIds = <String>[];
 
-        for (final detail in details) {
-          final detailMap = detail as Map;
+        // يرجع الخادم details بنفس ترتيب الإدخال (detail واحد لكل سجل).
+        // نطابق كل detail بمعرّف العملية الأصلي عبر الفهرس، لأن markAs*
+        // تُنفَّذ الآن بمفتاح operation_id وليس record_id.
+        for (var i = 0; i < details.length; i++) {
+          final detailMap = details[i] is Map ? details[i] as Map : null;
+          if (detailMap == null) continue;
+
           final recordIdStr = detailMap['record_id'] as String?;
           final status = detailMap['status'] as String?;
           final tableName = detailMap['table_name'] as String?;
 
-          if (recordIdStr == null) continue;
+          // مفتاح وحيد للطابور: operation_id إن وُجد وإلا record_id
+          final queueKey = (records[i].operationId?.trim().isNotEmpty ?? false)
+              ? records[i].operationId!
+              : records[i].recordId;
 
           switch (status) {
             case 'ok':
-              successIds.add(recordIdStr);
+              successOps.add(queueKey);
+              if (recordIdStr != null) successRecordIds.add(recordIdStr);
               final newVersion = detailMap['new_version'] as int?;
-              if (newVersion != null && tableName != null) {
+              if (newVersion != null &&
+                  tableName != null &&
+                  recordIdStr != null) {
                 await _updateLocalVersion(recordIdStr, tableName, newVersion);
               }
               break;
             case 'conflict':
-              conflictIds.add(recordIdStr);
+              conflictOps.add(queueKey);
+              if (recordIdStr != null) conflictRecordIds.add(recordIdStr);
               break;
             case 'error':
             case 'skipped':
-              failedIds.add(recordIdStr);
+              failedOps.add(queueKey);
+              if (recordIdStr != null) failedRecordIds.add(recordIdStr);
               break;
           }
         }
 
-        await markAsSynced(successIds);
-
-        for (var id in failedIds) {
+        if (successOps.isNotEmpty) await markAsSynced(successOps);
+        for (var id in failedOps) {
           await markAsFailed(id, 'Sync error');
+        }
+        for (var id in conflictOps) {
+          await markAsConflict(id);
         }
 
         return BatchSyncResult(
-          successIds: successIds,
-          failedIds: failedIds,
-          conflictIds: conflictIds,
+          successIds: successRecordIds,
+          failedIds: failedRecordIds,
+          conflictIds: conflictRecordIds,
         );
       } else {
         throw Exception('Invalid response from sync function');
@@ -302,12 +312,15 @@ class SyncRepositoryImpl implements SyncRepository {
       final msg = e.toString();
       final now = DateTime.now();
       for (var record in records) {
+        final queueKey = (record.operationId?.trim().isNotEmpty ?? false)
+            ? record.operationId!
+            : record.recordId;
         final attempts = record.attempts + 1;
         final shouldKeepPending = attempts < _maxRetryAttempts;
         if (shouldKeepPending) {
-          await _markPendingWithRetry(record.recordId, attempts, msg, now);
+          await _markPendingWithRetry(queueKey, attempts, msg, now);
         } else {
-          await markAsFailed(record.recordId, msg);
+          await markAsFailed(queueKey, msg);
         }
       }
       return BatchSyncResult(
@@ -321,22 +334,20 @@ class SyncRepositoryImpl implements SyncRepository {
   static const int _maxRetryAttempts = 5;
 
   /// يعيد العملية إلى pending مع زيادة عدد المحاولات وتحديد وقت إعادة المحاولة
-  Future<void> _markPendingWithRetry(String recordId, int attempts, String error, DateTime now) async {
-    try {
-      final db = await LocalDatabase.database;
-      final nextRetry = _backoffDelay(attempts);
-      final nextRetryAt = now.add(nextRetry).toIso8601String();
-      await db.rawUpdate('''
-        UPDATE sync_queue
-        SET status = 'pending',
-            attempts = ?,
-            last_error = ?,
-            last_error_code = 'RETRYABLE',
-            next_retry_at = ?,
-            updated_at = ?
-        WHERE record_id = ?
-      ''', [attempts, error, nextRetryAt, now.toIso8601String(), recordId]);
-    } catch (_) {}
+  Future<void> _markPendingWithRetry(String id, int attempts, String error, DateTime now) async {
+    final db = await LocalDatabase.database;
+    final nextRetry = _backoffDelay(attempts);
+    final nextRetryAt = now.add(nextRetry).toIso8601String();
+    await db.rawUpdate('''
+      UPDATE sync_queue
+      SET status = 'pending',
+          attempts = ?,
+          last_error = ?,
+          last_error_code = 'RETRYABLE',
+          next_retry_at = ?,
+          updated_at = ?
+      WHERE id = ?
+    ''', [attempts, error, nextRetryAt, now.toIso8601String(), id]);
   }
 
   /// فاصل زمني متزايد (exp backoff) للمحاولة المطلوبة:
@@ -432,7 +443,10 @@ class SyncRepositoryImpl implements SyncRepository {
                 applied++;
               }
             }
-          } catch (_) {
+          } catch (e) {
+            // عزل السجل الفاشل ضمن المعاملة: لا نُفشِل السحب كاملاً،
+            // نعتبره تعارضاً ونُسجّله للإشراف.
+            debugPrint('pullAndMerge row failed for $tableName/$recordId: $e');
             conflicts++;
           }
         }
@@ -564,6 +578,8 @@ class SyncRepositoryImpl implements SyncRepository {
       );
       return rows.map(SyncHistoryEntry.fromMap).toList();
     } catch (e) {
+      // تاريخ غير حرج للعرض فقط: نسجّله ولا نخفيه، ونعيد قائمة فارغة.
+      debugPrint('getSyncHistory failed: $e');
       return [];
     }
   }
@@ -580,8 +596,8 @@ class SyncRepositoryImpl implements SyncRepository {
         'errored_tables': '',
         'error_message': result.errorMessage,
       });
-    } catch (_) {
-      // السجل غير حرج — لا يمنع دورة المزامنة
+    } catch (e) {
+      debugPrint('_recordHistory failed: $e');
     }
   }
 }
