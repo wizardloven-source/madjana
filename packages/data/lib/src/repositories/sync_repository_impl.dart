@@ -222,14 +222,17 @@ class SyncRepositoryImpl implements SyncRepository {
     try {
       final payload = records.map((r) {
         final p = r.payload ?? {};
-        final opId = (r.operationId == null || r.operationId!.isEmpty)
-            ? r.recordId
-            : r.operationId;
+        if (r.operationId == null || r.operationId!.isEmpty) {
+          throw StateError(
+            'uploadBatch: operationId is null/empty for ${r.tableName}/${r.recordId}. '
+            'All records must come through queueChange() which generates operationId.',
+          );
+        }
         return {
           'table_name': r.tableName,
           'record_id': r.recordId,
           'operation': r.operation.name,
-          'operation_id': opId,
+          'operation_id': r.operationId,
           'data': p,
           'previous_version': p['previous_version'] ?? p['version'],
         };
@@ -251,41 +254,52 @@ class SyncRepositoryImpl implements SyncRepository {
         final failedRecordIds = <String>[];
         final conflictRecordIds = <String>[];
 
-        // يرجع الخادم details بنفس ترتيب الإدخال (detail واحد لكل سجل).
-        // نطابق كل detail بمعرّف العملية الأصلي عبر الفهرس، لأن markAs*
-        // تُنفَّذ الآن بمفتاح operation_id وليس record_id.
-        for (var i = 0; i < details.length; i++) {
-          final detailMap = details[i] is Map ? details[i] as Map : null;
-          if (detailMap == null) continue;
+        // بناء خريطة(record_id → detail) للمطابقة�AMESAFE.
+        // Edge Function قد ترفض سجلات غير صالحة (validateRecord)،
+        // في缩减 normalized قبل إرسالها للـ SQL. لذلك details أقصر من
+        // records — لا يمكن المطابقة بالفهرس.
+        final detailByRecordId = <String, Map<String, dynamic>>{};
+        for (final d in details) {
+          if (d is Map) {
+            final rid = d['record_id'] as String?;
+            if (rid != null) detailByRecordId[rid] = d;
+          }
+        }
 
-          final recordIdStr = detailMap['record_id'] as String?;
-          final status = detailMap['status'] as String?;
-          final tableName = detailMap['table_name'] as String?;
+        // سجلات مرفوضةEdge Function (ليست في details أصلاً)
+        final rejectedIds = <String>[];
 
-          // مفتاح وحيد للطابور: operation_id إن وُجد وإلا record_id
-          final queueKey = (records[i].operationId?.trim().isNotEmpty ?? false)
-              ? records[i].operationId!
-              : records[i].recordId;
+        for (final r in records) {
+          final detail = detailByRecordId[r.recordId];
+          if (detail == null) {
+            // السجل مرفوض من Edge Function (validateRecord فشل)
+            rejectedIds.add(r.recordId);
+            failedOps.add(r.operationId!);
+            failedRecordIds.add(r.recordId);
+            continue;
+          }
+
+          final status = detail['status'] as String?;
+          final tableName = detail['table_name'] as String?;
+          final queueKey = r.operationId!;
 
           switch (status) {
             case 'ok':
               successOps.add(queueKey);
-              if (recordIdStr != null) successRecordIds.add(recordIdStr);
-              final newVersion = detailMap['new_version'] as int?;
-              if (newVersion != null &&
-                  tableName != null &&
-                  recordIdStr != null) {
-                await _updateLocalVersion(recordIdStr, tableName, newVersion);
+              successRecordIds.add(r.recordId);
+              final newVersion = detail['new_version'] as int?;
+              if (newVersion != null && tableName != null) {
+                await _updateLocalVersion(r.recordId, tableName, newVersion);
               }
               break;
             case 'conflict':
               conflictOps.add(queueKey);
-              if (recordIdStr != null) conflictRecordIds.add(recordIdStr);
+              conflictRecordIds.add(r.recordId);
               break;
             case 'error':
             case 'skipped':
               failedOps.add(queueKey);
-              if (recordIdStr != null) failedRecordIds.add(recordIdStr);
+              failedRecordIds.add(r.recordId);
               break;
           }
         }
@@ -399,6 +413,10 @@ class SyncRepositoryImpl implements SyncRepository {
       // 3) دمج كل تغيير في SQLite
       int applied = 0;
       int conflicts = 0;
+      // Commit-point: لا نتجاوز watermark عن آخر نسخة نجحت
+      // دون فشل قبلها. هذا يضمن إعادة سحب النسخة الفاشلة في
+      // السحب التالي.
+      int commitPointVersion = lastVersion;
 
       await db.transaction((txn) async {
         for (final change in changes) {
@@ -407,6 +425,7 @@ class SyncRepositoryImpl implements SyncRepository {
           final recordId = c['record_id'] as String;
           final operation = c['operation'] as String;
           final payload = c['payload'] as Map<String, dynamic>? ?? {};
+          final serverVersion = (c['server_version'] as num?)?.toInt() ?? 0;
 
           try {
             // فحص الوجود المحلي
@@ -428,8 +447,6 @@ class SyncRepositoryImpl implements SyncRepository {
                 await _insertRecord(txn, tableName, recordId, payload);
                 applied++;
               } else {
-                // السجل موجود مسبقاً (تم إنشاؤه محلياً)
-                // نُحدّثه بالبيانات البعيدة إذا كان الإصدار الأعلى
                 await _updateRecord(txn, tableName, recordId, payload);
                 applied++;
               }
@@ -438,26 +455,34 @@ class SyncRepositoryImpl implements SyncRepository {
                 await _updateRecord(txn, tableName, recordId, payload);
                 applied++;
               } else {
-                // السجل غير موجود محلياً — نُنشئه (coming from another device)
                 await _insertRecord(txn, tableName, recordId, payload);
                 applied++;
               }
             }
+            // نجاح — تحديث commit-point إذا كانت هذه أعلى نسخة متعاقبة نجحت
+            if (serverVersion > commitPointVersion) {
+              commitPointVersion = serverVersion;
+            }
           } catch (e) {
-            // عزل السجل الفاشل ضمن المعاملة: لا نُفشِل السحب كاملاً،
-            // نعتبره تعارضاً ونُسجّله للإشراف.
             debugPrint('pullAndMerge row failed for $tableName/$recordId: $e');
             conflicts++;
+            // ⚠️ لا نتعدى commit-point: أي نسخة أعلى من هذه
+            // ستعاد في السحب التالي (وستُتخطى harmlessly إذا نجحت سابقاً).
+            break;
           }
         }
       });
 
-      // 4) تحديث آخر إصدار مُستلم
-      await db.rawInsert(
-        '''INSERT OR REPLACE INTO sync_state (id, last_pulled_version, updated_at)
-           VALUES ('local', ?, ?)''',
-        [latestVersion, DateTime.now().toIso8601String()],
-      );
+      // 4) تحديث آخر إصدار مُستلم — فقط إلى commit-point
+      // (لا نتجاوزه عن فشل، وإلا لن يُسحب السجل الفاشل مرة أخرى).
+      final effectiveVersion = commitPointVersion;
+      if (effectiveVersion > lastVersion) {
+        await db.rawInsert(
+          '''INSERT OR REPLACE INTO sync_state (id, last_pulled_version, updated_at)
+             VALUES ('local', ?, ?)''',
+          [effectiveVersion, DateTime.now().toIso8601String()],
+        );
+      }
 
       return PullResult(
         downloadedCount: changes.length,
