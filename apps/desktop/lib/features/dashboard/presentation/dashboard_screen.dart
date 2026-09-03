@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import 'package:fl_chart/fl_chart.dart';
+import '../../../core/design_tokens.dart';
 import '../../../core/providers.dart';
 import '../../../core/shell_state.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -192,53 +193,53 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
     final feedLevel = FarmAnalytics.feedLevel(feedDaysLeft);
 
-    // تنبيهات ذكية
+    // تنبيهات ذكية (مصنّفة حسب الخطورة)
     final alerts = <_Alert>[];
     if (_feedStock < 500) {
       alerts.add(_Alert(
         icon: Icons.grass,
-        color: Colors.orange.shade800,
         text:
             'مخزون العلف منخفض (${Formatters.formatNumber(_feedStock.toInt())} كغ)',
+        severity: _AlertSeverity.warning,
       ));
     }
     if (feedLevel == 'danger' && feedDaysLeft != null) {
       alerts.add(_Alert(
         icon: Icons.timer_off,
-        color: Theme.of(context).colorScheme.error,
         text:
             'العلف ينفد خلال ${feedDaysLeft.toStringAsFixed(1)} يوم فقط! اطلب توريداً الآن',
+        severity: _AlertSeverity.danger,
       ));
     } else if (feedLevel == 'warning' && feedDaysLeft != null) {
       alerts.add(_Alert(
         icon: Icons.schedule,
-        color: Colors.orange.shade800,
         text:
             'العلف يكفي ~${feedDaysLeft.toStringAsFixed(0)} يوم — خطط للتوريد',
+        severity: _AlertSeverity.warning,
       ));
     }
     if (mortLevel == 'danger') {
       alerts.add(_Alert(
         icon: Icons.warning,
-        color: Theme.of(context).colorScheme.error,
         text:
             'معدل النفوق اليومي خطر (${mortRateWeek.toStringAsFixed(2)}%) — افحص المدجنة فوراً',
+        severity: _AlertSeverity.danger,
       ));
     } else if (mortLevel == 'warning') {
       alerts.add(_Alert(
         icon: Icons.monitor_heart_outlined,
-        color: Colors.orange.shade800,
         text:
             'معدل النفوق مرتفع (${mortRateWeek.toStringAsFixed(2)}% يومياً) — راقب عن قرب',
+        severity: _AlertSeverity.warning,
       ));
     }
     for (final item in _inventoryItems) {
       if (item.quantity <= item.lowStockThreshold) {
         alerts.add(_Alert(
           icon: Icons.inventory_2,
-          color: Theme.of(context).colorScheme.error,
           text:
               '${item.name}: ${Formatters.formatNumber(item.quantity)} — تحت الحد الأدنى',
+          severity: _AlertSeverity.danger,
         ));
       }
     }
@@ -248,7 +249,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       for (final e in _eggRecords.take(30))
         _Activity(
           icon: Icons.egg_alt,
-          color: Colors.amber.shade700,
+          color: AppStatusColors.info(context),
           title:
               'إنتاج بيض: ${Formatters.formatNumber(e.totalEggs)} بيضة${e.sectionNo != null ? ' — عنبر ${e.sectionNo}' : ''}',
           date: e.date,
@@ -256,14 +257,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       for (final m in _mortalityRecords.take(20))
         _Activity(
           icon: Icons.heart_broken,
-          color: Colors.redAccent,
+          color: AppStatusColors.danger(context),
           title: 'نفوق: ${m.count} طائر',
           date: m.date,
         ),
       for (final d in _dispatches.take(20))
         _Activity(
           icon: Icons.local_shipping,
-          color: Colors.blueAccent,
+          color: AppStatusColors.success(context),
           title: 'تخريج: ${Formatters.formatNumber(d.totalEggs)} بيضة',
           date: d.date,
         ),
@@ -275,7 +276,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // بطاقات KPIs
+          // بطاقات KPIs — الأولوية للمؤشرات الصحية (إنتاج/نفوق/علف)
           Wrap(
             spacing: 16,
             runSpacing: 16,
@@ -284,56 +285,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 title: 'إنتاج اليوم (بيضة)',
                 value: Formatters.formatNumber(todayEggs),
                 icon: Icons.egg_alt,
-                color: Colors.amber,
-              ),
-              _KpiCard(
-                title: 'إنتاج آخر 30 يوم',
-                value: Formatters.formatNumber(totalEggs),
-                icon: Icons.production_quantity_limits,
-                color: Colors.orange,
-              ),
-              _KpiCard(
-                title: 'نفوق آخر 30 يوم',
-                value: Formatters.formatNumber(totalMortality),
-                icon: Icons.heart_broken,
-                color: Colors.redAccent,
-              ),
-              _KpiCard(
-                title: 'المقبوضات (30 يوم)',
-                value: Formatters.formatCurrency(_collected),
-                icon: Icons.payments,
-                color: Colors.greenAccent,
-              ),
-              _KpiCard(
-                title: 'المبالغ المستحقة',
-                value: Formatters.formatCurrency(_outstanding),
-                icon: Icons.pending_actions,
-                color: Colors.deepOrangeAccent,
-              ),
-              _KpiCard(
-                title: 'مخزون العلف (كغ)',
-                value: Formatters.formatNumber(_feedStock.toInt()),
-                icon: Icons.inventory_2,
-                color: Colors.lightBlueAccent,
-              ),
-              _KpiCard(
-                title: 'مخزون البيض الحالي',
-                value: Formatters.formatNumber(_currentEggStock),
-                icon: Icons.egg,
-                color: Colors.teal,
-              ),
-              _ActionCard(
-                title: 'طلبات موافقة معلقة',
-                value: '$_pendingApprovals',
-                subtitle: _pendingApprovals > 0
-                    ? 'اضغط للمراجعة الآن'
-                    : 'لا توجد طلبات',
-                icon: Icons.approval,
-                color: _pendingApprovals > 0
-                    ? Colors.red
-                    : Colors.green,
-                onTap: () =>
-                    ref.read(shellTabProvider.notifier).state = 6,
+                color: AppStatusColors.success(context),
               ),
               _KpiCard(
                 title: 'معدل الإنتاج اليوم',
@@ -341,21 +293,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     '${prodRateToday.toStringAsFixed(1)}%',
                 icon: Icons.trending_up,
                 color: prodRateToday >= 80
-                    ? Colors.green
+                    ? AppStatusColors.success(context)
                     : (prodRateToday >= 60
-                        ? Colors.orange
-                        : Colors.redAccent),
-              ),
-              _KpiCard(
-                title: 'متوسط المعدل (7 أيام)',
-                value:
-                    '${prodRateWeek.toStringAsFixed(1)}%',
-                icon: Icons.percent,
-                color: prodRateWeek >= 80
-                    ? Colors.lightGreen
-                    : (prodRateWeek >= 60
-                        ? Colors.orange
-                        : Colors.redAccent),
+                        ? AppStatusColors.warning(context)
+                        : AppStatusColors.danger(context)),
               ),
               _KpiCard(
                 title: 'النفوق اليومي (متوسط أسبوع)',
@@ -363,10 +304,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     '${mortRateWeek.toStringAsFixed(2)}%',
                 icon: Icons.monitor_heart,
                 color: mortLevel == 'danger'
-                    ? Colors.redAccent
+                    ? AppStatusColors.danger(context)
                     : (mortLevel == 'warning'
-                        ? Colors.orange
-                        : Colors.green),
+                        ? AppStatusColors.warning(context)
+                        : AppStatusColors.success(context)),
               ),
               _KpiCard(
                 title: feedDaysLeft == null
@@ -377,10 +318,70 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     : 'لا بيانات استهلاك',
                 icon: Icons.grass,
                 color: feedLevel == 'danger'
-                    ? Colors.redAccent
+                    ? AppStatusColors.danger(context)
                     : (feedLevel == 'warning'
-                        ? Colors.orange
-                        : Colors.lightBlueAccent),
+                        ? AppStatusColors.warning(context)
+                        : AppStatusColors.info(context)),
+              ),
+              _KpiCard(
+                title: 'إنتاج آخر 30 يوم',
+                value: Formatters.formatNumber(totalEggs),
+                icon: Icons.production_quantity_limits,
+                color: AppStatusColors.info(context),
+              ),
+              _KpiCard(
+                title: 'نفوق آخر 30 يوم',
+                value: Formatters.formatNumber(totalMortality),
+                icon: Icons.heart_broken,
+                color: AppStatusColors.warning(context),
+              ),
+              _KpiCard(
+                title: 'المقبوضات (30 يوم)',
+                value: Formatters.formatCurrency(_collected),
+                icon: Icons.payments,
+                color: AppStatusColors.success(context),
+              ),
+              _KpiCard(
+                title: 'المبالغ المستحقة',
+                value: Formatters.formatCurrency(_outstanding),
+                icon: Icons.pending_actions,
+                color: AppStatusColors.warning(context),
+              ),
+              _KpiCard(
+                title: 'مخزون العلف (كغ)',
+                value: Formatters.formatNumber(_feedStock.toInt()),
+                icon: Icons.inventory_2,
+                color: AppStatusColors.info(context),
+              ),
+              _KpiCard(
+                title: 'مخزون البيض الحالي',
+                value: Formatters.formatNumber(_currentEggStock),
+                icon: Icons.egg,
+                color: AppStatusColors.primary(context),
+              ),
+              _ActionCard(
+                title: 'طلبات موافقة معلقة',
+                value: '$_pendingApprovals',
+                subtitle: _pendingApprovals > 0
+                    ? 'اضغط للمراجعة الآن'
+                    : 'لا توجد طلبات',
+                icon: Icons.approval,
+                color: _pendingApprovals > 0
+                    ? AppStatusColors.danger(context)
+                    : AppStatusColors.success(context),
+                onTap: () =>
+                    ref.read(shellTabProvider.notifier).state = 6,
+              ),
+              _KpiCard(
+                title: 'متوسط المعدل (7 أيام)',
+                value:
+                    '${prodRateWeek.toStringAsFixed(1)}%',
+                icon: Icons.percent,
+                color: prodRateWeek >= 80
+                    ? AppStatusColors.success(context)
+                    : (prodRateWeek >= 60
+                        ? AppStatusColors.warning(context)
+                        : AppStatusColors.danger(context)),
               ),
             ],
           ),
@@ -401,9 +402,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         Row(
                           children: [
                             Icon(Icons.notification_important,
-                                color: Colors.orange.shade800),
+                                color: AppStatusColors.warning(context)),
                             const SizedBox(width: 8),
-                            const Text('تنبيهات',
+                            const Text('تحتاج انتباهك',
                                 style: TextStyle(
                                     fontSize: 15,
                                     fontWeight: FontWeight.bold)),
@@ -411,8 +412,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         ),
                         const SizedBox(height: 12),
                         if (alerts.isEmpty)
-                          Text('كل شيء تحت السيطرة ✓',
-                              style: TextStyle(color: Colors.grey.shade500))
+                          Row(
+                            children: [
+                              Icon(Icons.check_circle,
+                                  size: 18,
+                                  color: AppStatusColors.success(context)),
+                              const SizedBox(width: 6),
+                              Text('كل شيء تحت السيطرة ✓',
+                                  style: TextStyle(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant)),
+                            ],
+                          )
                         else
                           for (final alert in alerts.take(5))
                             Padding(
@@ -420,10 +432,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   const EdgeInsets.symmetric(vertical: 4),
                               child: Row(
                                 children: [
-                                  Icon(alert.icon,
-                                      size: 18, color: alert.color),
+                                  Icon(
+                                    alert.icon,
+                                    size: 18,
+                                    color: _alertColor(context, alert.severity),
+                                  ),
                                   const SizedBox(width: 8),
-                                  Expanded(child: Text(alert.text)),
+                                  Expanded(
+                                    child: Row(
+                                      children: [
+                                        Flexible(child: Text(alert.text)),
+                                        const SizedBox(width: 6),
+                                        _SeverityChip(
+                                            severity: alert.severity),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -466,8 +490,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     height: 8,
                                     decoration: BoxDecoration(
                                       color: f.sectionsCount > 1
-                                          ? Colors.deepPurple
-                                          : Colors.grey,
+                                          ? Theme.of(context)
+                                              .colorScheme
+                                              .secondary
+                                          : Theme.of(context)
+                                              .colorScheme
+                                              .outline,
                                       shape: BoxShape.circle,
                                     ),
                                   ),
@@ -553,14 +581,43 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'الإنتاج اليومي - آخر 30 يوم',
-                          style: TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.bold),
+                        Row(
+                          children: [
+                            Icon(Icons.bar_chart,
+                                color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'الإنتاج اليومي - آخر 30 يوم',
+                              style: TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 10),
+                        if (_eggRecords.isNotEmpty) ...[
+                          Row(
+                            children: [
+                              _ChartStat(
+                                label: 'متوسط اليوم',
+                                value: Formatters.formatNumber(todayEggs),
+                              ),
+                              const SizedBox(width: 20),
+                              _ChartStat(
+                                label: 'متوسط 30 يوم',
+                                value:
+                                    (totalEggs / _eggRecords.length).toStringAsFixed(0),
+                              ),
+                              const SizedBox(width: 20),
+                              _ChartStat(
+                                label: 'معدل الإنتاج',
+                                value: '${prodRateToday.toStringAsFixed(1)}%',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                        ],
                         SizedBox(
-                          height: 280,
+                          height: 260,
                           child: _EggChart(records: _eggRecords),
                         ),
                       ],
@@ -591,7 +648,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         const SizedBox(height: 12),
                         if (recentVisible.isEmpty)
                           Text('لا توجد عمليات بعد',
-                              style: TextStyle(color: Colors.grey.shade500))
+                              style: TextStyle(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant))
                         else
                           ...recentVisible.map((a) => Padding(
                                 padding:
@@ -608,7 +668,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                       '${a.date.day}/${a.date.month}',
                                       style: TextStyle(
                                           fontSize: 11,
-                                          color: Colors.grey.shade500),
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant),
                                     ),
                                   ],
                                 ),
@@ -628,14 +690,66 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
 class _Alert {
   final IconData icon;
-  final Color color;
   final String text;
+
+  // مستوى الخطورة: عاجل (danger) / متابعة (warning) / معلومات (info)
+  final _AlertSeverity severity;
 
   const _Alert({
     required this.icon,
-    required this.color,
     required this.text,
+    this.severity = _AlertSeverity.info,
   });
+}
+
+enum _AlertSeverity { danger, warning, info }
+
+Color _alertColor(BuildContext context, _AlertSeverity severity) {
+  switch (severity) {
+    case _AlertSeverity.danger:
+      return AppStatusColors.danger(context);
+    case _AlertSeverity.warning:
+      return AppStatusColors.warning(context);
+    case _AlertSeverity.info:
+      return AppStatusColors.info(context);
+  }
+}
+
+String _severityLabel(_AlertSeverity severity) {
+  switch (severity) {
+    case _AlertSeverity.danger:
+      return 'عاجل';
+    case _AlertSeverity.warning:
+      return 'متابعة';
+    case _AlertSeverity.info:
+      return 'معلومات';
+  }
+}
+
+class _SeverityChip extends StatelessWidget {
+  final _AlertSeverity severity;
+
+  const _SeverityChip({required this.severity});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _alertColor(context, severity);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        _severityLabel(severity),
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
+      ),
+    );
+  }
 }
 
 class _Activity {
@@ -679,7 +793,9 @@ class _KpiCard extends StatelessWidget {
               const SizedBox(height: 12),
               Text(
                 title,
-                style: const TextStyle(color: Colors.grey, fontSize: 13),
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 13),
               ),
               const SizedBox(height: 4),
               Text(
@@ -753,7 +869,9 @@ class _ActionCard extends StatelessWidget {
                 const SizedBox(height: 12),
                 Text(
                   title,
-                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 13),
                 ),
                 const SizedBox(height: 4),
                 Text(subtitle,
@@ -767,6 +885,33 @@ class _ActionCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// مؤشر سياقي صغير ضمن مخطط الإنتاج
+class _ChartStat extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _ChartStat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+              fontSize: 11,
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+      ],
     );
   }
 }
@@ -795,13 +940,15 @@ class _EggChart extends StatelessWidget {
         barTouchData: BarTouchData(
           enabled: true,
           touchTooltipData: BarTouchTooltipData(
-            getTooltipColor: (_) => Colors.blueGrey,
+            getTooltipColor: (_) => Theme.of(context).colorScheme.inverseSurface,
             getTooltipItem: (group, groupIndex, rod, rodIndex) {
               final record = chartData[groupIndex];
               return BarTooltipItem(
                 '${record.date.day}/${record.date.month}\n'
                 '${Formatters.formatNumber(record.totalEggs)} بيضة',
-                const TextStyle(color: Colors.white, fontSize: 12),
+                TextStyle(
+                    color: Theme.of(context).colorScheme.onInverseSurface,
+                    fontSize: 12),
               );
             },
           ),
@@ -840,7 +987,7 @@ class _EggChart extends StatelessWidget {
               barRods: [
                 BarChartRodData(
                   toY: chartData[i].totalEggs.toDouble(),
-                  color: Colors.amber.shade600,
+                  color: AppStatusColors.primary(context),
                   width: 14,
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(4),
@@ -898,7 +1045,10 @@ class _OpeningBalanceChip extends StatelessWidget {
               padding: const EdgeInsets.only(top: 4),
               child: Row(
                 children: [
-                  Icon(icon, size: 14, color: Colors.grey.shade600),
+                  Icon(icon,
+                      size: 14,
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant),
                   const SizedBox(width: 6),
                   Text('$label: ', style: const TextStyle(fontSize: 12)),
                   Text(value,

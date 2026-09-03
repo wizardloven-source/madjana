@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import '../../../core/design_tokens.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../notifications/providers/notifications_provider.dart';
 import '../../sync/providers/sync_provider.dart';
@@ -181,80 +182,80 @@ class HomeScreen extends ConsumerWidget {
                 _MenuCard(
                   icon: Icons.egg_rounded,
                   label: 'إدخال البيض',
-                  color: const Color(0xFF4CAF50),
+                  color: cs.primary,
                   onTap: () =>
                       Navigator.pushNamed(context, '/egg-production'),
                 ),
                 _MenuCard(
                   icon: Icons.heart_broken_rounded,
                   label: 'إدخال النفوق',
-                  color: const Color(0xFFEF5350),
+                  color: AppStatusColors.danger(context),
                   onTap: () => Navigator.pushNamed(context, '/mortality'),
                 ),
                 _MenuCard(
                   icon: Icons.grain_rounded,
                   label: 'استهلاك العلف',
-                  color: const Color(0xFFFF9800),
+                  color: AppStatusColors.info(context),
                   onTap: () =>
                       Navigator.pushNamed(context, '/feed-consumption'),
                 ),
                 _MenuCard(
                   icon: Icons.local_shipping_rounded,
                   label: 'تخريج البيض',
-                  color: const Color(0xFF42A5F5),
+                  color: cs.primary,
                   onTap: () => Navigator.pushNamed(context, '/dispatch'),
                 ),
                 _MenuCard(
                   icon: Icons.medical_services_rounded,
                   label: 'الأدوية',
-                  color: const Color(0xFF7E57C2),
+                  color: AppStatusColors.warning(context),
                   onTap: () =>
                       Navigator.pushNamed(context, '/medications'),
                 ),
                 _MenuCard(
                   icon: Icons.inventory_2_rounded,
                   label: 'استلام علف',
-                  color: const Color(0xFF8D6E63),
+                  color: cs.primary,
                   onTap: () =>
                       Navigator.pushNamed(context, '/feed-received'),
                 ),
                 _MenuCard(
                   icon: Icons.sticky_note_2_rounded,
                   label: 'ملاحظاتي',
-                  color: const Color(0xFF78909C),
+                  color: cs.onSurfaceVariant,
                   onTap: () => Navigator.pushNamed(context, '/notes'),
                 ),
                 _MenuCard(
                   icon: Icons.settings_rounded,
                   label: 'الإعدادات',
-                  color: const Color(0xFF26A69A),
+                  color: cs.onSurfaceVariant,
                   onTap: () => Navigator.pushNamed(context, '/settings'),
                 ),
                 if (isManager) ...[
                   _MenuCard(
                     icon: Icons.payments_rounded,
                     label: 'قبض المبالغ',
-                    color: const Color(0xFF5C6BC0),
+                    color: AppStatusColors.success(context),
                     onTap: () =>
                         Navigator.pushNamed(context, '/payments'),
                   ),
                   _MenuCard(
                     icon: Icons.assessment_rounded,
                     label: 'التقارير',
-                    color: const Color(0xFFFF7043),
+                    color: AppStatusColors.info(context),
                     onTap: () => Navigator.pushNamed(context, '/reports'),
                   ),
                   _MenuCard(
                     icon: Icons.pets_rounded,
                     label: 'إدارة القطعان',
-                    color: const Color(0xFF00897B),
+                    color: cs.primary,
                     onTap: () => Navigator.pushNamed(
                         context, '/flock-management'),
                   ),
                   _MenuCard(
                     icon: Icons.people_rounded,
                     label: 'الزبائن',
-                    color: const Color(0xFF00ACC1),
+                    color: cs.onSurfaceVariant,
                     onTap: () =>
                         Navigator.pushNamed(context, '/customers'),
                   ),
@@ -312,6 +313,7 @@ class _AppBarIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -341,8 +343,8 @@ class _AppBarIcon extends StatelessWidget {
             top: -4,
             child: Container(
               padding: const EdgeInsets.all(3),
-              decoration: const BoxDecoration(
-                color: Colors.red,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.error,
                 shape: BoxShape.circle,
               ),
               constraints:
@@ -372,6 +374,7 @@ class _SyncStatusBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final success = AppStatusColors.success(context);
 
     if (pendingCount > 0) {
       return Container(
@@ -402,20 +405,20 @@ class _SyncStatusBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.green.withValues(alpha: isDark ? 0.15 : 0.08),
+        color: success.withValues(alpha: isDark ? 0.15 : 0.08),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
-          Icon(Icons.check_circle_outline,
-              size: 18, color: Colors.green.shade600),
+          Icon(Icons.check_circle_outline, size: 18, color: success),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               'جميع السجلات متزامنة',
               style: TextStyle(
                 fontSize: 12,
-                color: isDark ? Colors.green.shade300 : Colors.green.shade700,
+                color: success,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -521,21 +524,26 @@ class OfflineBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final warning = AppStatusColors.warning(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.orange.withValues(alpha: 0.15),
+        color: warning.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+        border: Border.all(color: warning.withValues(alpha: 0.4)),
       ),
       child: Row(
-        children: const [
-          Icon(Icons.wifi_off_rounded, size: 18, color: Colors.orange),
-          SizedBox(width: 8),
+        children: [
+          Icon(Icons.wifi_off_rounded, size: 18, color: warning),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               'غير متصل بالإنترنت — البيانات تُحفظ محلياً',
-              style: TextStyle(fontSize: 12, color: Colors.orange),
+              style: TextStyle(
+                fontSize: 12,
+                color: warning,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],

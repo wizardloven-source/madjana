@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'config/app_theme.dart';
+import 'core/theme.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/customers/presentation/customers_screen.dart';
@@ -33,12 +33,8 @@ class PoultryApp extends ConsumerWidget {
     return MaterialApp(
       title: 'نظام إدارة المداجن',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.lightTheme.copyWith(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        cardColor: const Color(0xFF1E1E1E),
-      ),
+      theme: AppTheme.lightTheme(),
+      darkTheme: AppTheme.darkTheme(),
       themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
       locale: const Locale('ar', 'SA'),
       supportedLocales: const [Locale('ar', 'SA')],
@@ -94,18 +90,21 @@ class _RootGate extends ConsumerWidget {
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: AppTheme.primaryColor.withOpacity(0.12),
+                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.egg_alt,
                   size: 56,
-                  color: AppTheme.primaryColor,
+                  color: theme.colorScheme.primary,
                 ),
               ),
               const SizedBox(height: 24),
               Text(
                 'نظام إدارة المداجن',
-                style: AppTheme.headingMedium,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 32),
               const SizedBox(

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'design_tokens.dart';
 
 class AppTheme {
-  static const Color seedColor = Color(0xFF2E7D32);
+  static const Color seedColor = AppColors.primary;
 
   static ThemeData darkTheme() => _build(Brightness.dark);
   static ThemeData lightTheme() => _build(Brightness.light);
@@ -13,20 +15,26 @@ class AppTheme {
       brightness: brightness,
     );
 
+    final baseText = GoogleFonts.cairoTextTheme(
+      isDark
+          ? ThemeData.dark().textTheme
+          : ThemeData.light().textTheme,
+    );
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor:
-          isDark ? const Color(0xFF0F1114) : const Color(0xFFF5F7FA),
+      scaffoldBackgroundColor: isDark ? AppColors.bgDark : AppColors.bgLight,
+      textTheme: baseText,
 
       appBarTheme: AppBarTheme(
         centerTitle: true,
         elevation: 0,
         scrolledUnderElevation: 0,
-        backgroundColor: scaffold(isDark),
+        backgroundColor: isDark ? AppColors.bgDark : AppColors.bgLight,
         foregroundColor: scheme.onSurface,
-        titleTextStyle: TextStyle(
-          fontSize: 17,
+        titleTextStyle: baseText.titleLarge?.copyWith(
+          fontSize: AppTypography.title,
           fontWeight: FontWeight.bold,
           color: scheme.onSurface,
         ),
@@ -34,10 +42,10 @@ class AppTheme {
 
       cardTheme: CardThemeData(
         elevation: 0,
-        color: isDark ? const Color(0xFF1A1F25) : Colors.white,
+        color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.radiusLg,
           side: BorderSide(
             color: scheme.outlineVariant.withValues(alpha: 0.4),
           ),
@@ -46,52 +54,40 @@ class AppTheme {
 
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor:
-            scheme.surfaceContainerHighest.withValues(alpha: isDark ? 0.35 : 0.5),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
+        fillColor: scheme.surfaceContainerHighest
+            .withValues(alpha: isDark ? 0.35 : 0.5),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm + 2,
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: scheme.primary, width: 1.5),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: scheme.error, width: 1.5),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: scheme.error, width: 2),
-        ),
+        border: _filledBorder(),
+        enabledBorder: _filledBorder(),
+        focusedBorder: _filledBorder(color: scheme.primary, width: 1.5),
+        errorBorder: _filledBorder(color: scheme.error, width: 1.5),
+        focusedErrorBorder: _filledBorder(color: scheme.error, width: 2),
       ),
 
-      filledButtonTheme: FilledButtonThemeData(
-        style: _button(scheme.primary, scheme.onPrimary),
-      ),
+      filledButtonTheme: FilledButtonThemeData(style: _solid(scheme)),
       elevatedButtonTheme: ElevatedButtonThemeData(style: _elevated(scheme)),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(0, 52),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.md - 2,
           ),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.radiusMd),
           side: BorderSide(color: scheme.outline),
-          textStyle:
-              const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          textStyle: baseText.labelLarge?.copyWith(
+            fontSize: AppTypography.button,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
 
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.radiusMd),
         elevation: 4,
       ),
 
@@ -102,9 +98,9 @@ class AppTheme {
       ),
 
       dialogTheme: DialogThemeData(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        backgroundColor: isDark ? const Color(0xFF1C2227) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.radiusXl),
+        backgroundColor:
+            isDark ? const Color(0xFF1C2227) : AppColors.surfaceLight,
       ),
 
       bottomSheetTheme: BottomSheetThemeData(
@@ -112,7 +108,7 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         showDragHandle: true,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppSpacing.xl - 12)),
         ),
       ),
 
@@ -127,27 +123,44 @@ class AppTheme {
   }
 
   static Color scaffold(bool isDark) =>
-      isDark ? const Color(0xFF0F1114) : const Color(0xFFF5F7FA);
+      isDark ? AppColors.bgDark : AppColors.bgLight;
 
-  static ButtonStyle _button(Color bg, Color fg) => ButtonStyle(
+  static InputBorder _filledBorder({Color? color, double width = 0}) =>
+      OutlineInputBorder(
+        borderRadius: const BorderRadius.all(Radius.circular(14)),
+        borderSide: width == 0
+            ? BorderSide.none
+            : BorderSide(color: color!, width: width),
+      );
+
+  static ButtonStyle _solid(ColorScheme scheme) => ButtonStyle(
         minimumSize: const WidgetStatePropertyAll(Size(0, 52)),
         padding: const WidgetStatePropertyAll(
-          EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.md - 2,
+          ),
         ),
-        backgroundColor: WidgetStatePropertyAll(bg),
-        foregroundColor: WidgetStatePropertyAll(fg),
+        backgroundColor: WidgetStatePropertyAll(scheme.primary),
+        foregroundColor: WidgetStatePropertyAll(scheme.onPrimary),
         textStyle: const WidgetStatePropertyAll(
-          TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+          TextStyle(
+            fontSize: AppTypography.button,
+            fontWeight: FontWeight.w700,
+          ),
         ),
-        shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: const WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: AppRadius.radiusMd),
         ),
       );
 
   static ButtonStyle _elevated(ColorScheme scheme) => ButtonStyle(
         minimumSize: const WidgetStatePropertyAll(Size(0, 52)),
         padding: const WidgetStatePropertyAll(
-          EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg,
+            vertical: AppSpacing.md - 2,
+          ),
         ),
         elevation: const WidgetStatePropertyAll(0),
         backgroundColor: WidgetStateProperty.resolveWith((states) {
@@ -163,10 +176,13 @@ class AppTheme {
           return scheme.onPrimary;
         }),
         textStyle: const WidgetStatePropertyAll(
-          TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+          TextStyle(
+            fontSize: AppTypography.button,
+            fontWeight: FontWeight.w700,
+          ),
         ),
-        shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: const WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: AppRadius.radiusMd),
         ),
       );
 }

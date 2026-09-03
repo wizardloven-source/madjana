@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:data/data.dart';
 import 'app.dart';
 import 'core/supabase_client.dart';
-import 'config/app_theme.dart';
+import 'core/theme.dart';
 
 /// نقطة دخول تطبيق الموبايل
 ///
@@ -117,7 +117,7 @@ class _MadjanaBootstrapState extends State<MadjanaBootstrap> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'إدارة المداجن',
-      theme: AppTheme.lightTheme,
+      theme: AppTheme.lightTheme(),
       locale: const Locale('ar', 'SA'),
       debugShowCheckedModeBanner: false,
       home: _buildHome(),

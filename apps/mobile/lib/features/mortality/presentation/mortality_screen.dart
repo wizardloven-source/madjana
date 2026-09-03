@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:core/core.dart';
+import '../../../core/design_tokens.dart';
 import '../../../shared/widgets/custom_numpad.dart';
 import '../../../shared/widgets/date_picker_field.dart';
 import '../../../shared/widgets/modern_ui.dart';
@@ -106,11 +107,7 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
 
     final user = ref.read(authProvider).currentUser;
     if (user == null || user.farmId == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: Colors.red),
-        );
-      }
+      _showError('خطأ في بيانات المستخدم');
       return;
     }
     final farmId = user.farmId!;
@@ -151,23 +148,16 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(AppConstants.colorDanger),
-        title: const Row(
-          children: [
-            Icon(Icons.warning, color: Colors.white),
-            SizedBox(width: 8),
-            Text('تنبيه! نفوق مرتفع', style: TextStyle(color: Colors.white)),
-          ],
-        ),
+        icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+        title: const Text('تنبيه مهم'),
         content: Text(
-          'نسبة النفوق ${percentage.toStringAsFixed(2)}% من القطيع.\n'
-          'يرجى مراجعة الطبيب البيطري فوراً.',
-          style: const TextStyle(color: Colors.white),
+          'نسبة النفوق اليوم ${percentage.toStringAsFixed(2)}% أعلى من '
+          'المستوى المعتاد.\nيرجى مراجعة الطبيب البيطري.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('حسناً', style: TextStyle(color: Colors.white)),
+            child: const Text('حسناً'),
           ),
         ],
       ),
@@ -231,6 +221,16 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
               active: _activeField == 'count',
               onTap: () => setState(() => _activeField = 'count'),
             ),
+            // تحليل لحظي قبل الحفظ: حجم القطيع + نسبة النفوق + الحالة
+            if (flocks.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              _MortalityFeedback(
+                selectedFlockId: _selectedFlockId,
+                currentCount: _count,
+                flocks: flocks,
+                todayRecords: _todayRecords,
+              ),
+            ],
             const SizedBox(height: 16),
 
             // سبب النفوق
@@ -310,13 +310,15 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
               const SizedBox(height: 24),
               const Text('سجلات اليوم', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              ..._todayRecords.map((record) => Dismissible(
+              ..._todayRecords.map((record) {
+                final danger = AppStatusColors.danger(context);
+                return Dismissible(
                 key: ValueKey(record.id),
                 direction: DismissDirection.endToStart,
                 background: Container(
                   alignment: Alignment.centerRight,
                   padding: const EdgeInsets.only(left: 20),
-                  color: Colors.red,
+                  color: danger,
                   child: const Icon(Icons.delete, color: Colors.white),
                 ),
                 confirmDismiss: (direction) async {
@@ -329,8 +331,10 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
                         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
                         FilledButton(
                           onPressed: () => Navigator.pop(ctx, true),
+                          style: FilledButton.styleFrom(
+                              backgroundColor:
+                                  Theme.of(ctx).colorScheme.error),
                           child: const Text('حذف'),
-                          style: FilledButton.styleFrom(backgroundColor: Colors.red),
                         ),
                       ],
                     ),
@@ -346,13 +350,13 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
                   padding: const EdgeInsets.all(12),
                   margin: const EdgeInsets.only(bottom: 8),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.05),
+                    color: danger.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.red.withValues(alpha: 0.2)),
+                    border: Border.all(color: danger.withValues(alpha: 0.2)),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.pets, color: Colors.red),
+                      Icon(Icons.pets, color: danger),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -360,17 +364,120 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
                           children: [
                             Text('${Formatters.formatNumber(record.count)} طائر', style: const TextStyle(fontWeight: FontWeight.bold)),
                             Text('سبب: ${record.reason.label}${record.reasonOther != null ? ' (${record.reasonOther})' : ''}',
-                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                           ],
                         ),
                       ),
                     ],
                   ),
                 ),
-              )),
+               );
+              }),
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// تحليل لحظي قبل الحفظ: حجم القطيع + نسبة النفوق اليوم + حالة (طبيعي/مرتفع/حرج)
+class _MortalityFeedback extends StatelessWidget {
+  final String? selectedFlockId;
+  final int currentCount;
+  final List<FlockModel> flocks;
+  final List<MortalityModel> todayRecords;
+
+  const _MortalityFeedback({
+    required this.selectedFlockId,
+    required this.currentCount,
+    required this.flocks,
+    required this.todayRecords,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (selectedFlockId == null || currentCount <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    FlockModel? flock;
+    for (final f in flocks) {
+      if (f.id == selectedFlockId) {
+        flock = f;
+        break;
+      }
+    }
+    if (flock == null || flock.currentCount <= 0) return const SizedBox.shrink();
+
+    final existingToday = todayRecords
+        .where((r) => r.flockId == selectedFlockId)
+        .fold<int>(0, (sum, r) => sum + r.count);
+    final totalToday = existingToday + currentCount;
+    final percentage = (totalToday / flock.currentCount) * 100;
+
+    // حالة بثلاث مستويات:
+    //   ≤0.5% طبيعي، 0.5–1.0% مرتفع، >1.0% حرج
+    final Color statusColor;
+    final String statusLabel;
+    IconData statusIcon;
+    if (percentage > 1.0) {
+      statusColor = AppStatusColors.danger(context);
+      statusLabel = 'حرج';
+      statusIcon = Icons.crisis_alert_rounded;
+    } else if (percentage > 0.5) {
+      statusColor = AppStatusColors.warning(context);
+      statusLabel = 'مرتفع';
+      statusIcon = Icons.warning_amber_rounded;
+    } else {
+      statusColor = AppStatusColors.success(context);
+      statusLabel = 'ضمن الطبيعي';
+      statusIcon = Icons.check_circle_rounded;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: statusColor.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: statusColor.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          Icon(statusIcon, color: statusColor, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'القطيع: ${Formatters.formatNumber(flock.currentCount)} طائر',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'نسبة النفوق اليوم: ${percentage.toStringAsFixed(2)}%',
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              statusLabel,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: statusColor,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

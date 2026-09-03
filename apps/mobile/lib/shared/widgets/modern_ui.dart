@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/design_tokens.dart';
 
 /// ═══════════════════════════════════════════════
 /// مكونات واجهة موحدة حديثة لكل شاشات التطبيق
@@ -17,10 +18,10 @@ class AppSnack {
           Theme.of(context).colorScheme.error);
 
   static void info(BuildContext context, String message) => _show(
-      context, message, Icons.info_rounded, Colors.blueGrey.shade700);
+      context, message, Icons.info_rounded, AppColors.info);
 
   static void warning(BuildContext context, String message) =>
-      _show(context, message, Icons.warning_amber_rounded, Colors.orange);
+      _show(context, message, Icons.warning_amber_rounded, AppColors.warning);
 
   static void _show(
       BuildContext context, String message, IconData icon, Color color) {

@@ -127,9 +127,9 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     return Scaffold(
       body: Row(
         children: [
-          // NavigationRail محسّن
+          // NavigationRail محسّن — عرض ERP (230px) مع نص واضح ≥13px
           Container(
-            width: 80,
+            width: 230,
             decoration: BoxDecoration(
               color: theme.colorScheme.surface,
               border: Border(
@@ -141,119 +141,58 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
             child: Column(
               children: [
                 const SizedBox(height: 12),
-                // شعار التطبيق
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        theme.colorScheme.primary,
-                        theme.colorScheme.tertiary,
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.egg_alt_rounded,
-                    color: Colors.white,
-                    size: 24,
+                // شعار التطبيق + الاسم
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              theme.colorScheme.primary,
+                              theme.colorScheme.tertiary,
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.egg_alt_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'مداجن',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'مداجن',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 const Divider(indent: 16, endIndent: 16),
-                const SizedBox(height: 4),
+                const SizedBox(height: 8),
                 Expanded(
                   child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     itemCount: _icons.length,
                     itemBuilder: (context, i) {
                       final isSelected = selectedIndex == i;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: Material(
-                          color: isSelected
-                              ? theme.colorScheme.primaryContainer
-                                  .withValues(alpha: 0.4)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () => ref
-                                .read(shellTabProvider.notifier)
-                                .state = i,
-                            child: SizedBox(
-                              height: 52,
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        _icons[i],
-                                        size: 22,
-                                        color: isSelected
-                                            ? theme.colorScheme.primary
-                                            : theme.colorScheme.onSurface
-                                                .withValues(alpha: 0.6),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        _titles[i],
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          fontWeight: isSelected
-                                              ? FontWeight.w700
-                                              : FontWeight.w500,
-                                          color: isSelected
-                                              ? theme.colorScheme.primary
-                                              : theme.colorScheme.onSurface
-                                                  .withValues(alpha: 0.6),
-                                        ),
-                                        textAlign: TextAlign.center,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
-                                  ),
-                                  if (i == 6 && pendingApprovals > 0)
-                                    Positioned(
-                                      top: 4,
-                                      left: 8,
-                                      child: Container(
-                                        padding: const EdgeInsets.all(3),
-                                        decoration: const BoxDecoration(
-                                          color: Colors.red,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        constraints: const BoxConstraints(
-                                            minWidth: 14, minHeight: 14),
-                                        child: Text(
-                                          '$pendingApprovals',
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 8,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+                      return _NavTile(
+                        icon: _icons[i],
+                        label: _titles[i],
+                        selected: isSelected,
+                        badgeCount: i == 6 ? pendingApprovals : 0,
+                        onTap: () => ref
+                            .read(shellTabProvider.notifier)
+                            .state = i,
                       );
                     },
                   ),
@@ -261,7 +200,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                 const Divider(indent: 16, endIndent: 16),
                 // معلومات المستخدم
                 Padding(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(12),
                   child: Column(
                     children: [
                       CircleAvatar(
@@ -274,7 +213,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                       const SizedBox(height: 4),
                       Text(
                         user?.name ?? '',
-                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                         textAlign: TextAlign.center,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -282,7 +221,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                       Text(
                         'مدير',
                         style: TextStyle(
-                          fontSize: 9,
+                          fontSize: 12,
                           color: theme.colorScheme.outline,
                         ),
                       ),
@@ -370,6 +309,99 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// عنصر تنقّل ERP أفقي: أيقونة + نص واضح (≥13px)
+class _NavTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final int badgeCount;
+  final VoidCallback onTap;
+
+  const _NavTile({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.badgeCount,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Material(
+        color: selected
+            ? theme.colorScheme.primaryContainer.withValues(alpha: 0.4)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Container(
+            height: 44,
+            alignment: Alignment.center,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Row(
+                  children: [
+                    const SizedBox(width: 8),
+                    Icon(
+                      icon,
+                      size: 20,
+                      color: selected
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurface.withValues(alpha: 0.65),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                          color: selected
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurface.withValues(alpha: 0.75),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                ),
+                if (badgeCount > 0)
+                  Positioned(
+                    left: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                      constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+                      child: Text(
+                        '$badgeCount',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
