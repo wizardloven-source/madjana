@@ -31,7 +31,7 @@ DROP TABLE IF EXISTS sync_queue, app_notifications, dispatch_requests,
     audit_log, medicines_catalog, medications, payments, egg_dispatch,
     customers, feed_received, feed_consumption, mortality, egg_production,
     flocks, opening_balances, inventory_transactions, inventory_items,
-    expenses, users, farms CASCADE;
+    expenses, users, farms, sync_changes, sync_checkpoint CASCADE;
 
 DROP FUNCTION IF EXISTS public.find_user_by_phone(text);
 DROP FUNCTION IF EXISTS public.current_user_role(), public.current_user_farm_id();
@@ -44,6 +44,12 @@ DROP FUNCTION IF EXISTS public.admin_update_user(text, text, text, text);
 DROP FUNCTION IF EXISTS public.admin_reset_pin(text, text);
 DROP FUNCTION IF EXISTS public.admin_delete_user(text);
 DROP FUNCTION IF EXISTS public.sync_records_batch(jsonb);
+DROP FUNCTION IF EXISTS public.pull_remote_changes(uuid, bigint);
+DROP FUNCTION IF EXISTS public.cleanup_old_sync_changes(int, uuid);
+DROP FUNCTION IF EXISTS public.maintain_sync_changes(int, uuid);
+DROP FUNCTION IF EXISTS public.compact_sync_changes(uuid);
+DROP FUNCTION IF EXISTS public.refresh_sync_checkpoint(uuid);
+DROP FUNCTION IF EXISTS public.auto_maintain_sync();
 DROP FUNCTION IF EXISTS public.ensure_operational_policies(name);
 DROP FUNCTION IF EXISTS public.ensure_manager_policies(name);
 DROP FUNCTION IF EXISTS public.update_updated_at_column();
@@ -438,6 +444,12 @@ SELECT 'secure.bootstrap_token',
        NOW()
 WHERE NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'secure.bootstrap_token');
 
+-- (21) إعدادات الاحتفاظ بالمزامنة — قابلة للضبط دون تعديل الكود.
+INSERT INTO app_settings (key, value, updated_at) VALUES
+    ('sync.retention_days', '30', NOW()),
+    ('sync.maintenance_interval_minutes', '360', NOW())
+ON CONFLICT (key) DO NOTHING;
+
 CREATE TABLE app_notifications (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     farm_id       UUID NOT NULL,
@@ -481,6 +493,20 @@ CREATE TABLE sync_changes (
 );
 CREATE INDEX idx_sync_changes_farm_server ON sync_changes(farm_id, server_version);
 CREATE INDEX idx_sync_changes_record ON sync_changes(table_name, record_id);
+
+-- Checkpoint لكل مزرعة: يلخّص حالة جدول المزامنة لتجنّب فحوص MIN/MAX
+-- المكلفة في كل سحب، ولإدارة watermark (purged_below) الخاص بالاحتفاظ/الضغط.
+--   latest_version  = أحدث server_version مُسجَّل للمزرعة.
+--   purged_below    = أقل server_version محتجزاً بعد التنظيف/الضغط؛
+--                     أي جهاز يتقدم إلى ما دونه يتطلب إعادة مزامنة كاملة.
+CREATE TABLE sync_checkpoint (
+    farm_id           UUID PRIMARY KEY REFERENCES farms(id) ON DELETE CASCADE,
+    latest_version    BIGINT NOT NULL DEFAULT 0,
+    purged_below      BIGINT NOT NULL DEFAULT 0,
+    last_maintenance  TIMESTAMPTZ,
+    updated_at        TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_sync_checkpoint_latest ON sync_checkpoint(latest_version);
 
 -- ============================================================
 -- 4) بذر كتالوج الأدوية
@@ -1329,6 +1355,7 @@ ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dispatch_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sync_changes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sync_checkpoint ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 
 -- app_settings: غير قابل للقراءة/الكتابة عبر SQL العادي إلا للمديرين
@@ -1509,7 +1536,10 @@ SELECT public.ensure_manager_policies('payments');
 SELECT public.ensure_manager_policies('expenses');
 SELECT public.ensure_manager_policies('opening_balances');
 SELECT public.ensure_manager_policies('inventory_items');
-SELECT public.ensure_manager_policies('audit_log');
+-- audit_log غير مشمول بـ ensure_manager_policies عمداً:
+-- لا mgr_all (FOR ALL) له لأنه append-only؛ كتابته حصرية عبر trigger SECURITY DEFINER.
+-- قراءته مقصورة على سياسة audit_select_manager أدناه.
+DROP POLICY IF EXISTS mgr_all ON audit_log;
 
 -- inventory_transactions
 DROP POLICY IF EXISTS mgr_tx ON inventory_transactions;
@@ -1581,6 +1611,12 @@ CREATE POLICY sync_changes_insert ON sync_changes
 
 DROP POLICY IF EXISTS sync_changes_select ON sync_changes;
 CREATE POLICY sync_changes_select ON sync_changes
+    FOR SELECT TO authenticated
+    USING (is_system_admin() OR farm_id = current_user_farm_id());
+
+-- sync_checkpoint: للقراءة فقط (مثل audit_log). الكتابة حصرية عبر دوال SECURITY DEFINER.
+DROP POLICY IF EXISTS sync_checkpoint_select ON sync_checkpoint;
+CREATE POLICY sync_checkpoint_select ON sync_checkpoint
     FOR SELECT TO authenticated
     USING (is_system_admin() OR farm_id = current_user_farm_id());
 
@@ -2118,8 +2154,10 @@ GRANT EXECUTE ON FUNCTION public.app_password_from_pin(text) TO anon, authentica
 GRANT EXECUTE ON FUNCTION public.app_user_email(uuid) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.sync_records_batch(jsonb) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.pull_remote_changes(uuid, bigint) TO authenticated;
--- cleanup_old_sync_changes: لا يُمنح للمستخدمين. يُستدعى عبر Edge Function/pg_cron بصلاحية service_role أو manager فقط.
+-- cleanup/compact: لا يُمنح للمستخدمين. يُستدعى عبر Edge Function/pg_cron بصلاحية
+-- service_role أو manager فقط، وتنفّذه auto_maintain_sync داخلياً بالسحب.
 GRANT EXECUTE ON FUNCTION public.cleanup_old_sync_changes(int, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.compact_sync_changes(uuid) TO authenticated;
 
 -- ============================================================
 -- 16) RLS للجداول الجديدة
@@ -2138,13 +2176,12 @@ CREATE POLICY audit_select_manager ON audit_log
         OR (farm_id = current_user_farm_id() AND current_user_role() = 'manager')
     );
 
+-- (19) audit_log append-only ومُنشأ حصرياً عبر النظام:
+-- لا توجد سياسة INSERT لأي مستخدم (حتى المدير) — لا يمكن لأي تطبيق
+-- تصنيع سجلات تدقيق، ولا تعديل/حذف (لا توجد سياسات UPDATE/DELETE).
+-- الوحيد الذي يكتب هو trigger الدالة SECURITY DEFINER log_audit_changes.
+DROP POLICY IF EXISTS audit_insert_manager ON audit_log;
 DROP POLICY IF EXISTS audit_insert_system ON audit_log;
-CREATE POLICY audit_insert_manager ON audit_log
-    FOR INSERT TO authenticated
-    WITH CHECK (
-        is_system_admin()
-        OR (farm_id = current_user_farm_id() AND current_user_role() = 'manager')
-    );
 
 -- ============================================================
 -- 17) قيود المجال المالية (P0/25 + P0/26)
@@ -2391,6 +2428,7 @@ DECLARE
     v_latest   bigint;
     v_min_keep bigint;
     v_changes  jsonb;
+    v_cp       record;
 BEGIN
     IF auth.uid() IS NULL THEN
         RAISE EXCEPTION 'AUTHORIZATION_DENIED: غير مسجل الدخول';
@@ -2408,14 +2446,27 @@ BEGIN
         END IF;
     END IF;
 
-    -- أحدث إصدار في sync_changes لهذه المزرعة
-    SELECT COALESCE(MAX(server_version), 0) INTO v_latest
-    FROM sync_changes WHERE farm_id = p_farm_id;
+    -- صيانة دورية مقيّدة زمنياً (retention + compaction + checkpoint) —
+    -- تُنفَّذ كحد أقصى مرة كل maintenance_interval_minutes، فلا تكلّف السحب.
+    PERFORM public.auto_maintain_sync();
 
-    -- أقل نسخة محفوظة (أقدم server_version محتجز في sync_changes بعد التنظيف)
-    -- لتمكين اكتشاف الأجهزة المتأخرة أكثر من فترة الاحتفاظ → RESYNC_REQUIRED.
-    SELECT COALESCE(MIN(server_version), v_latest) INTO v_min_keep
-    FROM sync_changes WHERE farm_id = p_farm_id;
+    -- قراءة watermark من checkpoint (بدل فحوص MIN/MAX المكلفة في كل سحب).
+    -- إذا لم يوجد checkpoint بعد (مزرعة جديدة/أول سحب)، نحسب ونخزّن.
+    SELECT latest_version, purged_below INTO v_latest, v_min_keep
+    FROM sync_checkpoint WHERE farm_id = p_farm_id;
+
+    IF v_latest IS NULL THEN
+        SELECT COALESCE(MAX(server_version), 0), COALESCE(MIN(server_version), 0)
+            INTO v_latest, v_min_keep
+        FROM sync_changes WHERE farm_id = p_farm_id;
+        IF v_min_keep = 0 THEN v_min_keep := v_latest; END IF;
+        INSERT INTO sync_checkpoint (farm_id, latest_version, purged_below, updated_at)
+        VALUES (p_farm_id, v_latest, v_min_keep, NOW())
+        ON CONFLICT (farm_id) DO UPDATE SET
+            latest_version = EXCLUDED.latest_version,
+            purged_below   = EXCLUDED.purged_below,
+            updated_at     = NOW();
+    END IF;
 
     -- جلب التغييرات الأحدث من الإصدار المطلوب
     SELECT jsonb_agg(jsonb_build_object(
@@ -2450,33 +2501,261 @@ $$;
 
 -- تنظيف sync_changes القديمة — مقصور على المدير/system_admin فقط.
 -- يُستدعى دورياً من Edge Function أو pg_cron بصلاحية manager، وليس من العمال.
+-- ============================================================
+-- (21) استراتيجية الاحتفاظ/الضغط/الـ checkpoint لجدول المزامنة
+-- ============================================================
+-- مكوّن من أربع طبقات:
+--   1) Retention  : cleanup_old_sync_changes() — يحذف ما مضى على حفظه فترة مسموحة.
+--   2) Compaction : compact_sync_changes() — يطوي سلاسل UPDATE المتتالية
+--                   لكل (farm, table, record) ويبقي آخرها فقط (الـ payload صورة
+--                   كاملة للصف، لذا تخطّي النسخ الوسطى لا يفقد معلومات).
+--   3) Checkpoint : refresh_sync_checkpoint() — يخزّن latest/purged_below per farm
+--                   بدلاً من فحوص MIN/MAX المكلفة في كل سحب.
+--   4) Auto       : auto_maintain_sync() — صيانة دورية مقيّدة زمنياً (throttle)
+--                   تُستدعى فرصياً من pull/push دون حاجة لجدولة خارجية.
+
+-- أداة داخلية: قراءة فترة الاحتفاظ من الإعدادات (افتراضياً 30 يوماً)
+CREATE OR REPLACE FUNCTION public._sync_retention_days()
+RETURNS int
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT COALESCE((SELECT value::int FROM public.app_settings WHERE key = 'sync.retention_days'), 30);
+$$;
+
+-- أداة داخلية: قراءة فترة الصيانة الدنيا بالدقائق (افتراضياً 6 ساعات)
+CREATE OR REPLACE FUNCTION public._sync_maintenance_interval_minutes()
+RETURNS int
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT COALESCE((SELECT value::int FROM public.app_settings WHERE key = 'sync.maintenance_interval_minutes'), 360);
+$$;
+
+-- ============================================================
+-- (3) تحديث checkpoint لمزرعة (أو كل المزارع):
+--   latest_version = MAX(server_version) للمزرعة
+--   purged_below   = MIN(server_version) المحتجز بعد التنظيف/الضغط
+-- يعمل داخلياً (بدون تحقق دورات) لاستدعائه من دوال أخرى.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.refresh_sync_checkpoint(
+    p_farm_id uuid DEFAULT NULL,
+    p_all boolean DEFAULT false
+)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_f record;
+BEGIN
+    -- لا تقلق: هذه دالة داخلية؛ التحقق من الصلاحية يتم في الدعوات العامة (cleanup/compact).
+    IF p_all THEN
+        FOR v_f IN SELECT id FROM public.farms LOOP
+            PERFORM public.refresh_sync_checkpoint(v_f.id);
+        END LOOP;
+        RETURN;
+    END IF;
+
+    IF p_farm_id IS NULL THEN
+        RAISE EXCEPTION 'VALIDATION_ERROR: يجب تحديد مزرعة أو p_all = true';
+    END IF;
+
+    INSERT INTO sync_checkpoint (farm_id, latest_version, purged_below, updated_at)
+    SELECT
+        p_farm_id,
+        COALESCE((SELECT MAX(server_version) FROM sync_changes WHERE farm_id = p_farm_id), 0),
+        COALESCE((SELECT MIN(server_version) FROM sync_changes WHERE farm_id = p_farm_id), 0),
+        NOW()
+    ON CONFLICT (farm_id) DO UPDATE SET
+        latest_version = EXCLUDED.latest_version,
+        purged_below   = EXCLUDED.purged_below,
+        updated_at     = NOW();
+END;
+$$;
+
+-- ============================================================
+-- (1) Retention: حذف القديم + تحديث checkpoint.
+-- عام — تحقق صراحة من دور المستخدم (manager مزرعته / system_admin الكل).
+-- ============================================================
 CREATE OR REPLACE FUNCTION public.cleanup_old_sync_changes(
-    p_keep_days int DEFAULT 30,
+    p_keep_days int DEFAULT NULL,
     p_farm_id uuid DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+DECLARE
+    v_keep_days int;
 BEGIN
     IF NOT (public.is_system_admin() OR public.current_user_role() = 'manager') THEN
         RAISE EXCEPTION 'AUTHORIZATION_DENIED: غير مسموح بتنظيف المزامنة';
     END IF;
 
-    IF p_keep_days < 1 THEN
+    v_keep_days := COALESCE(p_keep_days, public._sync_retention_days());
+    IF v_keep_days < 1 THEN
         RAISE EXCEPTION 'VALIDATION_ERROR: فترة الاحتفاظ يجب أن تكون يوماً واحداً على الأقل';
     END IF;
 
     -- المدير ينظف بيانات مزرعته فقط؛ system_admin ينظف كل المزارع (أو المزرعة المعطاة).
     IF public.is_system_admin() THEN
         DELETE FROM sync_changes
-        WHERE created_at < NOW() - (p_keep_days || ' days')::interval
+        WHERE created_at < NOW() - (v_keep_days || ' days')::interval
           AND (p_farm_id IS NULL OR farm_id = p_farm_id);
+        IF p_farm_id IS NULL THEN
+            PERFORM public.refresh_sync_checkpoint(NULL, true);
+        ELSE
+            PERFORM public.refresh_sync_checkpoint(p_farm_id);
+        END IF;
     ELSE
         DELETE FROM sync_changes
         WHERE farm_id = public.current_user_farm_id()
-          AND created_at < NOW() - (p_keep_days || ' days')::interval;
+          AND created_at < NOW() - (v_keep_days || ' days')::interval;
+        PERFORM public.refresh_sync_checkpoint(public.current_user_farm_id());
     END IF;
+END;
+$$;
+
+-- ============================================================
+-- (2) Compaction: طيّ سلاسل UPDATE المتتالية لكل سجل.
+-- يحذف أي صف UPDATE يسبقه (ضمن نفس farm/table/record) صف UPDATE مباشرة،
+-- محتفظاً بآخر UPDATE فقط في السلسلة. لا يمسّ INSERT/DELETE أبداً حتى لا
+-- نكسر ترتيب دورة حياة السجل. يقرأ purged_below من checkpoint ليطوي داخل
+-- نطاق محتجز فقط (لا يعيد كتابة/حذف ما هو خارج فترة الاحتفاظ).
+-- عام — تحقق صراحة من الدور.
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.compact_sync_changes(
+    p_farm_id uuid DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_base bigint := 0;
+    v_f    record;
+BEGIN
+    IF NOT (public.is_system_admin() OR public.current_user_role() = 'manager') THEN
+        RAISE EXCEPTION 'AUTHORIZATION_DENIED: غير مسموح بضغط المزامنة';
+    END IF;
+
+    -- حصر النطاق: فقط المزرعة المحددة (أو مزرعة المدير).
+    IF public.is_system_admin() THEN
+        IF p_farm_id IS NOT NULL THEN
+            v_base := COALESCE((SELECT purged_below FROM sync_checkpoint WHERE farm_id = p_farm_id), 0);
+            -- طيّ السلسلة: احذف UPDATE الأقدم (prev) عندما يليه UPDATE أحدث (sc)
+            -- لنفس farm/table/record دون أي INSERT/DELETE وسيط، مُبقياً الأحدث فقط
+            -- (payload صورة كاملة للصف، فتخطّي النسخ الوسطى لا يفقد معلومات).
+            DELETE FROM sync_changes prev
+            USING sync_changes sc
+            WHERE prev.farm_id = p_farm_id
+              AND prev.operation = 'UPDATE'
+              AND prev.server_version > v_base
+              AND sc.farm_id = prev.farm_id
+              AND sc.table_name = prev.table_name
+              AND sc.record_id = prev.record_id
+              AND sc.operation = 'UPDATE'
+              AND sc.server_version > prev.server_version
+              AND NOT EXISTS (
+                  SELECT 1 FROM sync_changes mid
+                  WHERE mid.farm_id = prev.farm_id
+                    AND mid.table_name = prev.table_name
+                    AND mid.record_id = prev.record_id
+                    AND mid.server_version > prev.server_version
+                    AND mid.server_version < sc.server_version
+                    AND mid.operation <> 'UPDATE'
+              );
+        ELSE
+            PERFORM public.refresh_sync_checkpoint(NULL, true);
+            FOR v_f IN SELECT id FROM public.farms LOOP
+                PERFORM public.compact_sync_changes(v_f.id);
+            END LOOP;
+            RETURN;
+        END IF;
+    ELSE
+        v_base := COALESCE((SELECT purged_below FROM sync_checkpoint WHERE farm_id = public.current_user_farm_id()), 0);
+        DELETE FROM sync_changes prev
+        USING sync_changes sc
+        WHERE prev.farm_id = public.current_user_farm_id()
+          AND prev.operation = 'UPDATE'
+          AND prev.server_version > v_base
+          AND sc.farm_id = prev.farm_id
+          AND sc.table_name = prev.table_name
+          AND sc.record_id = prev.record_id
+          AND sc.operation = 'UPDATE'
+          AND sc.server_version > prev.server_version
+          AND NOT EXISTS (
+              SELECT 1 FROM sync_changes mid
+              WHERE mid.farm_id = prev.farm_id
+                AND mid.table_name = prev.table_name
+                AND mid.record_id = prev.record_id
+                AND mid.server_version > prev.server_version
+                AND mid.server_version < sc.server_version
+                AND mid.operation <> 'UPDATE'
+          );
+    END IF;
+
+    -- تحديث checkpoint بعد الضغط
+    IF public.is_system_admin() AND p_farm_id IS NULL THEN
+        NULL;
+    ELSIF public.is_system_admin() THEN
+        PERFORM public.refresh_sync_checkpoint(p_farm_id);
+    ELSE
+        PERFORM public.refresh_sync_checkpoint(public.current_user_farm_id());
+    END IF;
+END;
+$$;
+
+-- ============================================================
+-- (4) Auto-maintenance: صيانة دورية مقيّدة زمنياً.
+-- تُستدعى فرصياً من pull_remote_changes/sync_records_batch. تنفّذ
+-- retention + compaction + checkpoint لمزرعة المستخدم بحد أقصى مرة
+-- كل maintenance_interval_minutes (افتراضياً 6 ساعات) لتجنّب تكرار العمل.
+-- تُنفَّذ بصلاحية المتصل عبر الدوال العامة (فالتحقق من الدور داخل كلٍّ منها).
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.auto_maintain_sync()
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_farm      uuid;
+    v_interval  interval;
+    v_last      timestamptz;
+BEGIN
+    v_farm := public.current_user_farm_id();
+    IF v_farm IS NULL THEN
+        RETURN;
+    END IF;
+
+    v_interval := make_interval(mins => public._sync_maintenance_interval_minutes());
+
+    SELECT last_maintenance INTO v_last
+    FROM sync_checkpoint WHERE farm_id = v_farm;
+
+    -- لا نكرر العمل إذا كانت الصيانة الأخيرة حديثة.
+    IF v_last IS NOT NULL AND v_last > NOW() - v_interval THEN
+        RETURN;
+    END IF;
+
+    -- retention
+    PERFORM public.cleanup_old_sync_changes(NULL, v_farm);
+    -- compaction (يُنفَّذ فقط في نطاق checkpoint — لا يعيد حذف ما وراء الاحتفاظ)
+    PERFORM public.compact_sync_changes(v_farm);
+
+    -- تحديث الطابع الزمني (يتم داخل refresh، نضبطه صراحةً هنا)
+    INSERT INTO sync_checkpoint (farm_id, latest_version, purged_below, last_maintenance, updated_at)
+    SELECT
+        v_farm,
+        COALESCE((SELECT MAX(server_version) FROM sync_changes WHERE farm_id = v_farm), 0),
+        COALESCE((SELECT MIN(server_version) FROM sync_changes WHERE farm_id = v_farm), 0),
+        NOW(), NOW()
+    ON CONFLICT (farm_id) DO UPDATE SET
+        latest_version    = EXCLUDED.latest_version,
+        purged_below      = EXCLUDED.purged_below,
+        last_maintenance  = NOW(),
+        updated_at        = NOW();
 END;
 $$;
 

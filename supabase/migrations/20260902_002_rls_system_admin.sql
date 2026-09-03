@@ -120,7 +120,8 @@ SELECT public.ensure_manager_policies('payments');
 SELECT public.ensure_manager_policies('expenses');
 SELECT public.ensure_manager_policies('opening_balances');
 SELECT public.ensure_manager_policies('inventory_items');
-SELECT public.ensure_manager_policies('audit_log');
+-- audit_log: NOT عبر ensure_manager_policies (append-only، كتابة حصرية عبر trigger)
+DROP POLICY IF EXISTS mgr_all ON audit_log;
 
 -- inventory_transactions
 DROP POLICY IF EXISTS mgr_tx ON inventory_transactions;
@@ -252,16 +253,10 @@ CREATE POLICY audit_select_manager ON audit_log
         )
     );
 
+-- (19) حمايته append-only: نُسقط أي سياسة INSERT/UPDATE/DELETE لأي مستخدم.
+-- سجلات التدقيق تُنشأ حصرياً عبر trigger (SECURITY DEFINER) وليست تطبيقية.
 DROP POLICY IF EXISTS audit_insert_manager ON audit_log;
-CREATE POLICY audit_insert_manager ON audit_log
-    FOR INSERT TO authenticated
-    WITH CHECK (
-        is_system_admin()
-        OR (
-            farm_id = current_user_farm_id()
-            AND current_user_role() = 'manager'
-        )
-    );
+DROP POLICY IF EXISTS audit_insert_system ON audit_log;
 
 -- ============================================================
 -- l) GRANT للدوال الجديدة
