@@ -81,6 +81,8 @@ CREATE TABLE users (
     farm_id       UUID REFERENCES farms(id) ON DELETE SET NULL,
     remember_token TEXT,
     is_active     BOOLEAN NOT NULL DEFAULT true,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until  TIMESTAMPTZ,
     created_at    TIMESTAMPTZ DEFAULT NOW(),
     updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
@@ -591,22 +593,194 @@ AS $$
     SELECT p_uid::text || '@users.madjana.local';
 $$;
 
--- البحث بالهاتف — يستخدمه تطبيق تسجيل الدخول لربط رقم الهاتف بـ auth uid.
--- P0: لا يعود بالأدوار/المزارع لتفادي تسريب معلومات؛ ويمنع الوصول العام (anon).
-CREATE OR REPLACE FUNCTION public.find_user_by_phone(p_phone text)
-RETURNS TABLE (id uuid)
-LANGUAGE sql STABLE SECURITY DEFINER
+-- ============================================================
+-- 21) الحماية من تعداد أرقام الهاتف (phone enumeration)
+-- ============================================================
+
+-- جدول حدّ معدل الاستعلامات: تحدّ من سرعة مسح الأرقام (brute force / enumeration)
+-- كل مفتاح يمثل "نافذة زمنية" منسدلة (مثل: كل رقم على حدة في دقيقة)
+CREATE TABLE IF NOT EXISTS login_throttle (
+    key         TEXT PRIMARY KEY,
+    hits        INTEGER NOT NULL DEFAULT 0,
+    window_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_hit    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- الحدّ الإجمالي للاستعلامات في النافذة الواحدة ومدة النافذة
+CREATE OR REPLACE FUNCTION public.throttle_max_hits()
+RETURNS int LANGUAGE sql IMMUTABLE AS $$ SELECT 10; $$;
+
+CREATE OR REPLACE FUNCTION public.throttle_window_seconds()
+RETURNS int LANGUAGE sql IMMUTABLE AS $$ SELECT 60; $$;
+
+-- فاحص الحدّ العام (بلا مفتاح خاص): يبطئ تعداد الأرقام عبر استعلامات متعاقبة
+-- تُدمج الاستدعاءات في نافذة مشتركة حتى لا يستطيع المهاجم المسح السريع.
+CREATE OR REPLACE FUNCTION public.throttle_exceeded(
+    p_key text,
+    p_max int DEFAULT 10,
+    p_window_seconds int DEFAULT 60
+)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-    -- P0/6: لا نسرب الاسم/الهاتف (تعداد مستخدمين لـ anon).
-    -- id فقط يُعاد لأنه مطلوب لبناء البريد الاصطناعي لتسجيل الدخول؛
-    -- الاسم/الهاتف/الدور/المزرعة تُقرأ لاحقاً من الـ JWT المُصادَق.
-    -- (الإغلاق الكامل لتسريب الوجود يتطلب تسجيل دخول بالهاتف مباشرة — خطة لاحقة.)
-    SELECT u.id::uuid
+DECLARE
+    v_hits int;
+BEGIN
+    -- إدراج/إعادة تعيين النافذة عند الحاجة
+    INSERT INTO login_throttle (key, hits, window_start, last_hit)
+    VALUES (p_key, 1, NOW(), NOW())
+    ON CONFLICT (key) DO UPDATE SET
+        last_hit = NOW(),
+        hits = CASE
+            WHEN login_throttle.window_start < NOW() - (p_window_seconds || ' seconds')::interval THEN 1
+            ELSE login_throttle.hits + 1
+        END,
+        window_start = CASE
+            WHEN login_throttle.window_start < NOW() - (p_window_seconds || ' seconds')::interval THEN NOW()
+            ELSE login_throttle.window_start
+        END
+    RETURNING hits INTO v_hits;
+
+    RETURN v_hits > p_max;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.throttle_exceeded(text, int, int) TO anon, authenticated;
+
+-- البحث بالهاتف — يستخدمه تطبيق تسجيل الدخول لربط رقم الهاتف بـ auth uid.
+-- P0: لا يعود بالأدوار/المزارع لتفادي تسريب معلومات؛ ويمنع الوصول العام (anon).
+-- P0/6: يطبّق حدّ معدل عام لإبطاء تعداد الأرقام (بدون تفرقة بين رقم موجود وغيره).
+CREATE OR REPLACE FUNCTION public.find_user_by_phone(p_phone text)
+RETURNS TABLE (id uuid)
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_uid uuid;
+BEGIN
+    -- حدّ معدل: مفتاح ثابت يعمّ على كل الاستعلامات ليبطئ المسح العام
+    IF public.throttle_exceeded(
+        'phone_lookup',
+        public.throttle_max_hits(),
+        public.throttle_window_seconds()
+    ) THEN
+        RAISE EXCEPTION 'AUTHORIZATION_DENIED: محاولات كثيرة، انتظر قليلاً';
+    END IF;
+
+    SELECT u.id::uuid INTO v_uid
     FROM public.users AS u
     WHERE u.phone = p_phone AND u.is_active = true
     LIMIT 1;
+
+    -- نُبقي الرد متطابقاً زمنياً قدر الإمكان، دون كشف الوجود بشكل حاسم
+    RETURN QUERY SELECT v_uid WHERE v_uid IS NOT NULL;
+END;
 $$;
+
+-- ============================================================
+-- 22) حماية تسجيل الدخول: قفل الحساب + حدّ معدّل المحاولات
+-- (يُستدعى من تطبيق الموبايل حول login للحدّ من هجوم القوة العمياء)
+-- ============================================================
+
+-- حدّ المحاولات الفاشلة قبل القفل، ومدة القفل بالثواني
+CREATE OR REPLACE FUNCTION public.login_lock_max_attempts()
+RETURNS int LANGUAGE sql IMMUTABLE AS $$ SELECT 5; $$;
+
+CREATE OR REPLACE FUNCTION public.login_lock_duration_seconds()
+RETURNS int LANGUAGE sql IMMUTABLE AS $$ SELECT 900; $$;
+
+-- فحص: هل يُسمح للمستخدم بمحاولة تسجيل الدخول؟
+-- يُرجع: allowed (صحيح/خطأ), attempts_left, lock_seconds_remaining
+CREATE OR REPLACE FUNCTION public.check_login_allowed(p_phone text)
+RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_max     int := public.login_lock_max_attempts();
+    v_lock_s  int := public.login_lock_duration_seconds();
+    v_failed  int;
+    v_locked  timestamptz;
+    v_now     timestamptz := NOW();
+    v_left    int;
+    v_rem     int := 0;
+BEGIN
+    -- لا بحث عن مزرعة/دور هنا: نطبيع الهاتف فقط
+    p_phone := regexp_replace(p_phone, '[^0-9]', '', 'g');
+
+    SELECT failed_attempts, locked_until INTO v_failed, v_locked
+    FROM public.users WHERE phone = p_phone LIMIT 1;
+
+    -- حساب غير موجود: نُبقي الرد متطابقاً مع الحالات الممكنة لإبطاء التعداد
+    v_failed := COALESCE(v_failed, 0);
+    v_locked := COALESCE(v_locked, NULL);
+
+    IF v_locked IS NOT NULL AND v_locked > v_now THEN
+        v_rem := GREATEST(1, EXTRACT(EPOCH FROM (v_locked - v_now)))::int;
+        RETURN jsonb_build_object('allowed', false, 'locked', true, 'lock_seconds', v_rem, 'attempts_left', 0);
+    END IF;
+
+    v_left := GREATEST(0, v_max - v_failed);
+    RETURN jsonb_build_object('allowed', true, 'locked', false, 'lock_seconds', 0, 'attempts_left', v_left);
+END;
+$$;
+
+-- تسجيل محاولة فاشلة: يزيد العدّاد ويقفل الحساب بعد تجاوز الحدّ
+CREATE OR REPLACE FUNCTION public.record_login_failure(p_phone text)
+RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_max     int := public.login_lock_max_attempts();
+    v_lock_s  int := public.login_lock_duration_seconds();
+    v_failed  int;
+BEGIN
+    p_phone := regexp_replace(p_phone, '[^0-9]', '', 'g');
+
+    IF NOT EXISTS (SELECT 1 FROM public.users WHERE phone = p_phone) THEN
+        RETURN jsonb_build_object('locked', false, 'attempts_left', -1);
+    END IF;
+
+    UPDATE public.users
+    SET failed_attempts = failed_attempts + 1,
+        locked_until = CASE
+            WHEN (failed_attempts + 1) >= v_max THEN NOW() + (v_lock_s || ' seconds')::interval
+            ELSE locked_until
+        END,
+        updated_at = NOW()
+    WHERE phone = p_phone
+    RETURNING failed_attempts INTO v_failed;
+
+    IF v_failed >= v_max THEN
+        RETURN jsonb_build_object('locked', true, 'attempts_left', 0);
+    END IF;
+    RETURN jsonb_build_object('locked', false, 'attempts_left', GREATEST(0, v_max - v_failed));
+END;
+$$;
+
+-- تسجيل نجاح: تُصفَّر المحاولات وُيرفع القفل
+CREATE OR REPLACE FUNCTION public.record_login_success(p_uid uuid)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    IF p_uid IS NULL THEN
+        RAISE EXCEPTION 'AUTHORIZATION_DENIED: معرّف غير صالح';
+    END IF;
+    UPDATE public.users SET
+        failed_attempts = 0,
+        locked_until = NULL,
+        updated_at = NOW()
+    WHERE id = p_uid AND is_active = true;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.check_login_allowed(text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_login_failure(text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_login_success(uuid) TO anon, authenticated;
 
 -- حارس: المدير فقط ومن نفس المزرعة (system_admin يتجاوز عزل المزرعة)
 CREATE OR REPLACE FUNCTION public.assert_current_is_manager_of(p_farm_id uuid)

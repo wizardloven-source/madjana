@@ -29,6 +29,21 @@ class SupabaseAuthDatasource {
     pin = _normalizeDigits(pin);
 
     try {
+      // 0) فحص قفل الحساب قبل أي محاولة (قفل PIN + حدّ معدل)
+      final preCheck = await _client
+          .rpc('check_login_allowed', params: {'p_phone': phone})
+          .timeout(const Duration(seconds: 10), onTimeout: () {
+        throw AuthException('انتهت مهلة الاتصال بالسيرفر');
+      });
+      final pre = _asMap(preCheck);
+      if (pre?['allowed'] == false) {
+        final lockSeconds = (pre?['lock_seconds'] as num?)?.toInt() ?? 0;
+        if ((pre?['locked'] == true) && lockSeconds > 0) {
+          throw AuthException('الحساب مقفل مؤقتاً — أعد المحاولة بعد ${((lockSeconds + 59) ~/ 60)} دقيقة');
+        }
+        throw AuthException('محاولات كثيرة — انتظر قليلاً ثم أعد المحاولة');
+      }
+
       // 1) البحث عن المستخدم بالهاتف
       final rows = await _client.rpc(
         'find_user_by_phone',
@@ -51,6 +66,13 @@ class SupabaseAuthDatasource {
         throw AuthException('انتهت مهلة تسجيل الدخول');
       });
 
+      // 2b) تسجيل النجاح: تصفير العدّاد ورفع القفل
+      try {
+        await _client.rpc('record_login_success', params: {'p_uid': uid});
+      } catch (_) {
+        // عدم نجاح التسجيل لا يمنع الدخول
+      }
+
       // 3) الدور/المزرعة تُقرأ من الـ JWT (مصدر مُصادَق) وليس من البحث المكشوف
       // (find_user_by_phone لا يعيد إلا id لمنع تعداد المستخدمين — نقطة #6)
       final sessionUser = _client.auth.currentUser;
@@ -72,6 +94,10 @@ class SupabaseAuthDatasource {
       // أخطاء GoTrue (بريد/كلمة مرور خاطئة أو حساب غير مفعل)
       final msg = (e.message).toLowerCase();
       if (msg.contains('invalid login')) {
+        // تسجيل المحاولة الفاشلة (لقفل الحساب عند التكرار)
+        try {
+          await _client.rpc('record_login_failure', params: {'p_phone': phone});
+        } catch (_) {}
         throw AuthException('الرمز السري غير صحيح');
       }
       if (msg.contains('not confirmed')) {
@@ -79,6 +105,10 @@ class SupabaseAuthDatasource {
       }
       throw AuthException('فشل تسجيل الدخول: ${e.message}');
     } on PostgrestException catch (e) {
+      final msg = (e.message).toLowerCase();
+      if (msg.contains('محاولات كثيرة') || msg.contains('authorization_denied')) {
+        throw AuthException('محاولات كثيرة — انتظر قليلاً ثم أعد المحاولة');
+      }
       throw AuthException('خطأ في الاتصال: ${e.message}');
     } catch (e) {
       if (e is AuthException) rethrow;
@@ -91,6 +121,17 @@ class SupabaseAuthDatasource {
       }
       throw AuthException('فشل الاتصال بالسيرفر: $msg');
     }
+  }
+
+  /// تحويل رد RPC إلى خريطة (أمان: يتعامل مع الأشكال المختلفة)
+  Map<String, dynamic>? _asMap(dynamic value) {
+    if (value is Map) {
+      return Map<String, dynamic>.from(value);
+    }
+    if (value is List && value.isNotEmpty && value.first is Map) {
+      return Map<String, dynamic>.from(value.first as Map);
+    }
+    return null;
   }
 
   /// جلب مستخدم بالمعرّف
