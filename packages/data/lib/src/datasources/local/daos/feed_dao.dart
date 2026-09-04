@@ -15,10 +15,12 @@ class FeedDao {
     await db.insert('feed_consumption', {
       'id': id,
       'farm_id': record.farmId,
+      'flock_id': record.flockId,
       'date': record.date.toIso8601String().split('T').first,
       'entry_mode': record.entryMode.name,
       'bags_count': record.bagsCount,
       'quantity_kg': record.quantityKg,
+      'section_no': record.sectionNo,
       'worker_id': record.workerId,
       'sync_status': SyncStatus.pending.name,
       'created_at': DateTime.now().toIso8601String(),
@@ -29,10 +31,12 @@ class FeedDao {
       recordId: id,
       action: 'INSERT',
       payload: {
+        'flock_id': record.flockId,
         'date': record.date.toIso8601String().split('T').first,
         'entry_mode': record.entryMode.name,
         'bags_count': record.bagsCount,
         'quantity_kg': record.quantityKg,
+        'section_no': record.sectionNo,
         'worker_id': record.workerId,
       },
     );
@@ -187,11 +191,14 @@ class FeedDao {
   /// حذف سجل استهلاك
   Future<void> deleteConsumption(String id) async {
     final db = await LocalDatabase.database;
+    final existing = await db.query('feed_consumption', columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.delete('feed_consumption', where: 'id = ?', whereArgs: [id]);
     await LocalDatabase.enqueueChange(
       tableName: 'feed_consumption',
       recordId: id,
       action: 'DELETE',
+      previousVersion: ver,
       payload: {'id': id},
     );
   }
@@ -213,6 +220,7 @@ class FeedDao {
       'invoice_number': data['invoice_number'],
       if (data['price_per_kg'] != null) 'price_per_kg': data['price_per_kg'],
       'notes': data['notes'],
+      'section_no': data['section_no'],
       'worker_id': data['worker_id'] ?? '',
       'sync_status': SyncStatus.pending.name,
       'created_at': DateTime.now().toIso8601String(),
@@ -232,11 +240,27 @@ class FeedDao {
         'invoice_number': data['invoice_number'],
         if (data['price_per_kg'] != null) 'price_per_kg': data['price_per_kg'],
         'notes': data['notes'],
+        'section_no': data['section_no'],
         'worker_id': data['worker_id'] ?? '',
       },
     );
 
     return id;
+  }
+
+  /// حذف سجل استلام علف
+  Future<void> deleteReceived(String id) async {
+    final db = await LocalDatabase.database;
+    final existing = await db.query('feed_received', columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    await db.delete('feed_received', where: 'id = ?', whereArgs: [id]);
+    await LocalDatabase.enqueueChange(
+      tableName: 'feed_received',
+      recordId: id,
+      action: 'DELETE',
+      previousVersion: ver,
+      payload: {'id': id},
+    );
   }
 
   Future<List<FeedReceivedModel>> getPendingReceived({int limit = 50}) async {
@@ -248,9 +272,7 @@ class FeedDao {
       limit: limit,
     );
     return maps.map(_receivedFromMap).toList();
-  }
-
-  Future<void> updateReceivedSyncStatus(String id, SyncStatus status) async {
+  }  Future<void> updateReceivedSyncStatus(String id, SyncStatus status) async {
     final db = await LocalDatabase.database;
     await db.update(
       'feed_received',
@@ -263,11 +285,20 @@ class FeedDao {
   /// تسجيل سعر الكيلوغرام من المدير (سطح المكتب)
   Future<void> updateReceivedPrice(String id, double pricePerKg) async {
     final db = await LocalDatabase.database;
+    final existing = await db.query('feed_received', columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.update(
       'feed_received',
       {'price_per_kg': pricePerKg},
       where: 'id = ?',
       whereArgs: [id],
+    );
+    await LocalDatabase.enqueueChange(
+      tableName: 'feed_received',
+      recordId: id,
+      action: 'UPDATE',
+      previousVersion: ver,
+      payload: {'price_per_kg': pricePerKg},
     );
   }
 

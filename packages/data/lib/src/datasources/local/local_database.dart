@@ -14,7 +14,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 18;
+  static const int _dbVersion = 19;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -299,6 +299,7 @@ class LocalDatabase {
         quantity REAL NOT NULL DEFAULT 0,
         low_stock_threshold REAL NOT NULL DEFAULT 5,
         notes TEXT,
+        version INTEGER DEFAULT 1,
         updated_at TEXT
       )
     ''');
@@ -819,6 +820,13 @@ class LocalDatabase {
           // backfill: في قواعد البيانات القديمة operation_id == id
           await db.execute('UPDATE sync_queue SET operation_id = id WHERE operation_id IS NULL OR operation_id = \'\'');
         }
+
+        // v19: عمود version لعناصر المخزون لدعم OCC في المزامنة
+        if (oldVersion < 19) {
+          if (!await _columnExists(db, 'inventory_items', 'version')) {
+            await db.execute('ALTER TABLE inventory_items ADD COLUMN version INTEGER DEFAULT 1');
+          }
+        }
   }
 
   /// يتحقق من وجود عمود في جدول (بدلاً من إخفاء أخطاء migration عبر catch عام)
@@ -957,6 +965,7 @@ class LocalDatabase {
     required String recordId,
     required String action,
     required Map<String, dynamic> payload,
+    int? previousVersion,
   }) async {
     try {
       final db = await database;
@@ -977,6 +986,12 @@ class LocalDatabase {
         ..remove('deleted_at')
         ..remove('created_at')
         ..remove('updated_at');
+
+      // previous_version مطلوب للخادم عند UPDATE/DELETE (OCC).
+      // يُحفظ في payload حتى لو كان null لـ INSERT (الخادم لا يقرأه هناك).
+      if (previousVersion != null) {
+        cleanPayload['previous_version'] = previousVersion;
+      }
 
       await db.insert('sync_queue', {
         'id': operationId,

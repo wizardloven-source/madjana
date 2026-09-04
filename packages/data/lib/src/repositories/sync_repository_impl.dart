@@ -187,6 +187,7 @@ class SyncRepositoryImpl implements SyncRepository {
         'egg_production', 'mortality', 'feed_consumption',
         'feed_received', 'egg_dispatch', 'medications',
         'customers', 'flocks', 'expenses', 'payments',
+        'inventory_items',
       ];
       if (allowedTables.contains(tableName)) {
         await db.rawUpdate(

@@ -106,6 +106,9 @@ class ExpenseDao {
 
   Future<void> update(String id, ExpenseModel expense) async {
     final db = await LocalDatabase.database;
+    // قراءة الإصدار الحالي قبل التعديل (يُستخدم كـ previous_version في OCC)
+    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.update(
       _table,
       {
@@ -123,6 +126,7 @@ class ExpenseDao {
       tableName: _table,
       recordId: id,
       action: 'UPDATE',
+      previousVersion: ver,
       payload: {
         'date': expense.date.toIso8601String().split('T').first,
         'category': expense.category.name,
@@ -134,11 +138,15 @@ class ExpenseDao {
 
   Future<void> delete(String id) async {
     final db = await LocalDatabase.database;
+    // قراءة الإصدار الحالي قبل الحذف
+    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
     await LocalDatabase.enqueueChange(
       tableName: _table,
       recordId: id,
       action: 'DELETE',
+      previousVersion: ver,
       payload: {'id': id},
     );
   }

@@ -374,6 +374,7 @@ CREATE TABLE inventory_items (
     quantity            NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (quantity >= 0),
     low_stock_threshold NUMERIC(12,2) NOT NULL DEFAULT 5,
     notes               TEXT,
+    version             BIGINT NOT NULL DEFAULT 1,
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (farm_id, name)
 );

@@ -72,6 +72,8 @@ class FlockDao {
   /// إنهاء دورة قطيع محلياً
   Future<void> markEnded(String id) async {
     final db = await LocalDatabase.database;
+    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.update(
       _table,
       {'status': FlockStatus.depleted.name},
@@ -82,6 +84,7 @@ class FlockDao {
       tableName: _table,
       recordId: id,
       action: 'UPDATE',
+      previousVersion: ver,
       payload: {'status': FlockStatus.depleted.name},
     );
   }

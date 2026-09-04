@@ -22,6 +22,7 @@ class MortalityDao {
       'reason_other': record.reasonOther,
       'notes': record.notes,
       'image_url': record.imageUrl,
+      'section_no': record.sectionNo,
       'worker_id': record.workerId,
       'sync_status': SyncStatus.pending.name,
       'created_at': DateTime.now().toIso8601String(),
@@ -38,6 +39,7 @@ class MortalityDao {
         'reason': record.reason.name,
         'reason_other': record.reasonOther,
         'notes': record.notes,
+        'section_no': record.sectionNo,
         'worker_id': record.workerId,
       },
     );
@@ -166,11 +168,14 @@ class MortalityDao {
   /// حذف سجل
   Future<void> delete(String id) async {
     final db = await LocalDatabase.database;
+    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
     await LocalDatabase.enqueueChange(
       tableName: _table,
       recordId: id,
       action: 'DELETE',
+      previousVersion: ver,
       payload: {'id': id},
     );
   }

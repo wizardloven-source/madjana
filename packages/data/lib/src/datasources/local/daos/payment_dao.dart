@@ -52,6 +52,63 @@ class PaymentDao {
     return id;
   }
   
+  Future<void> update(String id, PaymentModel payment) async {
+    final db = await LocalDatabase.database;
+    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    await db.update(
+      _table,
+      {
+        'dispatch_id': payment.dispatchId,
+        'customer_id': payment.customerId,
+        'date': payment.date.toIso8601String().split('T').first,
+        'price_per_carton': payment.pricePerCarton,
+        'total_due': payment.totalDue,
+        'amount_paid': payment.amountPaid,
+        'payment_method': payment.paymentMethod.name,
+        'due_date': payment.dueDate?.toIso8601String().split('T').first,
+        'notes': payment.notes,
+        'manager_id': payment.managerId,
+        'sync_status': SyncStatus.pending.name,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'UPDATE',
+      previousVersion: ver,
+      payload: {
+        'dispatch_id': payment.dispatchId,
+        'customer_id': payment.customerId,
+        'date': payment.date.toIso8601String().split('T').first,
+        'price_per_carton': payment.pricePerCarton,
+        'total_due': payment.totalDue,
+        'amount_paid': payment.amountPaid,
+        'payment_method': payment.paymentMethod.name,
+        'due_date': payment.dueDate?.toIso8601String().split('T').first,
+        'notes': payment.notes,
+        'manager_id': payment.managerId,
+      },
+    );
+  }
+
+  Future<void> delete(String id) async {
+    final db = await LocalDatabase.database;
+    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+    await LocalDatabase.enqueueChange(
+      tableName: _table,
+      recordId: id,
+      action: 'DELETE',
+      previousVersion: ver,
+      payload: {'id': id},
+    );
+  }
+  
   Future<List<PaymentModel>> getAll({
     String? farmId,
     DateTime? fromDate,

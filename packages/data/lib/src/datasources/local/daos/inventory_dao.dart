@@ -46,11 +46,22 @@ class InventoryDao {
         },
       );
     } else {
+      final existingRow = await db.query(
+        _itemsTable,
+        columns: ['version'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      final ver = existingRow.isNotEmpty
+          ? (existingRow.first['version'] as int?) ?? 1
+          : 1;
       await db.update(_itemsTable, values, where: 'id = ?', whereArgs: [id]);
       await LocalDatabase.enqueueChange(
         tableName: _itemsTable,
         recordId: id,
         action: 'UPDATE',
+        previousVersion: ver,
         payload: {
           'name': item.name,
           'unit': item.unit.name,
@@ -89,11 +100,21 @@ class InventoryDao {
   /// حذف عنصر مخزون
   Future<void> deleteItem(String id) async {
     final db = await LocalDatabase.database;
+    final existing = await db.query(
+      _itemsTable,
+      columns: ['version'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.delete(_itemsTable, where: 'id = ?', whereArgs: [id]);
     await LocalDatabase.enqueueChange(
       tableName: _itemsTable,
       recordId: id,
       action: 'DELETE',
+      previousVersion: ver,
       payload: {'id': id},
     );
   }
