@@ -50,6 +50,20 @@ class SupabaseUserAdminDatasource {
         .toList();
   }
 
+  /// صحة المزامنة لكل المداجن (system_admin فقط) — SYNC CENTER
+  Future<List<Map<String, dynamic>>> getSyncHealth({
+    int onlineWindowMinutes = 5,
+  }) async {
+    final data = await _client.rpc(
+      'admin_sync_health',
+      params: {'p_online_window_minutes': onlineWindowMinutes},
+    );
+    if (data == null) return [];
+    return (data as List)
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+  }
+
   /// إنشاء مستخدم جديد (ينشئ حساب auth مقابل تلقائياً)
   Future<UserModel> createUser({
     required String farmId,

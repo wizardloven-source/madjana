@@ -109,7 +109,7 @@ idx_audit_log_farm              ON audit_log(farm_id, created_at DESC)
 
 ```sql
 current_user_farm_id()  -- Returns UUID: مزرعة المستخدم الحالي
-current_user_role()     -- Returns TEXT: دور المستخدم (worker/supervisor/manager)
+current_user_role()     -- Returns TEXT: دور المستخدم (worker/manager/system_admin)
 ```
 
 ### دوال المزامنة

@@ -23,6 +23,7 @@ export 'src/models/inventory_model.dart';
 export 'src/models/notification_models.dart';
 export 'src/models/opening_balance_model.dart';
 export 'src/models/sync_change_model.dart';
+export 'src/models/sync_health_entry.dart';
 export 'src/models/batch_upload_result.dart';
 export 'src/models/conflict_model.dart';
 export 'src/models/pro_features_models.dart';

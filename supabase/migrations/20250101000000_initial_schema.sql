@@ -1626,6 +1626,67 @@ CREATE POLICY sync_checkpoint_select ON sync_checkpoint
 -- ============================================================
 
 -- ============================================================
+-- 12b) sync_permissions - مصفوفة صلاحيات مزامنة مركزية موحّدة
+--      تُستبدل الصمامات السابقة المبعثرة (NOT IN متعددة) بدالة واحدة
+--      هي المرجع الوحيد لأي جدول يسمح لأي دور بكتابته/قراءته.
+-- ============================================================
+
+-- هل يملك الدور صلاحية كتابة (INSERT/UPDATE/DELETE) لجدول عبر المزامنة؟
+CREATE OR REPLACE FUNCTION public.sync_can_write(p_role text, p_table text)
+RETURNS boolean
+LANGUAGE sql IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+    SELECT
+        CASE p_role
+            -- العامل: تشغيلية فقط (لا زبائن/قطيع/مالية)
+            WHEN 'worker' THEN p_table IN (
+                'egg_production', 'mortality', 'feed_consumption',
+                'feed_received', 'egg_dispatch', 'medications'
+            )
+            -- المدير: تشغيلية + مالية + قطيع/زبائن
+            WHEN 'manager' THEN p_table IN (
+                'egg_production', 'mortality', 'feed_consumption',
+                'feed_received', 'egg_dispatch', 'medications',
+                'customers', 'flocks', 'expenses', 'payments',
+                'inventory_items', 'inventory_transactions',
+                'opening_balances'
+            )
+            -- system_admin: كل الجداول (users/farms تُحظر عنصريةً في RPC)
+            WHEN 'system_admin' THEN p_table NOT IN ('users', 'farms')
+            ELSE false
+        END;
+$$;
+
+-- هل يملك الدور صلاحية قراءة (سحب) لجدول عبر المزامنة؟
+-- (تُطبَّق على سحب التغييرات حتى لا يُسرَّب جدول مالي/محظور لعامل)
+CREATE OR REPLACE FUNCTION public.sync_can_read(p_role text, p_table text)
+RETURNS boolean
+LANGUAGE sql IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+    SELECT
+        CASE p_role
+            WHEN 'worker' THEN p_table IN (
+                'egg_production', 'mortality', 'feed_consumption',
+                'feed_received', 'egg_dispatch', 'medications'
+            )
+            WHEN 'manager' THEN p_table IN (
+                'egg_production', 'mortality', 'feed_consumption',
+                'feed_received', 'egg_dispatch', 'medications',
+                'customers', 'flocks', 'expenses', 'payments',
+                'inventory_items', 'inventory_transactions',
+                'opening_balances'
+            )
+            WHEN 'system_admin' THEN p_table NOT IN ('users', 'farms')
+            ELSE false
+        END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.sync_can_write(text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.sync_can_read(text, text) TO authenticated;
+
+-- ============================================================
 -- 13) sync_records_batch - مع whitelist + auth.uid() + version
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.sync_records_batch(
@@ -1746,59 +1807,15 @@ BEGIN
             CONTINUE;
         END IF;
 
-        -- Role-based whitelist: العامل لا يصلاح إلا الجداول التشغيلية
-        -- P0: حُذف customers/flocks من وصول العامل — فلا يعدّل بيانات القطيع/الزبائن.
-        IF v_user_role = 'worker' THEN
-            IF v_table_name NOT IN (
-                'egg_production', 'mortality', 'feed_consumption',
-                'feed_received', 'egg_dispatch', 'medications'
-            ) THEN
-                v_errors := v_errors + 1;
-                v_result := v_result || jsonb_build_object(
-                    'record_id', v_record_id,
-                    'status', 'error',
-                    'message', 'العميل لا يملك صلاحية المزامنة للجدول: ' || v_table_name
-                );
-                CONTINUE;
-            END IF;
-        ELSIF v_user_role = 'manager' THEN
-            IF v_table_name NOT IN (
-                'egg_production', 'mortality', 'feed_consumption',
-                'feed_received', 'egg_dispatch', 'medications',
-                'customers', 'flocks', 'expenses', 'payments',
-                'inventory_items', 'inventory_transactions',
-                'opening_balances'
-            ) THEN
-                v_errors := v_errors + 1;
-                v_result := v_result || jsonb_build_object(
-                    'record_id', v_record_id,
-                    'status', 'error',
-                    'message', 'جدول غير مسموح للمزامنة: ' || v_table_name
-                );
-                CONTINUE;
-            END IF;
-        ELSIF v_user_role = 'supervisor' THEN
-            -- supervisor: جداول تشغيلية فقط (بدون customers/flocks)،
-            -- محدوداً بالحذف (manager-only في كل الطبقات — يُفحص لاحقاً).
-            IF v_table_name NOT IN (
-                'egg_production', 'mortality', 'feed_consumption',
-                'feed_received', 'egg_dispatch', 'medications'
-            ) THEN
-                v_errors := v_errors + 1;
-                v_result := v_result || jsonb_build_object(
-                    'record_id', v_record_id,
-                    'status', 'error',
-                    'message', 'المشرف لا يملك صلاحية المزامنة للجدول: ' || v_table_name
-                );
-                CONTINUE;
-            END IF;
-        ELSE
-            -- أي دور غير معروف: يُرفض صراحةً (لا نعتمد على انخفاض الأذونات الضمنية)
+        -- Role-based whitelist: مصفوفة صلاحيات مركزية واحدة عبر sync_can_write.
+        -- تُحلّ محل الـ NOT IN المبعثرة السابقة لكل دور على حدة.
+        -- P0: العامل لا يصلح إلا الجداول التشغيلية (يستبعد customers/flocks/المالية).
+        IF NOT public.sync_can_write(v_user_role, v_table_name) THEN
             v_errors := v_errors + 1;
             v_result := v_result || jsonb_build_object(
                 'record_id', v_record_id,
                 'status', 'error',
-                'message', 'الدور الحالي غير معروف أو غير مصرح: ' || COALESCE(v_user_role, 'null')
+                'message', 'الدور الحالي لا يملك صلاحية المزامنة للجدول: ' || v_table_name
             );
             CONTINUE;
         END IF;
@@ -2516,7 +2533,7 @@ BEGIN
         )) INTO v_changes
         FROM sync_changes sc
         WHERE sc.farm_id = p_farm_id
-          AND sc.table_name NOT IN ('payments', 'expenses')
+          AND public.sync_can_read('worker', sc.table_name)
           AND sc.server_version > p_from_version
         ORDER BY sc.server_version ASC;
 
@@ -2524,14 +2541,14 @@ BEGIN
         SELECT COALESCE(MAX(server_version), p_from_version) INTO v_latest
         FROM sync_changes
         WHERE farm_id = p_farm_id
-          AND table_name NOT IN ('payments', 'expenses')
+          AND public.sync_can_read('worker', table_name)
           AND server_version > p_from_version;
 
         -- أقل نسخة تشغيلية محفوظة بعد الضغط/الاحتفاظ (لمعرفة ما إذا تأخر الجهاز).
         SELECT COALESCE(MIN(server_version), v_latest) INTO v_min_keep
         FROM sync_changes
         WHERE farm_id = p_farm_id
-          AND table_name NOT IN ('payments', 'expenses');
+          AND public.sync_can_read('worker', table_name);
     ELSE
         SELECT jsonb_agg(jsonb_build_object(
             'table_name', sc.table_name,
@@ -2845,6 +2862,85 @@ SET search_path = public, pg_temp
 AS $$
     SELECT f.* FROM public.farms f WHERE public.is_system_admin() ORDER BY f.created_at;
 $$;
+
+-- صحة المزامنة لجميع المداجن (لـ system_admin فقط) — يغذّي SYNC CENTER.
+-- لكل مزرعة:
+--   total_devices  = عدد الأجهزة المميّزة التي أرسلت تغييرات.
+--   online_devices = عددها الذي كان آخر نشاطه خلال الفترة (افتراضياً 5 دقائق).
+--   offline_devices= الباقي (لم يُرَ منذ أطول من الفترة).
+--   pending_conflicts = صراعات غير محلولة (sync_conflicts.status='pending').
+--   last_sync     = آخر نشاط مزامنة للمزرعة.
+--   latest_version= watermark ServerVersion من checkpoint.
+-- ملاحظة: قوائم الانتظار المحلية (sync_queue على الجهاز) لا تظهر للخادم؛
+-- "pending" هنا = صراعات غير محسومة فقط، وهي أعلى مؤشر صحة يمكن للخادم رؤيته.
+CREATE OR REPLACE FUNCTION public.admin_sync_health(
+    p_online_window_minutes int DEFAULT 5
+)
+RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_result jsonb;
+BEGIN
+    IF NOT public.is_system_admin() THEN
+        RAISE EXCEPTION 'غير مصرح: هذه البيانات لـ system_admin فقط';
+    END IF;
+
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'farm_id',       h.farm_id,
+        'farm_name',     h.farm_name,
+        'device_count',  h.device_count,
+        'online_devices', h.online_devices,
+        'offline_devices', (h.device_count - h.online_devices),
+        'pending_conflicts', h.pending_conflicts,
+        'last_sync',     h.last_sync,
+        'latest_version', h.latest_version
+    )), '[]'::jsonb) INTO v_result
+    FROM (
+        SELECT
+            f.id   AS farm_id,
+            f.name AS farm_name,
+            COALESCE(d.device_count, 0)   AS device_count,
+            COALESCE(d.online_devices, 0) AS online_devices,
+            COALESCE(c.pending_conflicts, 0) AS pending_conflicts,
+            COALESCE(d.last_sync, f.created_at) AS last_sync,
+            COALESCE(cp.latest_version, 0) AS latest_version
+        FROM public.farms f
+        LEFT JOIN (
+            SELECT
+                dd.farm_id,
+                COUNT(*)                                            AS device_count,
+                COUNT(*) FILTER (WHERE dd.last_seen >= NOW() - (p_online_window_minutes * interval '1 minute'))
+                                                                    AS online_devices,
+                MAX(dd.last_seen)                                   AS last_sync
+            FROM (
+                SELECT
+                    sc.farm_id,
+                    sc.device_id,
+                    MAX(sc.created_at) AS last_seen
+                FROM public.sync_changes sc
+                WHERE sc.device_id IS NOT NULL AND sc.device_id <> ''
+                GROUP BY sc.farm_id, sc.device_id
+            ) dd
+            GROUP BY dd.farm_id
+        ) d ON d.farm_id = f.id
+        LEFT JOIN (
+            SELECT farm_id, COUNT(*) AS pending_conflicts
+            FROM public.sync_conflicts
+            WHERE status = 'pending'
+            GROUP BY farm_id
+        ) c ON c.farm_id = f.id
+        LEFT JOIN public.sync_checkpoint cp ON cp.farm_id = f.id
+        ORDER BY f.created_at
+    ) h;
+
+    IF v_result IS NULL THEN v_result := '[]'::jsonb; END IF;
+    RETURN v_result;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_sync_health(int) TO authenticated;
 
 -- إنشاء مدجنة + مدير في معاملة واحدة (system_admin فقط)
 CREATE OR REPLACE FUNCTION public.create_farm_with_manager(

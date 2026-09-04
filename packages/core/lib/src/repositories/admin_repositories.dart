@@ -1,6 +1,7 @@
 import '../constants/enums.dart';
 import '../models/farm_model.dart';
 import '../models/flock_model.dart';
+import '../models/sync_health_entry.dart';
 import '../models/user_model.dart';
 
 /// مستودع القطعان - إدارة كاملة للمدير
@@ -27,6 +28,9 @@ abstract class UserAdminRepository {
 
   /// جلب كل المداجن (system_admin فقط)
   Future<List<FarmModel>> getAllFarms();
+
+  /// صحة المزامنة لكل المداجن (system_admin فقط) — يغذّي SYNC CENTER
+  Future<List<SyncHealthEntry>> getSyncHealth({int onlineWindowMinutes = 5});
 
   Future<UserModel> createUser({
     required String farmId,

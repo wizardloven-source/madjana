@@ -114,7 +114,7 @@ GRANT EXECUTE ON FUNCTION cleanup_old_sync_logs TO service_role;
 | البند | الحالة | التنفيذ |
 |-------|--------|---------|
 | #1 تسريب عبر المزرعة في sync_records_batch | ✅ | تحقق `customer_id`/`flock_id`/`item_id` من الانتماء للمزرعة قبل الإدراج/التحديث |
-| #2 مصفوفة صلاحيات | ✅ | `supervisor` صريح؛ الحذف للمدير فقط في كل الطبقات (يطابق RLS `op_delete`) |
+| #2 مصفوفة صلاحيات | ✅ | `sync_can_write/read(role,table)` مركزية (worker/manager/system_admin)؛ الحذف للمدير فقط في كل الطبقات (يطابق RLS `op_delete`) |
 | #3 حذف بدون OCC | ✅ | `version` إلزامي في الحذف الناعم + تعارض عند `ROW_COUNT=0` |
 | #4 محيط الـ operation_id | ✅ | مقيَّد بـ user+farm+table+record+operation، ورفض إعادة الاستخدام بعملية مختلفة |
 | #5/24 قوة الرمز السري + pepper | ⏳ | موثّق كقرار منتج: PIN 4 خانات + `'madjana$'` في المصدر؛ طبِّق 6-8 خانات للمدير و rate-limit عند ملاءمة المنتج |

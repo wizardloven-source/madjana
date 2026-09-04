@@ -7,6 +7,7 @@ import '../../../core/providers.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../users/presentation/users_screen.dart';
 import '../../settings/presentation/settings_screen.dart';
+import '../../sync/presentation/sync_center_screen.dart';
 
 ///.shell للنظام — يرى كل المداجن ويستطيع الدخول إلى أي مدجنة
 class SystemAdminShell extends ConsumerStatefulWidget {
@@ -129,6 +130,17 @@ class _SystemAdminShellState extends ConsumerState<SystemAdminShell> {
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const UsersScreen()),
+                    );
+                  },
+                ),
+                _ShellTile(
+                  icon: Icons.sync_rounded,
+                  label: 'مركز المزامنة',
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const SyncCenterScreen(),
+                      ),
                     );
                   },
                 ),

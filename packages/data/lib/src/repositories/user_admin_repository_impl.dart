@@ -48,6 +48,22 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
   }
 
   @override
+  Future<List<SyncHealthEntry>> getSyncHealth({
+    int onlineWindowMinutes = 5,
+  }) async {
+    try {
+      final raw = await _remoteDatasource.getSyncHealth(
+        onlineWindowMinutes: onlineWindowMinutes,
+      );
+      return raw
+          .map((e) => SyncHealthEntry.fromJson(e))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  @override
   Future<UserModel> createUser({
     required String farmId,
     required String name,

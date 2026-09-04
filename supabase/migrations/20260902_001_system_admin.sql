@@ -162,7 +162,7 @@ BEGIN
     v_caller := public.current_user_role();
 
     -- system_admin يستطيع إنشاء أي دور
-    -- manager يستطيع إنشاء worker/supervisor/manager فقط (بدون system_admin)
+    -- manager يستطيع إنشاء worker فقط (لا يستطيع إنشاء system_admin)
     IF v_caller = 'system_admin' THEN
         -- system_admin: لا يحتاج تحقق farm_id
         IF p_role NOT IN ('worker', 'manager', 'system_admin') THEN
