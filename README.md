@@ -43,9 +43,30 @@ madjana/
 - حساب Supabase (مجاني)
 
 ### 2. Supabase
-1. أنشئ مشروع Supabase.
-2. نفّذ ملف `supabase/migrations/20250101000000_initial_schema.sql` من محرر SQL.
+
+**الطريقة الموصى بها (CLI):**
+```bash
+# تثبيت Supabase CLI إن لم يكن موجوداً
+# npm install -g supabase
+
+# ربط المشروع المحلي بـ Supabase
+supabase link --project-ref <your-project-ref>
+
+# تطبيق جميع الـ migrations تلقائياً
+supabase db push
+```
+
+**الطريقة اليدوية (من محرر SQL في Dashboard):**
+طبّق الملفات التالية بالترتيب من `supabase/migrations/`:
+1. `20250101000000_initial_schema.sql`
+2. `20260902_001_system_admin.sql`
+3. `20260902_002_rls_system_admin.sql`
+4. `20260902_003_mortality_atomicity.sql`
+5. `20260904_004_inventory_payments_version.sql`
+6. `20260904_005_sync_permissions_and_health.sql`
+
 3. أنشئ الجداول المرجعية: `medicines_catalog` (كتالوج الأدوية).
+
 4. أنشئ مستخدماً مديراً:
    ```sql
    INSERT INTO farms (name) VALUES ('مزرعة النموذج') RETURNING id;
@@ -59,11 +80,10 @@ madjana/
       '<farm_id>'
     );
    ```
-   ```
    > كلمة المرور المخزنة هي `'madjana$' + <الرقم السري 4 أرقام>`، وتُولَّد عبر الدالة
    > SQL `app_password_from_pin(p_pin)` التي تُشغَّل في migration، ثم يُحفظ ناتجها
    > لمطابقة عمود `encrypted_password` (bcrypt) الذي يتحقق منه GoTrue.
-   ```
+
 5. ارفع Edge Function:
    ```bash
    supabase functions deploy sync_records

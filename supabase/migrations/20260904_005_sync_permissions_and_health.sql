@@ -173,7 +173,8 @@ BEGIN
 
     v_user_farm := public.current_user_farm_id();
     v_user_role := public.current_user_role();
-    IF v_user_farm IS NULL THEN
+    -- P0 معماري: system_admin لا يحتاج farm_id للمزامنة المركزية
+    IF v_user_farm IS NULL AND NOT public.is_system_admin() THEN
         RAISE EXCEPTION 'لا يمكن تحديد المزرعة للمستخدم الحالي';
     END IF;
 
@@ -610,7 +611,11 @@ BEGIN
             'table_name', sc.table_name,
             'record_id', sc.record_id,
             'operation', sc.operation,
-            'payload', sc.payload,
+            'payload', CASE
+                -- P0 أمنّي: إخفاء الحقول الحسّاسة عن العامل حتى داخل الجداول المسموحة
+                WHEN sc.table_name = 'egg_dispatch' THEN sc.payload - 'payment_status'
+                ELSE sc.payload
+            END,
             'server_version', sc.server_version,
             'created_at', sc.created_at
         )) INTO v_changes

@@ -2395,6 +2395,7 @@ DECLARE
     v_op      text;
     v_payload jsonb;
     v_rec     record;
+    v_device_id text;
 BEGIN
     -- لا تُدخل إذا كان داخل sync_records_batch (يكتب Subtransaction معزولة)
     IF current_setting('app.skip_sync_trigger', true) = 'on' THEN
@@ -2427,8 +2428,11 @@ BEGIN
     -- P0: نحتفظ بـ version في الـ payload لأن الأجهزة المستقبلة تحتاجه لعمليات OCC.
     v_payload := v_payload - 'sync_status' - 'deleted_at';
 
-    INSERT INTO sync_changes (table_name, record_id, operation, farm_id, user_id, payload)
-    VALUES (TG_TABLE_NAME, COALESCE(NEW.id, OLD.id), v_op, v_farm_id, v_user_id, v_payload);
+    -- P0 صحة المزامنة: قراءة device_id من GUC ليُستخدم في مراقبة صحة المزامنة
+    v_device_id := NULLIF(current_setting('app.device_id', true), '');
+
+    INSERT INTO sync_changes (table_name, record_id, operation, farm_id, user_id, device_id, payload)
+    VALUES (TG_TABLE_NAME, COALESCE(NEW.id, OLD.id), v_op, v_farm_id, v_user_id, v_device_id, v_payload);
 
     RETURN COALESCE(NEW, OLD);
 END;
