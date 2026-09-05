@@ -1,16 +1,16 @@
-import 'package:core/core.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+﻿import 'package:core/core.dart';
+import 'supabase_api.dart';
 
-/// مصدر بيانات القطعان عبر Supabase
+/// ظ…طµط¯ط± ط¨ظٹط§ظ†ط§طھ ط§ظ„ظ‚ط·ط¹ط§ظ† ط¹ط¨ط± Supabase
 class SupabaseFlockDatasource {
-  final SupabaseClient _client;
+  final SupabaseApi _api;
 
-  SupabaseFlockDatasource(this._client);
+  SupabaseFlockDatasource(this._api);
 
   Future<List<FlockModel>> getFlocks(String farmId, {bool includeEnded = true}) {
-    final query = _client.from('flocks').select().eq('farm_id', farmId);
-    return query.then((data) {
-      var flocks = (data as List)
+    final query = _api.from('flocks').select().eq('farm_id', farmId);
+    return query.get().then((data) {
+      var flocks = (data)
           .map((e) => FlockModel.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList();
       if (!includeEnded) {
@@ -21,16 +21,17 @@ class SupabaseFlockDatasource {
   }
 
   Future<void> insert(FlockModel flock) async {
-    await _client.from('flocks').insert(flock.toJson());
+    await _api.from('flocks').insert(flock.toJson()).run();
   }
 
   Future<void> update(FlockModel flock) async {
-    await _client.from('flocks').update(flock.toJson()).eq('id', flock.id);
+    await _api.from('flocks').update(flock.toJson()).eq('id', flock.id).run();
   }
 
   Future<void> endFlock(String flockId) async {
-    await _client
+    await _api
         .from('flocks')
-        .update({'status': FlockStatus.depleted.name}).eq('id', flockId);
+        .update({'status': FlockStatus.depleted.name}).eq('id', flockId)
+        .run();
   }
 }

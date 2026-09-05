@@ -1,28 +1,29 @@
-import 'package:core/core.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+﻿import 'package:core/core.dart';
+import 'supabase_api.dart';
 
-/// مصدر بيانات العلف عبر Supabase
+/// ظ…طµط¯ط± ط¨ظٹط§ظ†ط§طھ ط§ظ„ط¹ظ„ظپ ط¹ط¨ط± Supabase
 class SupabaseFeedDatasource {
-  final SupabaseClient _client;
+  final SupabaseApi _api;
 
-  SupabaseFeedDatasource(this._client);
+  SupabaseFeedDatasource(this._api);
 
   Future<void> insertConsumption(FeedConsumptionModel record) async {
-    await _client.from('feed_consumption').insert(record.toJson());
+    await _api.from('feed_consumption').insert(record.toJson()).run();
   }
 
   Future<void> insertReceived(FeedReceivedModel record) async {
-    await _client.from('feed_received').insert(record.toJson());
+    await _api.from('feed_received').insert(record.toJson()).run();
   }
 
-  /// تحديث سعر الكيلوغرام (تسعير المدير من سطح المكتب)
+  /// طھط­ط¯ظٹط« ط³ط¹ط± ط§ظ„ظƒظٹظ„ظˆط؛ط±ط§ظ… (طھط³ط¹ظٹط± ط§ظ„ظ…ط¯ظٹط± ظ…ظ† ط³ط·ط­ ط§ظ„ظ…ظƒطھط¨)
   Future<void> updateReceivedPrice(String id, double pricePerKg) async {
-    await _client
+    await _api
         .from('feed_received')
-        .update({'price_per_kg': pricePerKg}).eq('id', id);
+        .update({'price_per_kg': pricePerKg}).eq('id', id)
+        .run();
   }
 
-  /// رفع مجموعة استهلاك
+  /// ط±ظپط¹ ظ…ط¬ظ…ظˆط¹ط© ط§ط³طھظ‡ظ„ط§ظƒ
   Future<BatchUploadResult> insertConsumptionBatch(
     List<FeedConsumptionModel> records,
   ) async {
@@ -39,7 +40,7 @@ class SupabaseFeedDatasource {
     return BatchUploadResult(successIds: successIds, failedIds: failedIds);
   }
 
-  /// رفع مجموعة استلام
+  /// ط±ظپط¹ ظ…ط¬ظ…ظˆط¹ط© ط§ط³طھظ„ط§ظ…
   Future<BatchUploadResult> insertReceivedBatch(List<FeedReceivedModel> records) async {
     final successIds = <String>[];
     final failedIds = <String>[];
@@ -54,8 +55,8 @@ class SupabaseFeedDatasource {
     return BatchUploadResult(successIds: successIds, failedIds: failedIds);
   }
 
-  /// حذف سجل استهلاك من السحابة
+  /// ط­ط°ظپ ط³ط¬ظ„ ط§ط³طھظ‡ظ„ط§ظƒ ظ…ظ† ط§ظ„ط³ط­ط§ط¨ط©
   Future<void> deleteConsumption(String id) async {
-    await _client.from('feed_consumption').delete().eq('id', id);
+    await _api.from('feed_consumption').delete().eq('id', id).run();
   }
 }

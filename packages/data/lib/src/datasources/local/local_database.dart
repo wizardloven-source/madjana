@@ -570,7 +570,9 @@ class LocalDatabase {
 
     // v4: تخزين بيانات المستخدم للجلسة + ملاحظات العامل المحلية
     if (oldVersion < 4) {
-      await db.execute('ALTER TABLE session ADD COLUMN user_json TEXT');
+      if (!await _columnExists(db, 'session', 'user_json')) {
+        await db.execute('ALTER TABLE session ADD COLUMN user_json TEXT');
+      }
       await db.execute('''
         CREATE TABLE IF NOT EXISTS worker_notes (
           id TEXT PRIMARY KEY,
@@ -599,12 +601,15 @@ class LocalDatabase {
 
     // v6: وزن الصحن في التخريج (وزن 30 بيضة بالكيلوغرام)
         if (oldVersion < 6) {
-          await db.execute('ALTER TABLE egg_dispatch ADD COLUMN tray_weight_kg REAL');
+          if (!await _columnExists(db, 'egg_dispatch', 'tray_weight_kg')) {
+            await db.execute('ALTER TABLE egg_dispatch ADD COLUMN tray_weight_kg REAL');
+          }
         }
         // v7: سعر كيلوغرام العلف المستلم (تسعير المدير)
         if (oldVersion < 7) {
-          await db
-              .execute('ALTER TABLE feed_received ADD COLUMN price_per_kg REAL');
+          if (!await _columnExists(db, 'feed_received', 'price_per_kg')) {
+            await db.execute('ALTER TABLE feed_received ADD COLUMN price_per_kg REAL');
+          }
         }
         // v8: أعمدة مفقودة + فهارس إضافية
         if (oldVersion < 8) {

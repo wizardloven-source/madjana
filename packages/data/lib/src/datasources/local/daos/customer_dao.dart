@@ -98,6 +98,7 @@ class CustomerDao {
         'notes': customer.notes,
         'total_debt': customer.totalDebt,
         'sync_status': SyncStatus.synced.name,
+        'created_at': DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,

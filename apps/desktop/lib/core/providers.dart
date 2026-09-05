@@ -13,6 +13,11 @@ final supabaseClientProvider = Provider<SupabaseClient>(
   (ref) => SupabaseConfig.client,
 );
 
+/// واجهة Supabase المجرّدة (منفصلة عن SupabaseClient لتسهيل الاختبار)
+final supabaseApiProvider = Provider<SupabaseApi>(
+  (ref) => SupabaseClientApiAdapter(ref.watch(supabaseClientProvider)),
+);
+
 // ─────────────── الـ DAOs المحلية ───────────────
 final eggProductionDaoProvider = Provider<EggProductionDao>((ref) => EggProductionDao());
 final mortalityDaoProvider = Provider<MortalityDao>((ref) => MortalityDao());
@@ -36,43 +41,43 @@ final supabaseAuthDatasourceProvider = Provider<SupabaseAuthDatasource>(
   (ref) => SupabaseAuthDatasource(ref.watch(supabaseClientProvider)),
 );
 final supabaseEggDatasourceProvider = Provider<SupabaseEggDatasource>(
-  (ref) => SupabaseEggDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabaseEggDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabaseMortalityDatasourceProvider = Provider<SupabaseMortalityDatasource>(
-  (ref) => SupabaseMortalityDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabaseMortalityDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabaseFeedDatasourceProvider = Provider<SupabaseFeedDatasource>(
-  (ref) => SupabaseFeedDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabaseFeedDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabaseDispatchDatasourceProvider = Provider<SupabaseDispatchDatasource>(
-  (ref) => SupabaseDispatchDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabaseDispatchDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabaseMedicationDatasourceProvider = Provider<SupabaseMedicationDatasource>(
-  (ref) => SupabaseMedicationDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabaseMedicationDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabaseFlockDatasourceProvider = Provider<SupabaseFlockDatasource>(
-  (ref) => SupabaseFlockDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabaseFlockDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabaseUserAdminDatasourceProvider = Provider<SupabaseUserAdminDatasource>(
-  (ref) => SupabaseUserAdminDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabaseUserAdminDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabaseExpenseDatasourceProvider = Provider<SupabaseExpenseDatasource>(
-  (ref) => SupabaseExpenseDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabaseExpenseDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabaseInventoryDatasourceProvider = Provider<SupabaseInventoryDatasource>(
-  (ref) => SupabaseInventoryDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabaseInventoryDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabaseFarmDatasourceProvider = Provider<SupabaseFarmDatasource>(
-  (ref) => SupabaseFarmDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabaseFarmDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabasePaymentDatasourceProvider = Provider<SupabasePaymentDatasource>(
-  (ref) => SupabasePaymentDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabasePaymentDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabaseOpeningBalanceDatasourceProvider = Provider<SupabaseOpeningBalanceDatasource>(
-  (ref) => SupabaseOpeningBalanceDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabaseOpeningBalanceDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabaseNotificationDatasourceProvider = Provider<SupabaseNotificationDatasource>(
-  (ref) => SupabaseNotificationDatasource(ref.watch(supabaseClientProvider)),
+  (ref) => SupabaseNotificationDatasource(ref.watch(supabaseApiProvider)),
 );
 
 // ─────────────── المستودعات ───────────────

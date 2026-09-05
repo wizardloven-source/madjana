@@ -32,3 +32,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  # اختبارات محلية على جهاز المضيف (host) — FFI بديل عن sqflite الأصلي
+  sqflite_common_ffi: ^2.4.2
+  # وهمية HTTP لـ SupabaseClient في اختبارات محرك المزامنة
+  http: ^1.2.0

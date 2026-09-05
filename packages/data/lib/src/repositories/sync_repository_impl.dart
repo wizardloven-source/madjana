@@ -26,7 +26,8 @@ class SyncRepositoryImpl implements SyncRepository {
     required dynamic remoteDispatch,
     required dynamic remoteMedication,
     required dynamic remotePayment,
-  }) : _supabase = Supabase.instance.client;
+    SupabaseClient? supabaseClient,
+  }) : _supabase = supabaseClient ?? Supabase.instance.client;
 
   @override
   Future<List<SyncChangeModel>> getPendingChanges({int limit = 50}) async {
@@ -109,13 +110,17 @@ class SyncRepositoryImpl implements SyncRepository {
   }
 
   @override
-  Future<void> markAsFailed(String id, String errorMessage) async {
+  Future<void> markAsFailed(String id, String errorMessage, {int? attempts}) async {
     final db = await LocalDatabase.database;
     await db.rawUpdate('''
       UPDATE sync_queue
-      SET status = 'failed', last_error = ?, updated_at = datetime('now')
+      SET status = 'failed',
+          last_error = ?,
+          last_error_code = NULL,
+          attempts = COALESCE(?, attempts),
+          updated_at = datetime('now')
       WHERE id = ?
-    ''', [errorMessage, id]);
+    ''', [errorMessage, attempts, id]);
   }
 
   @override
@@ -335,7 +340,7 @@ class SyncRepositoryImpl implements SyncRepository {
         if (shouldKeepPending) {
           await _markPendingWithRetry(queueKey, attempts, msg, now);
         } else {
-          await markAsFailed(queueKey, msg);
+          await markAsFailed(queueKey, msg, attempts: attempts);
         }
       }
       return BatchSyncResult(
@@ -510,6 +515,10 @@ class SyncRepositoryImpl implements SyncRepository {
     // إضافة id إذا لم يكن موجوداً في payload
     final data = Map<String, dynamic>.from(payload)..['id'] = recordId;
 
+    // أعمدة NOT NULL بدون default (created_at/updated_at) لا تأتي من الخادم
+    // في بعض التدفقات — تسد الفجوة كي لا يُسقط السجل صامتاً.
+    await _fillRequiredHousekeeping(txn, tableName, data);
+
     // فلترة الأعمدة غير المدعومة
     final filtered = <String, dynamic>{};
     for (final entry in data.entries) {
@@ -524,10 +533,32 @@ class SyncRepositoryImpl implements SyncRepository {
     final placeholders = List.filled(filtered.length, '?').join(', ');
     final values = filtered.values.toList();
 
+    // INSERT عادي (لا OR IGNORE): أي انتهاك قيد يظهر كـ conflict صريح
+    // ويعاد سحبه لاحقاً بدلاً من إسقاط السجل بصمت.
     await txn.rawInsert(
-      'INSERT OR IGNORE INTO $tableName ($cols) VALUES ($placeholders)',
+      'INSERT INTO $tableName ($cols) VALUES ($placeholders)',
       values,
     );
+  }
+
+  /// يملأ أعمدة housekeeping الإلزامية (NOT NULL بلا default) المفقودة
+  /// في سجلات السحب قبل الإدراج، كي لا يرفض SQLite السجل كاملاً.
+  Future<void> _fillRequiredHousekeeping(
+    DatabaseExecutor txn,
+    String tableName,
+    Map<String, dynamic> data,
+  ) async {
+    final cols = await txn.rawQuery('PRAGMA table_info($tableName)');
+    for (final c in cols) {
+      final name = c['name'] as String;
+      if (data.containsKey(name)) continue;
+      final notNull = c['notnull'] == 1;
+      final hasDefault = c['dflt_value'] != null;
+      if (!notNull || hasDefault) continue;
+      if (name == 'created_at' || name == 'updated_at') {
+        data[name] = DateTime.now().toIso8601String();
+      }
+    }
   }
 
   /// تحديث سجل من البيانات البعيدة في SQLite

@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  data_package:
+    name: data package — analyze + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies (packages/data)
+        working-directory: packages/data
+        run: flutter pub get
+
+      - name: Analyze (packages/data)
+        working-directory: packages/data
+        run: flutter analyze
+
+      - name: Test (packages/data)
+        working-directory: packages/data
+        run: flutter test --coverage
+
+      - name: Coverage gate (>= 45% of lines)
+        working-directory: packages/data
+        shell: bash
+        run: |
+          lf=$(grep -E '^LF:' coverage/lcov.info | sed 's/LF://' | awk '{s+=$1} END {print s+0}')
+          lh=$(grep -E '^LH:' coverage/lcov.info | sed 's/LH://' | awk '{s+=$1} END {print s+0}')
+          pct=$((( lh * 100 ) / lf))
+          echo "line coverage: ${pct}% (${lh}/${lf})"
+          if [ "$pct" -lt 45 ]; then
+            echo "::error::Coverage gate failed: ${pct}% is below the 45% threshold."
+            exit 1
+          fi
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: data-package-coverage
+          path: packages/data/coverage

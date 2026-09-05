@@ -24,6 +24,7 @@ class FeedDao {
       'worker_id': record.workerId,
       'sync_status': SyncStatus.pending.name,
       'created_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
     });
 
     await LocalDatabase.enqueueChange(
@@ -224,6 +225,7 @@ class FeedDao {
       'worker_id': data['worker_id'] ?? '',
       'sync_status': SyncStatus.pending.name,
       'created_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
     });
 
     await LocalDatabase.enqueueChange(

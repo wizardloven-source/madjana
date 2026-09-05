@@ -158,6 +158,12 @@
       "languageVersion": "3.9"
     },
     {
+      "name": "glob",
+      "rootUri": "file:///C:/Users/MTC/AppData/Local/Pub/Cache/hosted/pub.dev/glob-2.2.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.3"
+    },
+    {
       "name": "gotrue",
       "rootUri": "file:///C:/Users/MTC/AppData/Local/Pub/Cache/hosted/pub.dev/gotrue-2.27.2",
       "packageUri": "lib/",
@@ -270,6 +276,12 @@
       "rootUri": "file:///C:/Users/MTC/AppData/Local/Pub/Cache/hosted/pub.dev/mime-2.0.0",
       "packageUri": "lib/",
       "languageVersion": "3.2"
+    },
+    {
+      "name": "native_toolchain_c",
+      "rootUri": "file:///C:/Users/MTC/AppData/Local/Pub/Cache/hosted/pub.dev/native_toolchain_c-0.19.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.10"
     },
     {
       "name": "objective_c",
@@ -446,6 +458,12 @@
       "languageVersion": "3.12"
     },
     {
+      "name": "sqflite_common_ffi",
+      "rootUri": "file:///C:/Users/MTC/AppData/Local/Pub/Cache/hosted/pub.dev/sqflite_common_ffi-2.4.2+1",
+      "packageUri": "lib/",
+      "languageVersion": "3.12"
+    },
+    {
       "name": "sqflite_darwin",
       "rootUri": "file:///C:/Users/MTC/AppData/Local/Pub/Cache/hosted/pub.dev/sqflite_darwin-2.4.3+1",
       "packageUri": "lib/",
@@ -456,6 +474,12 @@
       "rootUri": "file:///C:/Users/MTC/AppData/Local/Pub/Cache/hosted/pub.dev/sqflite_platform_interface-2.4.1",
       "packageUri": "lib/",
       "languageVersion": "3.12"
+    },
+    {
+      "name": "sqlite3",
+      "rootUri": "file:///C:/Users/MTC/AppData/Local/Pub/Cache/hosted/pub.dev/sqlite3-3.5.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.10"
     },
     {
       "name": "stack_trace",

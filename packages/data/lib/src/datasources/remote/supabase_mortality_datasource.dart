@@ -1,42 +1,45 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'package:core/core.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'supabase_api.dart';
 
-/// مصدر بيانات النفوق عبر Supabase
+/// ظ…طµط¯ط± ط¨ظٹط§ظ†ط§طھ ط§ظ„ظ†ظپظˆظ‚ ط¹ط¨ط± Supabase
 class SupabaseMortalityDatasource {
-  final SupabaseClient _client;
+  final SupabaseApi _api;
 
-  SupabaseMortalityDatasource(this._client);
+  SupabaseMortalityDatasource(this._api);
 
-  /// رفع سجل
+  /// ط±ظپط¹ ط³ط¬ظ„
   Future<String> insert(MortalityModel record) async {
-    final data = await _client
+    final data = await _api
         .from('mortality')
         .insert(record.toJson())
-        .select('id')
+        .select(['id'])
         .single();
 
     return data['id'] as String;
   }
 
-  /// رفع صورة النفوق إلى Storage
-  /// P0/28: مسار معزول بالمزرعة — farms/{farm_id}/mortality/{record_id}/...
+  /// ط±ظپط¹ طµظˆط±ط© ط§ظ„ظ†ظپظˆظ‚ ط¥ظ„ظ‰ Storage
+  /// P0/28: ظ…ط³ط§ط± ظ…ط¹ط²ظˆظ„ ط¨ط§ظ„ظ…ط²ط±ط¹ط© â€” farms/{farm_id}/mortality/{record_id}/...
   Future<String> uploadImage(File imageFile, String recordId, String farmId) async {
     final fileName = '${DateTime.now().millisecondsSinceEpoch}_$recordId.jpg';
     final path = 'farms/$farmId/mortality/$recordId/$fileName';
 
-    await _client.storage.from('farm-images').upload(
-          path,
-          imageFile,
-          fileOptions: const FileOptions(cacheControl: '3600', upsert: false),
-        );
+    await _api.storage.upload(
+      'farm-images',
+      path,
+      imageFile,
+      cacheControl: '3600',
+      upsert: false,
+      contentType: 'image/jpeg',
+    );
 
-    // الحصول على الرابط العام
-    final url = await _client.storage.from('farm-images').getPublicUrl(path);
+    // ط§ظ„ط­طµظˆظ„ ط¹ظ„ظ‰ ط§ظ„ط±ط§ط¨ط· ط§ظ„ط¹ط§ظ…
+    final url = _api.storage.getPublicUrl('farm-images', path);
     return url;
   }
 
-  /// رفع مجموعة سجلات
+  /// ط±ظپط¹ ظ…ط¬ظ…ظˆط¹ط© ط³ط¬ظ„ط§طھ
   Future<BatchUploadResult> insertBatch(List<MortalityModel> records) async {
     final successIds = <String>[];
     final failedIds = <String>[];
@@ -51,8 +54,8 @@ class SupabaseMortalityDatasource {
     return BatchUploadResult(successIds: successIds, failedIds: failedIds);
   }
 
-  /// حذف سجل من السحابة
+  /// ط­ط°ظپ ط³ط¬ظ„ ظ…ظ† ط§ظ„ط³ط­ط§ط¨ط©
   Future<void> delete(String id) async {
-    await _client.from('mortality').delete().eq('id', id);
+    await _api.from('mortality').delete().eq('id', id).run();
   }
 }

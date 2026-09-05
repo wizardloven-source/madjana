@@ -22,6 +22,7 @@ export 'src/datasources/local/daos/opening_balance_dao.dart';
 export 'src/datasources/local/daos/user_dao.dart';
 
 // المصادر السحابية (Supabase)
+export 'src/datasources/remote/supabase_api.dart';
 export 'src/datasources/remote/supabase_auth_datasource.dart';
 export 'src/datasources/remote/supabase_egg_datasource.dart';
 export 'src/datasources/remote/supabase_mortality_datasource.dart';

@@ -1,27 +1,27 @@
-import 'package:core/core.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+﻿import 'package:core/core.dart';
+import 'supabase_api.dart';
 
-/// مصدر بيانات إنتاج البيض عبر Supabase
+/// ظ…طµط¯ط± ط¨ظٹط§ظ†ط§طھ ط¥ظ†طھط§ط¬ ط§ظ„ط¨ظٹط¶ ط¹ط¨ط± Supabase
 class SupabaseEggDatasource {
-  final SupabaseClient _client;
+  final SupabaseApi _api;
 
-  SupabaseEggDatasource(this._client);
+  SupabaseEggDatasource(this._api);
 
-  /// الوصول للعميل (للاستعلامات العامة)
-  SupabaseClient get client => _client;
+  /// ط§ظ„ظˆطµظˆظ„ ظ„ظ„ط¹ظ…ظٹظ„ (ظ„ظ„ط§ط³طھط¹ظ„ط§ظ…ط§طھ ط§ظ„ط¹ط§ظ…ط©)
+  SupabaseApi get api => _api;
 
-  /// رفع سجل واحد
+  /// ط±ظپط¹ ط³ط¬ظ„ ظˆط§ط­ط¯
   Future<String> insert(EggProductionModel record) async {
-    final data = await _client
+    final data = await _api
         .from('egg_production')
         .insert(record.toJson())
-        .select('id')
+        .select(['id'])
         .single();
 
     return data['id'] as String;
   }
 
-  /// رفع مجموعة سجلات (Batch) - للمزامنة
+  /// ط±ظپط¹ ظ…ط¬ظ…ظˆط¹ط© ط³ط¬ظ„ط§طھ (Batch) - ظ„ظ„ظ…ط²ط§ظ…ظ†ط©
   Future<BatchUploadResult> insertBatch(List<EggProductionModel> records) async {
     final successIds = <String>[];
     final failedIds = <String>[];
@@ -41,18 +41,18 @@ class SupabaseEggDatasource {
     );
   }
 
-  /// حذف سجل من السحابة
+  /// ط­ط°ظپ ط³ط¬ظ„ ظ…ظ† ط§ظ„ط³ط­ط§ط¨ط©
   Future<void> delete(String id) async {
-    await _client.from('egg_production').delete().eq('id', id);
+    await _api.from('egg_production').delete().eq('id', id).run();
   }
 
-  /// جلب سجلات من السحابة (للتقارير)
+  /// ط¬ظ„ط¨ ط³ط¬ظ„ط§طھ ظ…ظ† ط§ظ„ط³ط­ط§ط¨ط© (ظ„ظ„طھظ‚ط§ط±ظٹط±)
   Future<List<EggProductionModel>> getRecords({
     String? farmId,
     DateTime? fromDate,
     DateTime? toDate,
   }) async {
-    var query = _client.from('egg_production').select();
+    var query = _api.from('egg_production').select();
 
     if (farmId != null) {
       query = query.eq('farm_id', farmId);
@@ -64,9 +64,9 @@ class SupabaseEggDatasource {
       query = query.lte('date', toDate.toIso8601String().split('T').first);
     }
 
-    final data = await query.order('date', ascending: false);
+    final data = await query.order('date', ascending: false).get();
 
-    return (data as List)
+    return (data)
         .map((e) => EggProductionModel.fromJson(Map<String, dynamic>.from(e as Map)))
         .toList();
   }

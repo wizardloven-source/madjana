@@ -26,6 +26,7 @@ class MortalityDao {
       'worker_id': record.workerId,
       'sync_status': SyncStatus.pending.name,
       'created_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
     });
 
     await LocalDatabase.enqueueChange(

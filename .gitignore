@@ -18,6 +18,9 @@ node_modules/
 build/
 .packages
 
+# Flutter test coverage output
+coverage/
+
 # Flutter build outputs
 *.apk
 *.aab

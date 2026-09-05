@@ -27,6 +27,7 @@ class DispatchDao {
       'worker_id': record.workerId,
       'sync_status': SyncStatus.pending.name,
       'created_at': now,
+      'updated_at': now,
     });
 
     await LocalDatabase.enqueueChange(

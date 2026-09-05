@@ -1,18 +1,18 @@
-import 'package:core/core.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+﻿import 'package:core/core.dart';
+import 'supabase_api.dart';
 
-/// مصدر بيانات المدفوعات عبر Supabase
+/// ظ…طµط¯ط± ط¨ظٹط§ظ†ط§طھ ط§ظ„ظ…ط¯ظپظˆط¹ط§طھ ط¹ط¨ط± Supabase
 class SupabasePaymentDatasource {
-  final SupabaseClient _client;
+  final SupabaseApi _api;
 
-  SupabasePaymentDatasource(this._client);
+  SupabasePaymentDatasource(this._api);
 
   Future<List<PaymentModel>> getPayments({
     required String farmId,
     DateTime? fromDate,
     DateTime? toDate,
   }) async {
-    var query = _client.from('payments').select().eq('farm_id', farmId);
+    var query = _api.from('payments').select().eq('farm_id', farmId);
     if (fromDate != null) {
       query = query.gte(
           'date', fromDate.toIso8601String().split('T').first);
@@ -20,28 +20,30 @@ class SupabasePaymentDatasource {
     if (toDate != null) {
       query = query.lte('date', toDate.toIso8601String().split('T').first);
     }
-    final data = await query.order('date');
-    return (data as List)
+    final data = await query.order('date').get();
+    return (data)
         .map((e) => PaymentModel.fromJson(Map<String, dynamic>.from(e as Map)))
         .toList();
   }
 
   Future<Map<String, dynamic>> insert(PaymentModel payment) async {
-    return Map<String, dynamic>.from(
-      await _client.from('payments').insert(payment.toJson()).select().single(),
-    );
+    return _api
+        .from('payments')
+        .insert(payment.toJson())
+        .select()
+        .single();
   }
 
   Future<void> update(String id, PaymentModel payment) async {
     final json = payment.toJson()..remove('id');
-    await _client.from('payments').update(json).eq('id', id);
+    await _api.from('payments').update(json).eq('id', id).run();
   }
 
   Future<void> delete(String id) async {
-    await _client.from('payments').delete().eq('id', id);
+    await _api.from('payments').delete().eq('id', id).run();
   }
 
-  /// رفع مجموعة سجلات
+  /// ط±ظپط¹ ظ…ط¬ظ…ظˆط¹ط© ط³ط¬ظ„ط§طھ
   Future<BatchUploadResult> insertBatch(List<PaymentModel> records) async {
     final successIds = <String>[];
     final failedIds = <String>[];
