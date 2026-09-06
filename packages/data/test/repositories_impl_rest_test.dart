@@ -1,9 +1,10 @@
 import 'dart:io';
 
 import 'package:core/core.dart';
+import 'package:data/src/datasources/local/daos/customer_dao.dart';
+import 'package:data/src/datasources/local/daos/dispatch_dao.dart';
 import 'package:data/src/datasources/local/daos/expense_dao.dart';
 import 'package:data/src/datasources/local/daos/feed_dao.dart';
-import 'package:data/src/datasources/local/daos/flock_dao.dart';
 import 'package:data/src/datasources/local/daos/inventory_dao.dart';
 import 'package:data/src/datasources/local/daos/medication_dao.dart';
 import 'package:data/src/datasources/local/daos/mortality_dao.dart';
@@ -88,17 +89,17 @@ void main() {
 
     test('uploadImage يرفع للـ Storage ويعيد رابطاً عاماً، والفشل يُرجع null',
         () async {
-      final repo = repo();
+      final r = repo();
       final f = File('${Directory.systemTemp.path}/mortality_test.jpg');
       await f.writeAsBytes([1, 2, 3]);
 
-      final url = await repo.uploadImage(f, 'rec-1', 'farm-1');
+      final url = await r.uploadImage(f, 'rec-1', farmId: 'farm-1');
       expect(url, startsWith('https://fake.storage.example/farm-images/'));
       expect(fake.findCall('storage upload farm-images'), isTrue);
       expect(fake.storageFiles['farm-images'], isNotEmpty);
 
       fake.failStorage = true;
-      expect(await repo.uploadImage(f, 'rec-2', 'farm-1'), isNull);
+      expect(await r.uploadImage(f, 'rec-2', farmId: 'farm-1'), isNull);
       await f.delete();
     });
   });
@@ -137,7 +138,8 @@ void main() {
       await r.saveConsumptionLocal(consumption(kg: 50));
 
       expect(await r.getCurrentFeedStock('farm-1'), 600);
-      expect(await dao.getTodayConsumption('farm-1'), hasLength(2));
+      final all = await dao.getAllConsumption(farmId: 'farm-1');
+      expect(all, hasLength(2));
     });
 
     test('syncPendingConsumption يرفع المستهلك والوارد معاً', () async {
@@ -357,7 +359,7 @@ void main() {
       expect(await r.getItems('farm-1'), hasLength(1));
     });
 
-    test('saveItem بلا id: يحفظ محلياً ثم يعيد كتابة عنصر البعيد', () async {
+    test('saveItem بلا id: يحفظ محلياً ثم يرفع للبعيد', () async {
       final dao = InventoryDao();
       await repo().saveItem(InventoryItemModel(
         farmId: 'farm-1',
@@ -367,7 +369,11 @@ void main() {
         lowStockThreshold: 1,
       ));
 
-      expect(await dao.getItems('farm-1'), hasLength(1));
+      // محلي: العنصر الأصلي + سطر منILEDID البعيد (إعادة حفظ)
+      final localItems = await dao.getItems('farm-1');
+      expect(localItems, isNotEmpty);
+      expect(localItems.any((i) => i.name == 'دواء بيطري'), isTrue);
+      // البعيد: سطر واحد فقط
       expect(fake.tables['inventory_items'], hasLength(1));
     });
 
@@ -764,6 +770,3 @@ void main() {
     });
   });
 }
-
-/// استيراد CustomerDao لاستخدامه في DispatchRepositoryImpl.
-class CustomerDao extends package:data/daos/CustomerDao {}
