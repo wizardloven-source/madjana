@@ -2280,7 +2280,14 @@ BEGIN
         v_auth_uuid, p_manager_name, p_phone, 'system_admin',
         extensions.crypt(public.app_password_from_pin(p_pin), extensions.gen_salt('bf')),
         v_farm_id, true
-    );
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        phone = EXCLUDED.phone,
+        role = EXCLUDED.role,
+        pin_hash = EXCLUDED.pin_hash,
+        farm_id = EXCLUDED.farm_id,
+        is_active = EXCLUDED.is_active;
 
     RETURN jsonb_build_object(
         'user_id', v_auth_uuid,
@@ -2422,7 +2429,14 @@ BEGIN
         v_user_id, p_manager_name, p_phone, 'manager',
         extensions.crypt(public.app_password_from_pin(p_pin), extensions.gen_salt('bf')),
         v_farm_id, true
-    );
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        phone = EXCLUDED.phone,
+        role = EXCLUDED.role,
+        pin_hash = EXCLUDED.pin_hash,
+        farm_id = EXCLUDED.farm_id,
+        is_active = EXCLUDED.is_active;
 
     SELECT jsonb_build_object(
         'user_id', v_user_id,
