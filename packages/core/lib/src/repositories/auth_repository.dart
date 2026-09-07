@@ -9,6 +9,18 @@ abstract class AuthRepository {
     bool rememberMe = false,
   });
 
+  /// هل يوجد سوبر أدمن في النظام؟ (يُفحص قبل عرض شاشة تسجيل الدخول)
+  Future<bool?> hasSystemAdmin();
+
+  /// إنشاء أول سوبر أدمن (مزرعة + مدير النظام) — التشغيل الأول فقط
+  Future<LoginResult> createFirstAdmin({
+    required String farmName,
+    String? location,
+    required String managerName,
+    required String phone,
+    required String pin,
+  });
+
   /// جلب المستخدم الحالي من الجلسة المحلية
   Future<UserModel?> getCurrentUser();
 

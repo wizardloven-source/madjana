@@ -18,6 +18,76 @@ class SupabaseAuthDatasource {
   /// معرف المستخدم من جلسة Supabase الحالية (null إن لم يسجل دخولاً)
   String? get currentUid => _client.auth.currentSession?.user.id;
 
+  /// هل يوجد سوبر أدمن في النظام؟
+  /// (تعمل قبل الدخول — تتحقق من users بدون كشف بيانات)
+  Future<bool?> hasSystemAdmin() async {
+    try {
+      final res = await _client
+          .rpc('has_system_admin')
+          .timeout(const Duration(seconds: 8), onTimeout: () {
+        throw AuthException('انتهت مهلة الاتصال بالسيرفر');
+      });
+      return res == true;
+    } catch (_) {
+      // تعذّر الوصول -> لا نجزم بوجود/عدم وجود (فلا نعرض شاشة إنشاء بطريقة خاطئة)
+      return null;
+    }
+  }
+
+  /// إنشاء أول سوبر أدمن (مزرعة + مدير النظام) — التشغيل الأول فقط.
+  /// لا يتطلب رمز تزويد خارجي (تُقرأ داخلياً في SQL).
+  Future<void> createFirstAdmin({
+    required String farmName,
+    String? location,
+    required String managerName,
+    required String phone,
+    required String pin,
+  }) async {
+    phone = _normalizeDigits(phone);
+    pin = _normalizeDigits(pin);
+
+    if (farmName.trim().isEmpty || managerName.trim().isEmpty) {
+      throw AuthException('أدخل اسم المزرعة واسم المسؤول');
+    }
+    if (!RegExp(r'^\d{4}$').hasMatch(pin)) {
+      throw AuthException('الرمز السري يجب أن يكون 4 أرقام');
+    }
+    if (phone.isEmpty) {
+      throw AuthException('أدخل رقم الهاتف');
+    }
+
+    try {
+      final res = await _client.rpc('create_first_admin', params: {
+        'p_farm_name': farmName.trim(),
+        'p_location': location?.trim() ?? '',
+        'p_manager_name': managerName.trim(),
+        'p_phone': phone,
+        'p_pin': pin,
+      }).timeout(const Duration(seconds: 25), onTimeout: () {
+        throw AuthException('انتهت مهلة إنشاء الحساب');
+      });
+
+      // التحقق من النتيجة قبل المتابعة
+      final map = _asMap(res);
+      final uid = map?['user_id'] as String?;
+      if (uid == null || uid.isEmpty) {
+        throw AuthException('لم يتم إنشاء الحساب — أعد المحاولة');
+      }
+    } on PostgrestException catch (e) {
+      throw AuthException('فشل إنشاء الحساب: ${e.message}');
+    } catch (e) {
+      if (e is AuthException) rethrow;
+      final msg = e.toString();
+      if (msg.contains('SocketException') || msg.contains('errno = 7')) {
+        throw AuthException('لا يوجد اتصال بالإنترنت — تحقق من الشبكة');
+      }
+      if (msg.contains('TimeoutException') || msg.contains('timeout')) {
+        throw AuthException('انتهت مهلة الاتصال — تحقق من سرعة الإنترنت');
+      }
+      throw AuthException('فشل إنشاء الحساب: $msg');
+    }
+  }
+
   /// تسجيل الدخول بالهاتف + PIN
   Future<UserModel> login({
     required String phone,

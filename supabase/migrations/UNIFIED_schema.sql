@@ -2295,6 +2295,60 @@ $$;
 GRANT EXECUTE ON FUNCTION public.bootstrap_create_farm_and_manager(text, text, text, text, text, text) TO anon, authenticated;
 
 -- ============================================================
+-- 33b) has_system_admin — هل النظام مهيأ بوجود سوبر أدمن؟
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION public.has_system_admin()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM users
+        WHERE role = 'system_admin' AND is_active = true
+    );
+$$;
+
+GRANT EXECUTE ON FUNCTION public.has_system_admin() TO anon, authenticated;
+
+-- ============================================================
+-- 33c) create_first_admin — إنشاء أول سوبر أدمن من التطبيق
+-- (بدون رمز تزويد خارجي؛ يُقرأ داخلياً، ومحجوب عندما يوجد مستخدمون)
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION public.create_first_admin(
+    p_farm_name text,
+    p_location text,
+    p_manager_name text,
+    p_phone text,
+    p_pin text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_expected text;
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('madjana_bootstrap'));
+
+    IF EXISTS (SELECT 1 FROM users LIMIT 1) THEN
+        RAISE EXCEPTION 'يوجد مستخدمون بالفعل — هذه الدالة للتهيئة الأولى فقط';
+    END IF;
+
+    SELECT value INTO v_expected FROM app_settings WHERE key = 'secure.bootstrap_token';
+
+    RETURN public.bootstrap_create_farm_and_manager(
+        p_farm_name, p_location, p_manager_name, p_phone, p_pin, v_expected
+    );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.create_first_admin(text, text, text, text, text) TO anon, authenticated;
+
+-- ============================================================
 -- 34) create_farm_with_manager
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.create_farm_with_manager(

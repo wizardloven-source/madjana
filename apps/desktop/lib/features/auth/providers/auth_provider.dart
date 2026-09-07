@@ -79,6 +79,36 @@ class AuthNotifier extends StateNotifier<AuthState> {
     return result;
   }
 
+  /// إنشاء أول سوبر أدمن (التشغيل الأول فقط)
+  Future<LoginResult> createFirstAdmin({
+    required String farmName,
+    String? location,
+    required String managerName,
+    required String phone,
+    required String pin,
+  }) async {
+    state = state.copyWith(isLoading: true, error: null);
+
+    final result = await _repository.createFirstAdmin(
+      farmName: farmName,
+      location: location,
+      managerName: managerName,
+      phone: phone,
+      pin: pin,
+    );
+
+    if (result.success) {
+      state = AuthState(currentUser: result.user);
+    } else {
+      state = state.copyWith(
+        isLoading: false,
+        error: result.error,
+      );
+    }
+
+    return result;
+  }
+
   /// تسجيل الخروج
   Future<void> logout() async {
     await _repository.logout();
@@ -89,3 +119,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>(
   (ref) => AuthNotifier(ref.watch(authRepositoryProvider)),
 );
+
+/// هل النظام بحاجة لتهيئة أولية (إنشاء أول سوبر أدمن)؟
+/// القيم: null = قيد التحقق/شبكة معطلة، true = لا يوجد سوبر أدمن، false = موجود
+final needsBootstrapProvider = FutureProvider<bool?>((ref) async {
+  final repo = ref.watch(authRepositoryProvider);
+  final hasAdmin = await repo.hasSystemAdmin();
+  if (hasAdmin == null) return null;
+  return !hasAdmin;
+});

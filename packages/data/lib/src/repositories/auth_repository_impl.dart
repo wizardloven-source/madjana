@@ -130,6 +130,36 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<bool?> hasSystemAdmin() {
+    return _remoteDatasource.hasSystemAdmin();
+  }
+
+  @override
+  Future<LoginResult> createFirstAdmin({
+    required String farmName,
+    String? location,
+    required String managerName,
+    required String phone,
+    required String pin,
+  }) async {
+    try {
+      await _remoteDatasource.createFirstAdmin(
+        farmName: farmName,
+        location: location,
+        managerName: managerName,
+        phone: phone,
+        pin: pin,
+      );
+      // الدخول التلقائي للمسؤول الجديد
+      return await login(phone: phone, pin: pin, rememberMe: true);
+    } on AuthException catch (e) {
+      return LoginResult.failure(e.message);
+    } catch (e) {
+      return LoginResult.failure('فشل إنشاء الحساب: $e');
+    }
+  }
+
+  @override
   Future<UserModel?> getCurrentUser() async {
     final localSession = await _sessionDao.get();
     // أولوية لجلسة Supabase الحقيقية ثم الجلسة المحفوظة محلياً

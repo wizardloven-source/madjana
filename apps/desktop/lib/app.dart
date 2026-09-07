@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import 'core/theme.dart';
+import 'features/auth/presentation/bootstrap_admin_screen.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/shell/presentation/manager_shell.dart';
@@ -17,14 +18,10 @@ class MadjanaDesktopApp extends ConsumerWidget {
     final authState = ref.watch(authProvider);
 
     final Widget home;
-    if (!authState.isLoggedIn) {
-      home = const LoginScreen();
-    } else if (authState.currentUser!.role == UserRole.system_admin) {
-      home = const SystemAdminShell();
-    } else if (authState.currentUser!.role == UserRole.manager) {
-      home = const ManagerShell();
+    if (authState.isLoggedIn) {
+      home = _authenticatedHome(authState.currentUser!);
     } else {
-      home = const _NotAuthorizedScreen();
+      home = const _UnauthenticatedGate();
     }
 
     return MaterialApp(
@@ -41,6 +38,66 @@ class MadjanaDesktopApp extends ConsumerWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       home: home,
+    );
+  }
+
+  Widget _authenticatedHome(UserModel user) {
+    switch (user.role) {
+      case UserRole.system_admin:
+        return const SystemAdminShell();
+      case UserRole.manager:
+        return const ManagerShell();
+      default:
+        return const _NotAuthorizedScreen();
+    }
+  }
+}
+
+/// بوابة الدخول قبل تسجيل الدخول:
+/// إن لم يوجد سوبر أدمن في النظام → شاشة إنشاء الحساب الأول،
+/// وإلا → شاشة تسجيل الدخول العادية.
+class _UnauthenticatedGate extends ConsumerStatefulWidget {
+  const _UnauthenticatedGate();
+
+  @override
+  ConsumerState<_UnauthenticatedGate> createState() => _UnauthenticatedGateState();
+}
+
+class _UnauthenticatedGateState extends ConsumerState<_UnauthenticatedGate> {
+  @override
+  void initState() {
+    super.initState();
+    // إعادة فحص التهيئة عند كل فتح لشاشة الدخول
+    // (مثلاً بعد إنشاء الحساب الأول ثم تسجيل الخروج — لا نعرض الشاشة مجدداً)
+    Future.microtask(() {
+      if (mounted) ref.invalidate(needsBootstrapProvider);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final needsBootstrap = ref.watch(needsBootstrapProvider);
+
+    return needsBootstrap.when(
+      loading: () => Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.egg_alt, size: 64),
+              const SizedBox(height: 16),
+              const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+            ],
+          ),
+        ),
+      ),
+      error: (_, __) => const LoginScreen(),
+      data: (needsBootstrap) =>
+          needsBootstrap == true ? const BootstrapAdminScreen() : const LoginScreen(),
     );
   }
 }
