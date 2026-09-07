@@ -16,6 +16,7 @@ class DispatchDao {
     await db.insert(_table, {
       'id': id,
       'farm_id': record.farmId,
+      if (record.flockId != null) 'flock_id': record.flockId,
       'date': record.date.toIso8601String().split('T').first,
       'customer_id': record.customerId,
       'cartons': record.cartons,
@@ -35,6 +36,7 @@ class DispatchDao {
       recordId: id,
       action: 'INSERT',
       payload: {
+        if (record.flockId != null) 'flock_id': record.flockId,
         'date': record.date.toIso8601String().split('T').first,
         'customer_id': record.customerId,
         'cartons': record.cartons,
@@ -136,6 +138,7 @@ class DispatchDao {
       _table,
       {
         'farm_id': model.farmId,
+        'flock_id': model.flockId,
         'date': model.date.toIso8601String().split('T').first,
         'customer_id': model.customerId,
         'cartons': model.cartons,
@@ -156,6 +159,7 @@ class DispatchDao {
     return DispatchModel(
       id: map['id'] as String,
       farmId: map['farm_id'] as String,
+      flockId: map['flock_id'] as String?,
       date: DateTime.parse(map['date'] as String),
       customerId: map['customer_id'] as String,
       cartons: map['cartons'] as int? ?? 0,

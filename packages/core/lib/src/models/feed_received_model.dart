@@ -4,6 +4,7 @@ import '../constants/enums.dart';
 class FeedReceivedModel {
   final String? id;
   final String farmId;
+  final String? flockId;
   final DateTime date;
   final FeedEntryMode entryMode;
   final double quantity;
@@ -22,6 +23,7 @@ class FeedReceivedModel {
   const FeedReceivedModel({
     this.id,
     required this.farmId,
+    this.flockId,
     required this.date,
     required this.entryMode,
     required this.quantity,
@@ -44,6 +46,7 @@ class FeedReceivedModel {
     return FeedReceivedModel(
       id: json['id'] as String?,
       farmId: json['farm_id'] as String,
+      flockId: json['flock_id'] as String?,
       date: DateTime.parse(json['date'] as String),
       entryMode: FeedEntryMode.values.firstWhere(
         (e) => e.name == json['entry_mode'],
@@ -67,6 +70,7 @@ class FeedReceivedModel {
   Map<String, dynamic> toJson() => {
         if (id != null) 'id': id,
         'farm_id': farmId,
+        if (flockId != null) 'flock_id': flockId,
         'date': date.toIso8601String().split('T').first,
         'entry_mode': entryMode.name,
         'quantity': quantity,

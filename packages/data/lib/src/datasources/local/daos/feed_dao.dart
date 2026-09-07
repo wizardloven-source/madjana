@@ -155,6 +155,7 @@ class FeedDao {
       {
         'farm_id': model.farmId,
         'date': model.date.toIso8601String().split('T').first,
+        'flock_id': model.flockId,
         'quantity': model.quantity,
         'quantity_kg': model.quantityKg,
         'entry_mode': model.entryMode.name,
@@ -212,6 +213,7 @@ class FeedDao {
     await db.insert('feed_received', {
       'id': id,
       'farm_id': data['farm_id'],
+      if (data['flock_id'] != null) 'flock_id': data['flock_id'],
       'date': data['date'],
       'entry_mode': data['entry_mode'],
       'quantity': data['quantity'],
@@ -233,6 +235,7 @@ class FeedDao {
       recordId: id,
       action: 'INSERT',
       payload: {
+        if (data['flock_id'] != null) 'flock_id': data['flock_id'],
         'date': data['date'],
         'entry_mode': data['entry_mode'],
         'quantity': data['quantity'],
@@ -339,6 +342,7 @@ class FeedDao {
     return FeedReceivedModel(
       id: map['id'] as String,
       farmId: map['farm_id'] as String,
+      flockId: map['flock_id'] as String?,
       date: DateTime.parse(map['date'] as String),
       entryMode: FeedEntryMode.values.firstWhere(
         (e) => e.name == map['entry_mode'],

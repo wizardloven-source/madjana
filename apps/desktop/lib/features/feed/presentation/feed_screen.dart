@@ -89,6 +89,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         final bags = result['bags'] as int;
         record = FeedConsumptionModel(
           farmId: _farmId,
+          flockId: result['flock_id'] as String?,
           date: result['date'] as DateTime,
           entryMode: FeedEntryMode.bags,
           bagsCount: bags,
@@ -99,6 +100,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       } else {
         record = FeedConsumptionModel(
           farmId: _farmId,
+          flockId: result['flock_id'] as String?,
           date: result['date'] as DateTime,
           entryMode: FeedEntryMode.kg,
           quantityKg: result['quantity_kg'] as double,
@@ -135,6 +137,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       final record = FeedReceivedModel(
         id: null,
         farmId: farmId,
+        flockId: result['flock_id'] as String?,
         date: result['date'] as DateTime,
         entryMode: result['mode'] as FeedEntryMode,
         quantity: result['quantity'] as double,
@@ -600,6 +603,7 @@ class _FeedConsumptionDialog extends StatefulWidget {
 class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
   FeedEntryMode _mode = FeedEntryMode.bags;
   DateTime _date = DateTime.now();
+  String? _flockId;
   final _bagsCtrl = TextEditingController();
   final _kgCtrl = TextEditingController();
   int? _sectionNo;
@@ -662,6 +666,26 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
                 ),
               ),
               const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _flockId,
+                decoration: const InputDecoration(
+                  labelText: 'المدجنة (القطيع)',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: '',
+                    child: Text('— بدون تحديد —'),
+                  ),
+                  ...widget.flocks
+                      .where((f) => f.status == FlockStatus.active)
+                      .map((f) =>
+                          DropdownMenuItem(value: f.id, child: Text(f.breed)))
+                      .toList(),
+                ],
+                onChanged: (v) => setState(() => _flockId = v),
+              ),
+              const SizedBox(height: 12),
               SegmentedButton<FeedEntryMode>(
                 segments: const [
                   ButtonSegment(value: FeedEntryMode.bags, label: Text('أكياس')),
@@ -714,6 +738,7 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
                 'mode': FeedEntryMode.bags,
                 'date': _date,
                 'bags': bags,
+                'flock_id': (_flockId ?? '').isEmpty ? null : _flockId,
                 'section_no': _sectionNo,
               });
             } else {
@@ -728,6 +753,7 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
                 'mode': FeedEntryMode.kg,
                 'date': _date,
                 'quantity_kg': kg,
+                'flock_id': (_flockId ?? '').isEmpty ? null : _flockId,
                 'section_no': _sectionNo,
               });
             }
@@ -750,6 +776,7 @@ class _FeedReceivedDialog extends StatefulWidget {
 class _FeedReceivedDialogState extends State<_FeedReceivedDialog> {
   FeedEntryMode _mode = FeedEntryMode.bags;
   DateTime _date = DateTime.now();
+  String? _flockId;
   final _quantityCtrl = TextEditingController();
   FeedType? _feedType;
   final _supplierCtrl = TextEditingController();
@@ -825,6 +852,26 @@ class _FeedReceivedDialogState extends State<_FeedReceivedDialog> {
                   ),
                   child: Text(Formatters.formatDate(_date)),
                 ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _flockId,
+                decoration: const InputDecoration(
+                  labelText: 'المدجنة (القطيع)',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: '',
+                    child: Text('— بدون تحديد —'),
+                  ),
+                  ...widget.flocks
+                      .where((f) => f.status == FlockStatus.active)
+                      .map((f) =>
+                          DropdownMenuItem(value: f.id, child: Text(f.breed)))
+                      .toList(),
+                ],
+                onChanged: (v) => setState(() => _flockId = v),
               ),
               const SizedBox(height: 12),
               // نوع الوحدة
@@ -933,6 +980,7 @@ class _FeedReceivedDialogState extends State<_FeedReceivedDialog> {
               'quantity': quantity,
               'quantity_kg': _quantityKg,
               'feed_type': _feedType!,
+              'flock_id': (_flockId ?? '').isEmpty ? null : _flockId,
               'supplier': _supplierCtrl.text.isEmpty ? null : _supplierCtrl.text,
               'invoice_number': _invoiceCtrl.text.isEmpty ? null : _invoiceCtrl.text,
               'notes': _notesCtrl.text.isEmpty ? null : _notesCtrl.text,

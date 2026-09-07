@@ -21,6 +21,7 @@ class DispatchScreen extends ConsumerStatefulWidget {
 
 class _DispatchScreenState extends ConsumerState<DispatchScreen> {
   List<DispatchModel> _dispatches = [];
+  List<FlockModel> _flocks = [];
   Map<String, CustomerModel> _customers = {};
   List<PaymentModel> _payments = [];
   bool _loading = true;
@@ -45,6 +46,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
     final paymentRepo = ref.read(paymentRepositoryProvider);
     final eggRepo = ref.read(eggProductionRepositoryProvider);
     final farmRepo = ref.read(farmRepositoryProvider);
+    final flockRepo = ref.read(flockRepositoryProvider);
 
     final dispatches = await dispatchRepo.getAll(farmId: _farmId);
     final customers = await dispatchRepo.getCustomers(_farmId);
@@ -53,6 +55,11 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
     try {
       final farm = await farmRepo.getFarm(_farmId);
       farmName = farm.name;
+    } catch (_) {}
+
+    List<FlockModel> flocks = [];
+    try {
+      flocks = await flockRepo.getFlocks(_farmId, includeEnded: true);
     } catch (_) {}
 
     // المخزون الحي = كل الإنتاج - كل التخريج
@@ -68,6 +75,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
     if (!mounted) return;
     setState(() {
       _dispatches = dispatches;
+      _flocks = flocks;
       _customers = {for (final c in customers) c.id! : c};
       _payments = payments;
       _farmName = farmName;
@@ -145,6 +153,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       context: context,
       builder: (ctx) => _DispatchEntryDialog(
         customers: _customers.values.toList(),
+        flocks: _flocks,
         currentStock: _currentStock,
         farmName: _farmName,
       ),
@@ -153,6 +162,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       final workerId = ref.read(authProvider).currentUser?.uid ?? 'manager';
       final record = DispatchModel(
         farmId: _farmId,
+        flockId: result['flock_id'] as String?,
         date: result['date'] as DateTime,
         customerId: result['customer_id'] as String,
         cartons: result['cartons'] as int,
@@ -604,15 +614,17 @@ class _PaymentDialogState extends State<_PaymentDialog> {
 /// نافذة إدخال تخريج بيض
 class _DispatchEntryDialog extends StatefulWidget {
   final List<CustomerModel> customers;
+  final List<FlockModel> flocks;
   final int currentStock;
   final String farmName;
-  const _DispatchEntryDialog({required this.customers, required this.currentStock, required this.farmName});
+  const _DispatchEntryDialog({required this.customers, required this.flocks, required this.currentStock, required this.farmName});
   @override
   State<_DispatchEntryDialog> createState() => _DispatchEntryDialogState();
 }
 
 class _DispatchEntryDialogState extends State<_DispatchEntryDialog> {
   String? _customerId;
+  String? _flockId;
   DateTime _date = DateTime.now();
   final _cartonsCtrl = TextEditingController();
   final _traysCtrl = TextEditingController();
@@ -682,6 +694,26 @@ class _DispatchEntryDialogState extends State<_DispatchEntryDialog> {
                     .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
                     .toList(),
                 onChanged: (v) => setState(() => _customerId = v),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _flockId,
+                decoration: const InputDecoration(
+                  labelText: 'المدجنة (القطيع)',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: '',
+                    child: Text('— بدون تحديد —'),
+                  ),
+                  ...widget.flocks
+                      .where((f) => f.status == FlockStatus.active)
+                      .map((f) =>
+                          DropdownMenuItem(value: f.id, child: Text(f.breed)))
+                      .toList(),
+                ],
+                onChanged: (v) => setState(() => _flockId = v),
               ),
               const SizedBox(height: 12),
               InkWell(
@@ -796,6 +828,7 @@ class _DispatchEntryDialogState extends State<_DispatchEntryDialog> {
             }
             Navigator.pop(context, {
               'customer_id': _customerId!,
+              'flock_id': (_flockId ?? '').isEmpty ? null : _flockId,
               'date': _date,
               'cartons': cartons,
               'trays': trays,

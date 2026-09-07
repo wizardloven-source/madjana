@@ -5,6 +5,7 @@ import '../utils/egg_calculator.dart';
 class DispatchModel {
   final String? id;
   final String farmId;
+  final String? flockId;
   final DateTime date;
   final String customerId;
   final int cartons;
@@ -22,6 +23,7 @@ class DispatchModel {
   const DispatchModel({
     this.id,
     required this.farmId,
+    this.flockId,
     required this.date,
     required this.customerId,
     required this.cartons,
@@ -47,6 +49,7 @@ class DispatchModel {
     return DispatchModel(
       id: json['id'] as String?,
       farmId: json['farm_id'] as String,
+      flockId: json['flock_id'] as String?,
       date: DateTime.parse(json['date'] as String),
       customerId: json['customer_id'] as String,
       cartons: json['cartons'] as int? ?? 0,
@@ -69,6 +72,7 @@ class DispatchModel {
   Map<String, dynamic> toJson() => {
         if (id != null) 'id': id,
         'farm_id': farmId,
+        if (flockId != null) 'flock_id': flockId,
         'date': date.toIso8601String().split('T').first,
         'customer_id': customerId,
         'cartons': cartons,

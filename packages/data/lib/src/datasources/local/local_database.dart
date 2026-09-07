@@ -14,7 +14,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 19;
+  static const int _dbVersion = 20;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -134,6 +134,7 @@ class LocalDatabase {
       CREATE TABLE egg_dispatch (
         id TEXT PRIMARY KEY,
         farm_id TEXT NOT NULL,
+        flock_id TEXT,
         date TEXT NOT NULL,
         customer_id TEXT NOT NULL,
         cartons INTEGER NOT NULL DEFAULT 0,
@@ -155,6 +156,7 @@ class LocalDatabase {
       CREATE TABLE feed_received (
         id TEXT PRIMARY KEY,
         farm_id TEXT NOT NULL,
+        flock_id TEXT,
         date TEXT NOT NULL,
         entry_mode TEXT NOT NULL,
         quantity REAL NOT NULL,
@@ -830,6 +832,16 @@ class LocalDatabase {
         if (oldVersion < 19) {
           if (!await _columnExists(db, 'inventory_items', 'version')) {
             await db.execute('ALTER TABLE inventory_items ADD COLUMN version INTEGER DEFAULT 1');
+          }
+        }
+
+        // v20: عمود فلوك_Id لاستلام العلف وتخريج البيض (تخصيص القطيع)
+        if (oldVersion < 20) {
+          if (!await _columnExists(db, 'feed_received', 'flock_id')) {
+            await db.execute('ALTER TABLE feed_received ADD COLUMN flock_id TEXT');
+          }
+          if (!await _columnExists(db, 'egg_dispatch', 'flock_id')) {
+            await db.execute('ALTER TABLE egg_dispatch ADD COLUMN flock_id TEXT');
           }
         }
   }
