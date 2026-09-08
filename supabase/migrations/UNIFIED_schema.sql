@@ -2493,6 +2493,86 @@ $$;
 GRANT EXECUTE ON FUNCTION public.create_farm_with_manager(text, text, text, text, text) TO authenticated;
 
 -- ============================================================
+-- 34b) admin_create_farm: إنشاء مدجنة فقط (بدون مدير)
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.admin_create_farm(
+    p_farm_name text,
+    p_location text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_farm_record record;
+BEGIN
+    IF NOT public.is_system_admin() THEN
+        RAISE EXCEPTION 'غير مصرح: فقط system_admin يمكنه إنشاء مدجنة';
+    END IF;
+    IF NULLIF(p_farm_name, '') IS NULL THEN
+        RAISE EXCEPTION 'أدخل اسم المدجنة';
+    END IF;
+    INSERT INTO public.farms (name, location)
+    VALUES (p_farm_name, NULLIF(p_location, ''))
+    RETURNING * INTO v_farm_record;
+    RETURN to_jsonb(v_farm_record);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_create_farm(text, text) TO authenticated;
+
+-- ============================================================
+-- 34c) admin_assign_user_to_farm: ربط/فكّ ربط مستخدم موجود بمزرعة
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.admin_assign_user_to_farm(
+    p_uid text,
+    p_farm_id text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_user_record record;
+BEGIN
+    IF NOT public.is_system_admin() THEN
+        RAISE EXCEPTION 'غير مصرح: فقط system_admin يمكنه ربط المستخدمين بالمداجن';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.users WHERE id = p_uid::uuid) THEN
+        RAISE EXCEPTION 'المستخدم غير موجود';
+    END IF;
+
+    IF NULLIF(p_farm_id, '') IS NOT NULL THEN
+        UPDATE public.users
+        SET farm_id = NULLIF(p_farm_id, '')::uuid, updated_at = NOW()
+        WHERE id = p_uid::uuid;
+    ELSE
+        UPDATE public.users
+        SET farm_id = NULL, updated_at = NOW()
+        WHERE id = p_uid::uuid;
+    END IF;
+
+    IF NULLIF(p_farm_id, '') IS NOT NULL THEN
+        UPDATE auth.users
+        SET raw_user_meta_data = raw_user_meta_data
+            || jsonb_build_object('farm_id', NULLIF(p_farm_id, ''))
+        WHERE id = p_uid::uuid;
+    ELSE
+        UPDATE auth.users
+        SET raw_user_meta_data = raw_user_meta_data - 'farm_id'
+        WHERE id = p_uid::uuid;
+    END IF;
+
+    SELECT * INTO v_user_record FROM public.users WHERE id = p_uid::uuid;
+    RETURN to_jsonb(v_user_record);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_assign_user_to_farm(text, text) TO authenticated;
+
+-- ============================================================
 -- 35) admin_select_all_users
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.admin_select_all_users()

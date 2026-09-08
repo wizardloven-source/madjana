@@ -74,7 +74,7 @@ class _SystemAdminShellState extends ConsumerState<SystemAdminShell> {
 
     _refreshFarms();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('تم إنشاء المدجنة "${created.name}" مع مديرها')),
+      SnackBar(content: Text('تم إنشاء المدجنة "${created.name}". يمكنك الآن ربط مدير أو عامل بها من تفاصيل المدجنة.')),
     );
     setState(() {
       _selectedFarmId = created.id;
@@ -592,8 +592,8 @@ class _AllFarmsOverview extends ConsumerWidget {
   }
 }
 
-/// عرض تفاصيل مدجنة محددة
-class _FarmDetailView extends ConsumerWidget {
+/// عرض تفاصيل مدجنة محددة + إدارة ربط المستخدمين بها
+class _FarmDetailView extends ConsumerStatefulWidget {
   final String farmId;
   final String farmName;
   final VoidCallback onBack;
@@ -604,129 +604,375 @@ class _FarmDetailView extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
+  ConsumerState<_FarmDetailView> createState() => _FarmDetailViewState();
+}
 
-    return FutureBuilder<FarmModel?>(
-      future: _fetchFarm(ref),
-      builder: (context, snapshot) {
-        final farm = snapshot.data;
-        final name = farm?.name ?? farmName;
-        final location = farm?.location;
+class _FarmDetailViewState extends ConsumerState<_FarmDetailView> {
+  FarmModel? _farm;
+  List<UserModel> _users = [];
+  bool _loading = true;
 
-        return Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    tooltip: 'رجوع',
-                    icon: const Icon(Icons.arrow_forward_rounded),
-                    onPressed: onBack,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    name,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: theme.colorScheme.onSurface,
-                    ),
-                  ),
-                  const Spacer(),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                location != null && location.isNotEmpty
-                    ? 'الموقع: $location'
-                    : 'لا يوجد موقع مسجل',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
-              ),
-              const SizedBox(height: 24),
-              // بطاقات معلومات المدجنة
-              Row(
-                children: [
-                  _InfoCard(
-                    icon: Icons.tag_rounded,
-                    label: 'معرّف المدجنة',
-                    value: farmId,
-                  ),
-                  const SizedBox(width: 12),
-                  _InfoCard(
-                    icon: Icons.architecture_rounded,
-                    label: 'الحالة',
-                    value: 'نشطة',
-                  ),
-                  const SizedBox(width: 12),
-                  _InfoCard(
-                    icon: Icons.account_tree_outlined,
-                    label: 'الإدارة',
-                    value: 'مدير النظام',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline_rounded,
-                          size: 28,
-                          color: theme.colorScheme.primary),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'إدارة هذه المدجنة',
-                              style: const TextStyle(
-                                  fontSize: 15, fontWeight: FontWeight.w700),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'يدخل مدير المدجنة عبر التطبيق (سطح المكتب أو الموبايل) '
-                              'باستخدام رقم الهاتف والرمز السري الخاصين به. '
-                              'يمكنك إنشاء المستخدمين وإدارة إعدادات المدجنة من '
-                              'شاشة المستخدمين.',
-                              style: TextStyle(
-                                fontSize: 13,
-                                height: 1.5,
-                                color: theme.colorScheme.onSurface
-                                    .withValues(alpha: 0.7),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final repo = ref.read(userAdminRepositoryProvider);
+      final farms = await repo.getAllFarms();
+      FarmModel? found;
+      for (final f in farms) {
+        if (f.id == widget.farmId) {
+          found = f;
+          break;
+        }
+      }
+      final users = await repo.getAllUsers();
+      if (!mounted) return;
+      setState(() {
+        _farm = found;
+        _users = users;
+      });
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _error(Object e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
     );
   }
 
-  Future<FarmModel?> _fetchFarm(WidgetRef ref) async {
+  void _openUsersScreen() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            backgroundColor: Theme.of(context).colorScheme.surface,
+            elevation: 0,
+            leading: const BackButton(),
+            title: const Text('المستخدمون',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          ),
+          body: const UsersScreen(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _assignUser(UserModel user) async {
+    final name = _farm?.name ?? widget.farmName;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ربط مستخدم بالمدجنة'),
+        content: Text(
+          'سيتم ربط "${user.name}" (${user.role.label}) '
+          'بمدجنة "$name".\nسيظهر لدى المستخدم كعضو في هذه المدجنة '
+          'عند تسجيل الدخول.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('ربط')),
+        ],
+      ),
+    );
+    if (ok != true) return;
     try {
-      final farms = await ref.read(userAdminRepositoryProvider).getAllFarms();
-      for (final f in farms) {
-        if (f.id == farmId) return f;
-      }
-      return null;
-    } catch (_) {
-      return null;
+      await ref
+          .read(userAdminRepositoryProvider)
+          .assignUserToFarm(uid: user.uid, farmId: widget.farmId);
+      _load();
+    } catch (e) {
+      _error(e);
     }
+  }
+
+  Future<void> _unassignUser(UserModel user) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إلغاء ربط المستخدم'),
+        content: Text(
+          'هل تريد إلغاء ربط "${user.name}" بمدجنة "${_farm?.name ?? widget.farmName}"؟',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('إلغاء الربط')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref
+          .read(userAdminRepositoryProvider)
+          .assignUserToFarm(uid: user.uid, farmId: null);
+      _load();
+    } catch (e) {
+      _error(e);
+    }
+  }
+
+  Future<void> _showAssignPicker() async {
+    final currentUid =
+        ref.read(authProvider).currentUser?.uid;
+    if (_users.isEmpty) {
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('لا يوجد مستخدمون بعد'),
+          content: const Text(
+              'أضف مستخدماً أولاً (مديراً أو عاملاً) من شاشة المستخدمين، '
+              'ثم يمكنك ربطه بهذه المدجنة.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('إغلاق')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('فتح شاشة المستخدمين'),
+            ),
+          ],
+        ),
+      );
+      if (go == true) _openUsersScreen();
+      return;
+    }
+
+    final candidates = _users
+        .where((u) => u.farmId != widget.farmId && u.uid != currentUid)
+        .toList();
+    if (candidates.isEmpty) {
+      _error(Exception(
+          'كل المستخدمين مرتبطون بهذه المدجنة بالفعل (أو هم حسابك الحالي)'));
+      return;
+    }
+
+    final selected = await showDialog<UserModel>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ربط مستخدم بالمدجنة'),
+        content: SizedBox(
+          width: 360,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: candidates.length,
+            itemBuilder: (ctx, i) {
+              final u = candidates[i];
+              return ListTile(
+                leading: Icon(u.role == UserRole.manager
+                    ? Icons.manage_accounts_rounded
+                    : Icons.person_rounded),
+                title: Text(u.name),
+                subtitle: Text(
+                    '${u.role.label} — ${u.phone.isEmpty ? 'بدون هاتف' : u.phone}'),
+                onTap: () => Navigator.pop(ctx, u),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+        ],
+      ),
+    );
+    if (selected != null) await _assignUser(selected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final name = _farm?.name ?? widget.farmName;
+    final location = _farm?.location;
+    final currentUid = ref.read(authProvider).currentUser?.uid;
+    final assigned = _users.where((u) => u.farmId == widget.farmId).toList();
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'رجوع',
+                icon: const Icon(Icons.arrow_forward_rounded),
+                onPressed: widget.onBack,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                name,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+              const Spacer(),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            location != null && location.isNotEmpty
+                ? 'الموقع: $location'
+                : 'لا يوجد موقع مسجل',
+            style: TextStyle(
+              fontSize: 13,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+          const SizedBox(height: 24),
+          // بطاقات معلومات المدجنة
+          Row(
+            children: [
+              _InfoCard(
+                icon: Icons.tag_rounded,
+                label: 'معرّف المدجنة',
+                value: widget.farmId,
+              ),
+              const SizedBox(width: 12),
+              _InfoCard(
+                icon: Icons.architecture_rounded,
+                label: 'الحالة',
+                value: 'نشطة',
+              ),
+              const SizedBox(width: 12),
+              _InfoCard(
+                icon: Icons.account_tree_outlined,
+                label: 'المستخدمون',
+                value: '${assigned.length}',
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          // إدارة المستخدمين في هذه المدجنة
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.people_alt_rounded,
+                          size: 22, color: theme.colorScheme.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'المستخدمون في هذه المدجنة (${assigned.length})',
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed: _showAssignPicker,
+                        icon: const Icon(Icons.link_rounded, size: 18),
+                        label: const Text('ربط مستخدم'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_loading)
+                    const Center(
+                        child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: CircularProgressIndicator(),
+                    ))
+                  else if (assigned.isEmpty)
+                    Text(
+                      'لا يوجد مستخدمون مرتبطون بهذه المدجنة بعد. اضغط "ربط مستخدم" '
+                      'لاختيار مدير أو عامل من المستخدمين الموجودين.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                      ),
+                    )
+                  else
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: assigned.map((u) {
+                        final isSelf = u.uid == currentUid;
+                        return InputChip(
+                          avatar: Icon(
+                            u.role == UserRole.manager
+                                ? Icons.manage_accounts_rounded
+                                : u.role == UserRole.system_admin
+                                    ? Icons.admin_panel_settings_rounded
+                                    : Icons.person_rounded,
+                            size: 16,
+                          ),
+                          label: Text('${u.name} — ${u.role.label}'),
+                          tooltip: u.phone.isEmpty ? 'بدون هاتف' : u.phone,
+                          deleteIcon: const Icon(Icons.link_off_rounded,
+                              size: 16),
+                          onDeleted: isSelf
+                              ? null
+                              : () => _unassignUser(u),
+                        );
+                      }).toList(),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      size: 28,
+                      color: theme.colorScheme.primary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'إدارة هذه المدجنة',
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'تُنشأ المدجنة بدون مستخدمين. لإدارتها: أنشئ أو استخدم '
+                          'مستخدماً موجوداً ثم اربطه بالمدجنة من زر "ربط مستخدم" أعلاه. '
+                          'مدير المدجنة يدخل عبر التطبيق برقم هاتفه والرمز السري، ويشرف '
+                          'على القطعان والإنتاج والنفوق والعلف والمبيعات.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1.5,
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -781,7 +1027,7 @@ class _InfoCard extends StatelessWidget {
   }
 }
 
-/// حوار إنشاء مدجنة جديدة مع مديرها (system_admin)
+/// حوار إنشاء مدجنة جديدة (system_admin) — بدون إنشاء مستخدم
 class _AddFarmDialog extends ConsumerStatefulWidget {
   const _AddFarmDialog();
 
@@ -792,9 +1038,6 @@ class _AddFarmDialog extends ConsumerStatefulWidget {
 class _AddFarmDialogState extends ConsumerState<_AddFarmDialog> {
   final _farmCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
-  final _managerNameCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
-  final _pinCtrl = TextEditingController();
   bool _saving = false;
   String? _error;
 
@@ -802,50 +1045,15 @@ class _AddFarmDialogState extends ConsumerState<_AddFarmDialog> {
   void dispose() {
     _farmCtrl.dispose();
     _locationCtrl.dispose();
-    _managerNameCtrl.dispose();
-    _phoneCtrl.dispose();
-    _pinCtrl.dispose();
     super.dispose();
-  }
-
-  String _normalizeDigits(String input) {
-    const arabic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-    const persian = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
-    final buffer = StringBuffer();
-    for (final ch in input.runes) {
-      final s = String.fromCharCode(ch);
-      final ai = arabic.indexOf(s);
-      if (ai >= 0) {
-        buffer.write(ai);
-        continue;
-      }
-      final pi = persian.indexOf(s);
-      if (pi >= 0) {
-        buffer.write(pi);
-        continue;
-      }
-      buffer.write(s);
-    }
-    return buffer.toString().replaceAll(RegExp(r'[\s\-–]'), '');
   }
 
   Future<void> _submit() async {
     final farmName = _farmCtrl.text.trim();
     final location = _locationCtrl.text.trim();
-    final managerName = _managerNameCtrl.text.trim();
-    final phone = _normalizeDigits(_phoneCtrl.text);
-    final pin = _normalizeDigits(_pinCtrl.text);
 
-    if (farmName.isEmpty || managerName.isEmpty) {
-      setState(() => _error = 'أدخل اسم المدجنة واسم المدير');
-      return;
-    }
-    if (phone.isEmpty) {
-      setState(() => _error = 'أدخل رقم هاتف المدير');
-      return;
-    }
-    if (!RegExp(r'^\d{4}$').hasMatch(pin)) {
-      setState(() => _error = 'الرمز السري يجب أن يكون 4 أرقام');
+    if (farmName.isEmpty) {
+      setState(() => _error = 'أدخل اسم المدجنة');
       return;
     }
 
@@ -854,12 +1062,11 @@ class _AddFarmDialogState extends ConsumerState<_AddFarmDialog> {
       _error = null;
     });
     try {
-      final created = await ref.read(userAdminRepositoryProvider).createFarmWithManager(
+      final created = await ref
+          .read(userAdminRepositoryProvider)
+          .createFarm(
             farmName: farmName,
-            location: location,
-            managerName: managerName,
-            phone: phone,
-            pin: pin,
+            location: location.isEmpty ? null : location,
           );
       if (!mounted) return;
       Navigator.of(context).pop(created);
@@ -889,6 +1096,7 @@ class _AddFarmDialogState extends ConsumerState<_AddFarmDialog> {
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextField(
                 controller: _farmCtrl,
@@ -905,43 +1113,15 @@ class _AddFarmDialogState extends ConsumerState<_AddFarmDialog> {
                   border: OutlineInputBorder(),
                 ),
               ),
-              const SizedBox(height: 20),
-              const Divider(),
+              const SizedBox(height: 16),
               Text(
-                'بيانات المدير',
+                'لا يتم إنشاء مدير أو عامل عند إنشاء المدجنة. يرتبط المستخدمون '
+                'بالمدجنة لاحقاً من صفحة تفاصيل المدجنة (ربط مدير أو عامل من '
+                'المستخدمين الموجودين).',
                 style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: theme.colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _managerNameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'اسم المدير',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _phoneCtrl,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
-                  labelText: 'رقم الهاتف',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _pinCtrl,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                maxLength: 4,
-                decoration: const InputDecoration(
-                  labelText: 'الرمز السري (4 أرقام)',
-                  border: OutlineInputBorder(),
-                  counterText: '',
+                  fontSize: 12,
+                  height: 1.5,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                 ),
               ),
               if (_error != null) ...[

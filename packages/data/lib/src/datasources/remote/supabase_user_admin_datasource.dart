@@ -73,6 +73,29 @@ class SupabaseUserAdminDatasource {
     );
   }
 
+  /// إنشاء مدجنة فقط (بدون مدير) — يربط المستخدمون لاحقاً (system_admin فقط)
+  Future<FarmModel> createFarm({
+    required String farmName,
+    String? location,
+  }) async {
+    final data = await _api.rpc('admin_create_farm', params: {
+      'p_farm_name': farmName,
+      'p_location': location,
+    });
+    return FarmModel.fromJson(Map<String, dynamic>.from(data as Map));
+  }
+
+  /// ربط/فكّ ربط مستخدم موجود بمزرعة (system_admin فقط)
+  Future<void> assignUserToFarm({
+    required String uid,
+    String? farmId,
+  }) async {
+    await _api.rpc('admin_assign_user_to_farm', params: {
+      'p_uid': uid,
+      'p_farm_id': farmId,
+    });
+  }
+
   /// طµط­ط© ط§ظ„ظ…ط²ط§ظ…ظ†ط© ظ„ظƒظ„ ط§ظ„ظ…ط¯ط§ط¬ظ† (system_admin ظپظ‚ط·) â€” SYNC CENTER
   Future<List<Map<String, dynamic>>> getSyncHealth({
     int onlineWindowMinutes = 5,

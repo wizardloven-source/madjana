@@ -38,6 +38,18 @@ abstract class UserAdminRepository {
     required String pin,
   });
 
+  /// إنشاء مدجنة فقط (بدون مدير) — يربط المستخدمون لاحقاً (system_admin فقط)
+  Future<FarmModel> createFarm({
+    required String farmName,
+    String? location,
+  });
+
+  /// ربط/فكّ ربط مستخدم موجود بمزرعة (system_admin فقط)
+  Future<void> assignUserToFarm({
+    required String uid,
+    String? farmId,
+  });
+
   /// صحة المزامنة لكل المداجن (system_admin فقط) — يغذّي SYNC CENTER
   Future<List<SyncHealthEntry>> getSyncHealth({int onlineWindowMinutes = 5});
 

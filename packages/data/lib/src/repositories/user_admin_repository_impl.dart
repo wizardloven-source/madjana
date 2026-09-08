@@ -77,6 +77,33 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
   }
 
   @override
+  Future<FarmModel> createFarm({
+    required String farmName,
+    String? location,
+  }) async {
+    try {
+      return await _remoteDatasource.createFarm(
+        farmName: farmName,
+        location: location,
+      );
+    } catch (e) {
+      throw Exception(_realMessage(e));
+    }
+  }
+
+  @override
+  Future<void> assignUserToFarm({
+    required String uid,
+    String? farmId,
+  }) async {
+    try {
+      await _remoteDatasource.assignUserToFarm(uid: uid, farmId: farmId);
+    } catch (e) {
+      throw Exception(_realMessage(e));
+    }
+  }
+
+  @override
   Future<List<SyncHealthEntry>> getSyncHealth({
     int onlineWindowMinutes = 5,
   }) async {
