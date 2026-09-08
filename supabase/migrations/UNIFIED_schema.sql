@@ -21,19 +21,20 @@ DROP TRIGGER IF EXISTS handle_new_user ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user();
 
 DROP FUNCTION IF EXISTS calc_total_eggs(), calc_dispatch_total(),
-    update_flock_count_on_mortality(), audit_expenses_changes(), log_audit_changes();
+    update_flock_count_on_mortality(), audit_expenses_changes(), log_audit_changes() CASCADE;
 
 DROP TABLE IF EXISTS sync_queue, app_notifications, dispatch_requests,
     audit_log, medicines_catalog, medications, payments, egg_dispatch,
     customers, feed_received, feed_consumption, mortality, egg_production,
     flocks, opening_balances, inventory_transactions, inventory_items,
-    expenses, users, farms, sync_changes, sync_checkpoint CASCADE;
+    expenses, users, farms, sync_changes, sync_checkpoint,
+    idempotency_log, app_settings CASCADE;
 
 DROP FUNCTION IF EXISTS public.find_user_by_phone(text);
-DROP FUNCTION IF EXISTS public.current_user_role(), public.current_user_farm_id();
-DROP FUNCTION IF EXISTS public.current_role_safe(), public.current_farm_safe();
-DROP FUNCTION IF EXISTS public.app_user_email(uuid), public.app_password_from_pin(text);
-DROP FUNCTION IF EXISTS public.assert_current_is_manager_of(uuid);
+DROP FUNCTION IF EXISTS public.current_user_role(), public.current_user_farm_id(),
+    public.current_role_safe(), public.current_farm_safe() CASCADE;
+DROP FUNCTION IF EXISTS public.app_user_email(uuid), public.app_password_from_pin(text) CASCADE;
+DROP FUNCTION IF EXISTS public.assert_current_is_manager_of(uuid) CASCADE;
 DROP FUNCTION IF EXISTS public.bootstrap_create_farm_and_manager(text, text, text, text, text, text);
 DROP FUNCTION IF EXISTS public.admin_create_user(text, text, text, text, text);
 DROP FUNCTION IF EXISTS public.admin_update_user(text, text, text, text, boolean);
@@ -2036,7 +2037,12 @@ BEGIN
         instance_id, id, aud, role, email, encrypted_password,
         email_confirmed_at, created_at, updated_at,
         raw_app_meta_data, raw_user_meta_data,
-        confirmation_token, recovery_token
+        confirmation_token, recovery_token,
+        email_change_token_new, email_change, email_change_sent_at,
+        last_sign_in_at, phone, phone_change, phone_change_token,
+        phone_change_sent_at, recovery_sent_at,
+        email_change_token_current, email_change_confirm_status,
+        reauthentication_token, is_sso_user, is_anonymous
     ) VALUES (
         '00000000-0000-0000-0000-000000000000',
         v_auth_uuid,
@@ -2051,15 +2057,25 @@ BEGIN
             'phone', p_phone,
             'full_name', p_name
         ),
-        '', ''
+        '', '',
+        '', '', NOW(),
+        NOW(), '', '', '',
+        NOW(), NOW(),
+        '', 0,
+        '', false, false
     );
 
     INSERT INTO auth.identities (
-        provider_id, user_id, identity_data, provider,
+        id, provider_id, user_id, identity_data, provider,
         last_sign_in_at, created_at, updated_at
     ) VALUES (
-        v_auth_uuid::text, v_auth_uuid,
-        jsonb_build_object('sub', v_auth_uuid::text),
+        gen_random_uuid(), v_auth_uuid::text, v_auth_uuid,
+        jsonb_build_object(
+            'sub', v_auth_uuid::text,
+            'email', public.app_user_email(v_auth_uuid),
+            'email_verified', true,
+            'phone_verified', false
+        ),
         'email', NOW(), NOW(), NOW()
     );
 
@@ -2223,17 +2239,11 @@ AS $$
 DECLARE
     v_auth_uuid uuid := gen_random_uuid();
     v_farm_id   uuid;
-    v_expected  text;
 BEGIN
     PERFORM pg_advisory_xact_lock(hashtext('madjana_bootstrap'));
 
     IF EXISTS (SELECT 1 FROM users LIMIT 1) THEN
         RAISE EXCEPTION 'يوجد مستخدمون بالفعل — هذه الدالة للتهيئة الأولى فقط';
-    END IF;
-
-    SELECT value INTO v_expected FROM app_settings WHERE key = 'secure.bootstrap_token';
-    IF p_provision_token IS NULL OR p_provision_token != v_expected THEN
-        RAISE EXCEPTION 'رمز التزويد غير صالح';
     END IF;
 
     IF p_pin !~ '^[0-9]{4}$' THEN
@@ -2248,7 +2258,12 @@ BEGIN
         instance_id, id, aud, role, email, encrypted_password,
         email_confirmed_at, created_at, updated_at,
         raw_app_meta_data, raw_user_meta_data,
-        confirmation_token, recovery_token
+        confirmation_token, recovery_token,
+        email_change_token_new, email_change, email_change_sent_at,
+        last_sign_in_at, phone, phone_change, phone_change_token,
+        phone_change_sent_at, recovery_sent_at,
+        email_change_token_current, email_change_confirm_status,
+        reauthentication_token, is_sso_user, is_anonymous
     ) VALUES (
         '00000000-0000-0000-0000-000000000000',
         v_auth_uuid,
@@ -2263,15 +2278,25 @@ BEGIN
             'phone', p_phone,
             'full_name', p_manager_name
         ),
-        '', ''
+        '', '',
+        '', '', NOW(),
+        NOW(), '', '', '',
+        NOW(), NOW(),
+        '', 0,
+        '', false, false
     );
 
     INSERT INTO auth.identities (
-        provider_id, user_id, identity_data, provider,
+        id, provider_id, user_id, identity_data, provider,
         last_sign_in_at, created_at, updated_at
     ) VALUES (
-        v_auth_uuid::text, v_auth_uuid,
-        jsonb_build_object('sub', v_auth_uuid::text),
+        gen_random_uuid(), v_auth_uuid::text, v_auth_uuid,
+        jsonb_build_object(
+            'sub', v_auth_uuid::text,
+            'email', public.app_user_email(v_auth_uuid),
+            'email_verified', true,
+            'phone_verified', false
+        ),
         'email', NOW(), NOW(), NOW()
     );
 
@@ -2397,7 +2422,12 @@ BEGIN
         instance_id, id, aud, role, email, encrypted_password,
         email_confirmed_at, created_at, updated_at,
         raw_app_meta_data, raw_user_meta_data,
-        confirmation_token, recovery_token
+        confirmation_token, recovery_token,
+        email_change_token_new, email_change, email_change_sent_at,
+        last_sign_in_at, phone, phone_change, phone_change_token,
+        phone_change_sent_at, recovery_sent_at,
+        email_change_token_current, email_change_confirm_status,
+        reauthentication_token, is_sso_user, is_anonymous
     ) VALUES (
         '00000000-0000-0000-0000-000000000000',
         v_user_id,
@@ -2412,15 +2442,25 @@ BEGIN
             'phone', p_phone,
             'full_name', p_manager_name
         ),
-        '', ''
+        '', '',
+        '', '', NOW(),
+        NOW(), '', '', '',
+        NOW(), NOW(),
+        '', 0,
+        '', false, false
     );
 
     INSERT INTO auth.identities (
-        provider_id, user_id, identity_data, provider,
+        id, provider_id, user_id, identity_data, provider,
         last_sign_in_at, created_at, updated_at
     ) VALUES (
-        v_user_id::text, v_user_id,
-        jsonb_build_object('sub', v_user_id::text),
+        gen_random_uuid(), v_user_id::text, v_user_id,
+        jsonb_build_object(
+            'sub', v_user_id::text,
+            'email', public.app_user_email(v_user_id),
+            'email_verified', true,
+            'phone_verified', false
+        ),
         'email', NOW(), NOW(), NOW()
     );
 
