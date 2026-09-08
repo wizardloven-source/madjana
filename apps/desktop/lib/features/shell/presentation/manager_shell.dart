@@ -83,6 +83,15 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     Icons.settings_rounded,
   ];
 
+  // Command Center: تنقّل مجمّع حسب المجالات
+  static const _navGroups = <(String, List<int>)>[
+    ('الرئيسية', [0]),
+    ('الإنتاج', [1, 2, 3, 4]),
+    ('المبيعات والمالية', [5, 12, 8]),
+    ('المخزون والعلاج', [9, 11]),
+    ('المتابعة والإدارة', [6, 7, 10, 13, 14]),
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -180,21 +189,23 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                 const Divider(indent: 16, endIndent: 16),
                 const SizedBox(height: 8),
                 Expanded(
-                  child: ListView.builder(
+                  child: ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    itemCount: _icons.length,
-                    itemBuilder: (context, i) {
-                      final isSelected = selectedIndex == i;
-                      return _NavTile(
-                        icon: _icons[i],
-                        label: _titles[i],
-                        selected: isSelected,
-                        badgeCount: i == 6 ? pendingApprovals : 0,
-                        onTap: () => ref
-                            .read(shellTabProvider.notifier)
-                            .state = i,
-                      );
-                    },
+                    children: [
+                      for (final (title, indexes) in _navGroups) ...[
+                        _GroupHeader(title: title),
+                        for (final i in indexes)
+                          _NavTile(
+                            icon: _icons[i],
+                            label: _titles[i],
+                            selected: selectedIndex == i,
+                            badgeCount: i == 6 ? pendingApprovals : 0,
+                            onTap: () => ref
+                                .read(shellTabProvider.notifier)
+                                .state = i,
+                          ),
+                      ],
+                    ],
                   ),
                 ),
                 const Divider(indent: 16, endIndent: 16),
@@ -309,6 +320,30 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// عنوان مجموعة في التنقّل الجانبي (Command Center)
+class _GroupHeader extends StatelessWidget {
+  final String title;
+
+  const _GroupHeader({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 10, 8, 4),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.3,
+          color: theme.colorScheme.outline,
+        ),
       ),
     );
   }

@@ -5,6 +5,7 @@ import '../../../core/design_tokens.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../notifications/providers/notifications_provider.dart';
 import '../../sync/providers/sync_provider.dart';
+import '../../../core/providers.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -146,8 +147,18 @@ class HomeScreen extends ConsumerWidget {
                     SyncConnectionStatus.disconnected)
                   _SyncStatusBanner(
                     pendingCount: pendingCount,
+                    failedCount: syncState.failedCount,
+                    lastSyncAt: syncState.lastSyncAt,
                     isDark: isDark,
                   ),
+                const SizedBox(height: 16),
+
+                // ملخص اليوم + أزرار التسجيل الكبيرة
+                if (farmId != null && farmId.isNotEmpty) ...[
+                  _TodaySummaryCard(farmId: farmId),
+                  const SizedBox(height: 12),
+                ],
+                _QuickActionsRow(isManager: isManager),
                 const SizedBox(height: 16),
 
                 // إشعارات المدير الدائمة
@@ -367,9 +378,16 @@ class _AppBarIcon extends StatelessWidget {
 
 class _SyncStatusBanner extends StatelessWidget {
   final int pendingCount;
+  final int failedCount;
+  final DateTime? lastSyncAt;
   final bool isDark;
 
-  const _SyncStatusBanner({required this.pendingCount, required this.isDark});
+  const _SyncStatusBanner({
+    required this.pendingCount,
+    required this.failedCount,
+    required this.lastSyncAt,
+    required this.isDark,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -422,6 +440,20 @@ class _SyncStatusBanner extends StatelessWidget {
               ),
             ),
           ),
+          if (lastSyncAt != null || failedCount > 0)
+            Text(
+              [
+                if (lastSyncAt != null)
+                  'آخر مزامنة ${lastSyncAt!.hour}:${lastSyncAt!.minute.toString().padLeft(2, '0')}',
+                if (failedCount > 0) '$failedCount فاشل',
+              ].join(' • '),
+              style: TextStyle(
+                fontSize: 11,
+                color: failedCount > 0
+                    ? AppStatusColors.warning(context)
+                    : success,
+              ),
+            ),
         ],
       ),
     );
@@ -515,6 +547,246 @@ class _PersistentNotices extends ConsumerWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// ملخص يوم العامل — بيض / نفوق / علف
+class _TodaySummaryCard extends ConsumerStatefulWidget {
+  final String? farmId;
+
+  const _TodaySummaryCard({required this.farmId});
+
+  @override
+  ConsumerState<_TodaySummaryCard> createState() =>
+      _TodaySummaryCardState();
+}
+
+class _TodaySummaryCardState extends ConsumerState<_TodaySummaryCard> {
+  int _eggs = 0;
+  int _mortality = 0;
+  double _feedKg = 0;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // يُحدّث عند تغيّر عدد المعلّق (بعد إضافة سجل محلياً)
+    ref.listen<int>(
+      syncProvider.select((s) => s.pendingCount),
+      (_, __) => _load(),
+    );
+  }
+
+  Future<void> _load() async {
+    final farmId = widget.farmId;
+    if (farmId == null || farmId.isEmpty) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    try {
+      final results = await Future.wait([
+        ref.read(eggProductionRepositoryProvider).getTodayRecords(farmId),
+        ref.read(mortalityRepositoryProvider).getTodayRecords(farmId),
+        ref.read(feedRepositoryProvider).getTodayConsumption(farmId),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _eggs = (results[0] as List<EggProductionModel>)
+            .fold<int>(0, (s, e) => s + e.totalEggs);
+        _mortality = (results[1] as List<MortalityModel>)
+            .fold<int>(0, (s, m) => s + m.count);
+        _feedKg = (results[2] as List<FeedConsumptionModel>)
+            .fold<double>(0, (s, f) => s + f.quantityKg);
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: _loading
+            ? const SizedBox(
+                height: 56,
+                child: Center(
+                    child:
+                        CircularProgressIndicator(strokeWidth: 2)))
+            : Row(
+                children: [
+                  _TodayStat(
+                    icon: Icons.egg_rounded,
+                    label: 'بيض اليوم',
+                    value: '$_eggs',
+                    color: cs.primary,
+                  ),
+                  const SizedBox(width: 16),
+                  _TodayStat(
+                    icon: Icons.heart_broken_rounded,
+                    label: 'نفوق اليوم',
+                    value: '$_mortality',
+                    color: AppStatusColors.danger(context),
+                  ),
+                  const SizedBox(width: 16),
+                  _TodayStat(
+                    icon: Icons.grass_rounded,
+                    label: 'علف اليوم',
+                    value: '${_feedKg.toStringAsFixed(0)} كغ',
+                    color: AppStatusColors.info(context),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+class _TodayStat extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _TodayStat({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: color),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// صف أزرار التسجيل الكبيرة — نقرة واحدة للcroft اليومي
+class _QuickActionsRow extends StatelessWidget {
+  final bool isManager;
+
+  const _QuickActionsRow({required this.isManager});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Expanded(
+          child: _BigAction(
+            icon: Icons.egg_rounded,
+            label: 'تسجيل بيض',
+            color: cs.primary,
+            onTap: () =>
+                Navigator.pushNamed(context, '/egg-production'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _BigAction(
+            icon: Icons.heart_broken_rounded,
+            label: 'تسجيل نفوق',
+            color: AppStatusColors.danger(context),
+            onTap: () =>
+                Navigator.pushNamed(context, '/mortality'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _BigAction(
+            icon: Icons.grain_rounded,
+            label: 'علف',
+            color: AppStatusColors.info(context),
+            onTap: () =>
+                Navigator.pushNamed(context, '/feed-consumption'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BigAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _BigAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: isDark
+                ? color.withValues(alpha: 0.18)
+                : color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+                color: color.withValues(alpha: isDark ? 0.3 : 0.25)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            child: Column(
+              children: [
+                Icon(icon, color: color, size: 30),
+                const SizedBox(height: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

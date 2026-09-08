@@ -6,6 +6,7 @@ import '../../../core/design_tokens.dart';
 import '../../../core/providers.dart';
 import '../../../core/shell_state.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../barn/presentation/barn_record_screen.dart';
 
 /// لوحة التحكم - نظرة عامة للمدير
 ///
@@ -32,6 +33,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   double _collected = 0;
   double _feedStock = 0;
   int _pendingApprovals = 0;
+  List<PaymentModel> _payments = [];
+  List<EggProductionModel> _allEggs = [];
+  double _expensesToday = 0;
+  double _expenses30 = 0;
+  double _collectedToday = 0;
   bool _loading = true;
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
@@ -80,18 +86,39 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         feedRepo.getCurrentFeedStock(farmId),
         ref.read(flockRepositoryProvider).getFlocks(farmId, includeEnded: true),
         ref.read(inventoryRepositoryProvider).getItems(farmId),
+        paymentRepo.getAll(farmId: farmId),
+        ref.read(expenseRepositoryProvider).getTotal(
+          farmId: farmId,
+          fromDate: today,
+          toDate: today,
+        ),
+        ref.read(expenseRepositoryProvider).getTotal(
+          farmId: farmId,
+          fromDate: monthAgo,
+          toDate: today,
+        ),
       ]);
 
       _eggRecords =
           results[0] as List<EggProductionModel>;
       _mortalityRecords = results[1] as List<MortalityModel>;
-      final allEggs = results[2] as List<EggProductionModel>;
+      _allEggs = results[2] as List<EggProductionModel>;
       _dispatches = results[3] as List<DispatchModel>;
       _outstanding = results[4] as double;
       _collected = results[5] as double;
       _feedStock = results[6] as double;
       _flocks = results[7] as List<FlockModel>;
       _inventoryItems = results[8] as List<InventoryItemModel>;
+      _payments = results[9] as List<PaymentModel>;
+      _expensesToday = results[10] as double;
+      _expenses30 = results[11] as double;
+
+      final startOfToday = DateTime(today.year, today.month, today.day);
+      _collectedToday = _payments
+          .where((p) =>
+              !p.date.isBefore(startOfToday) &&
+              p.date.isBefore(startOfToday.add(const Duration(days: 1))))
+          .fold<double>(0, (s, p) => s + p.amountPaid);
 
       // استهلاك العلف لآخر 7 أيام (للتنبؤ بالنفاد)
       _consumptionWeek = await feedRepo.getAllConsumption(
@@ -101,7 +128,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       );
 
       // مخزون البيض الحالي = كل الإنتاج - كل التخريج
-      _currentEggStock = allEggs.fold<int>(0, (s, e) => s + e.totalEggs) -
+      _currentEggStock = _allEggs.fold<int>(0, (s, e) => s + e.totalEggs) -
           _dispatches.fold<int>(0, (s, d) => s + d.totalEggs);
       if (_currentEggStock < 0) _currentEggStock = 0;
 
@@ -193,6 +220,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
     final feedLevel = FarmAnalytics.feedLevel(feedDaysLeft);
 
+    // مقارنة الإنتاج: اليوم مقابل أمس
+    final yesterday = DateTime(now.year, now.month, now.day - 1);
+    final yesterdayEggs = _eggRecords
+        .where((e) =>
+            e.date.year == yesterday.year &&
+            e.date.month == yesterday.month &&
+            e.date.day == yesterday.day)
+        .fold<int>(0, (sum, e) => sum + e.totalEggs);
+    final prodRateYesterday =
+        FarmAnalytics.productionRate(eggs: yesterdayEggs, birdCount: totalBirds);
+    final prodDelta = prodRateToday - prodRateYesterday;
+
+    // تفصيل البيض: منتج / مبيع / مخزون / فاقد
+    final producedEggs = _allEggs.fold<int>(0, (s, e) => s + e.totalEggs);
+    final dispatchedEggs = _dispatches.fold<int>(0, (s, d) => s + d.totalEggs);
+    final wastedEggs =
+        _allEggs.fold<int>(0, (s, e) => s + e.brokenEggs + e.dirtyEggs);
+    final wasteRate = producedEggs > 0 ? wastedEggs / producedEggs * 100 : 0;
+
+    // تفصيل المال: مبيعات / مقبوض / مصاريف / صافي
+    final salesTotal = _payments.fold<double>(0, (s, p) => s + p.totalDue);
+    final net30 = _collected - _expenses30;
+
     // تنبيهات ذكية (مصنّفة حسب الخطورة)
     final alerts = <_Alert>[];
     if (_feedStock < 500) {
@@ -242,6 +292,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           severity: _AlertSeverity.danger,
         ));
       }
+    }
+    if (todayEggs > 0 &&
+        prodRateWeek > 0 &&
+        prodRateToday < prodRateWeek * 0.85) {
+      alerts.add(_Alert(
+        icon: Icons.trending_down,
+        text:
+            'انخفاض الإنتاج اليوم (${prodRateToday.toStringAsFixed(1)}%) مقابل متوسط الأسبوع (${prodRateWeek.toStringAsFixed(1)}%)',
+        severity: _AlertSeverity.warning,
+      ));
+    }
+    final overdueCount = _payments
+        .where((p) =>
+            !p.isPaid &&
+            p.dueDate != null &&
+            p.dueDate!.isBefore(DateTime.now()))
+        .length;
+    if (overdueCount > 0) {
+      alerts.add(_Alert(
+        icon: Icons.pending_actions,
+        text: '$overdueCount فاتورة متأخرة السداد — راجع القبض',
+        severity: _AlertSeverity.warning,
+      ));
     }
 
     // أحدث العمليات
@@ -483,31 +556,41 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         ...activeFlocks.map((f) => Padding(
                               padding:
                                   const EdgeInsets.symmetric(vertical: 3),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: BoxDecoration(
-                                      color: f.sectionsCount > 1
-                                          ? Theme.of(context)
-                                              .colorScheme
-                                              .secondary
-                                          : Theme.of(context)
-                                              .colorScheme
-                                              .outline,
-                                      shape: BoxShape.circle,
+child: InkWell(
+                                      borderRadius: BorderRadius.circular(6),
+                                      onTap: () => Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                              builder: (_) =>
+                                                  BarnRecordScreen(
+                                                      flock: f))),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 8,
+                                            height: 8,
+                                            decoration: BoxDecoration(
+                                              color: f.sectionsCount > 1
+                                                  ? Theme.of(context)
+                                                      .colorScheme
+                                                      .secondary
+                                                  : Theme.of(context)
+                                                      .colorScheme
+                                                      .outline,
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              '${f.breed} — ${f.currentCount} طائر (${f.sectionsCount > 1 ? '${f.sectionsCount} عنابر' : 'عنبر واحد'})',
+                                              style:
+                                                  const TextStyle(fontSize: 13),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      '${f.breed} — ${f.currentCount} طائر (${f.sectionsCount > 1 ? '${f.sectionsCount} عنابر' : 'عنبر واحد'})',
-                                      style: const TextStyle(fontSize: 13),
-                                    ),
-                                  ),
-                                ],
-                              ),
                             )),
                       ],
                     ),
@@ -569,6 +652,114 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             const SizedBox(height: 24),
           ],
 
+          // تفصيل ذكي: البيض + المال
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.egg_outlined,
+                                color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 8),
+                            const Text('تفصيل البيض',
+                                style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _BreakdownStat(
+                          icon: Icons.factory_outlined,
+                          label: 'المنتج (تراكمي)',
+                          value: Formatters.formatNumber(producedEggs),
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        _BreakdownStat(
+                          icon: Icons.local_shipping_outlined,
+                          label: 'المبيع',
+                          value: Formatters.formatNumber(dispatchedEggs),
+                          color: AppStatusColors.success(context),
+                        ),
+                        _BreakdownStat(
+                          icon: Icons.inventory_2_outlined,
+                          label: 'المخزون الحالي',
+                          value: Formatters.formatNumber(_currentEggStock),
+                          color: AppStatusColors.info(context),
+                        ),
+                        _BreakdownStat(
+                          icon: Icons.recycling_outlined,
+                          label: 'الفاقد (مكسر + متسخ)',
+                          value:
+                              '${Formatters.formatNumber(wastedEggs)} (${wasteRate.toStringAsFixed(1)}%)',
+                          color: AppStatusColors.warning(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.payments_outlined,
+                                color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 8),
+                            const Text('تفصيل المال',
+                                style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _BreakdownStat(
+                          icon: Icons.paid_outlined,
+                          label: 'المبيعات (تراكمي)',
+                          value: Formatters.formatCurrency(salesTotal),
+                          color: AppStatusColors.info(context),
+                        ),
+                        _BreakdownStat(
+                          icon: Icons.payments_outlined,
+                          label: 'المقبوض اليوم',
+                          value: Formatters.formatCurrency(_collectedToday),
+                          color: AppStatusColors.success(context),
+                        ),
+                        _BreakdownStat(
+                          icon: Icons.shopping_bag_outlined,
+                          label: 'مصاريف اليوم',
+                          value: Formatters.formatCurrency(_expensesToday),
+                          color: AppStatusColors.warning(context),
+                        ),
+                        _BreakdownStat(
+                          icon: Icons.trending_up,
+                          label: 'الصافي (آخر 30 يوم)',
+                          value: Formatters.formatCurrency(net30),
+                          color: net30 >= 0
+                              ? AppStatusColors.success(context)
+                              : AppStatusColors.danger(context),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
           // رسم بياني + أحدث العمليات
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -598,19 +789,52 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           Row(
                             children: [
                               _ChartStat(
-                                label: 'متوسط اليوم',
+                                label: 'إنتاج اليوم',
                                 value: Formatters.formatNumber(todayEggs),
                               ),
                               const SizedBox(width: 20),
                               _ChartStat(
-                                label: 'متوسط 30 يوم',
-                                value:
-                                    (totalEggs / _eggRecords.length).toStringAsFixed(0),
+                                label: 'إنتاج أمس',
+                                value: Formatters.formatNumber(yesterdayEggs),
                               ),
                               const SizedBox(width: 20),
                               _ChartStat(
-                                label: 'معدل الإنتاج',
+                                label: 'المعدل اليوم',
                                 value: '${prodRateToday.toStringAsFixed(1)}%',
+                              ),
+                              const SizedBox(width: 20),
+                              _ChartStat(
+                                label: 'معدل أمس',
+                                value:
+                                    '${prodRateYesterday.toStringAsFixed(1)}%',
+                              ),
+                              const SizedBox(width: 20),
+                              _ChartStat(
+                                label: 'الهدف',
+                                value: '80%',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Icon(
+                                prodDelta >= 0
+                                    ? Icons.arrow_upward
+                                    : Icons.arrow_downward,
+                                size: 15,
+                                color: prodDelta >= 0
+                                    ? AppStatusColors.success(context)
+                                    : AppStatusColors.danger(context),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'مقارنة بأمس: ${prodDelta >= 0 ? '+' : ''}${prodDelta.toStringAsFixed(1)} نقطة',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: prodDelta >= 0
+                                        ? AppStatusColors.success(context)
+                                        : AppStatusColors.danger(context)),
                               ),
                             ],
                           ),
@@ -884,6 +1108,42 @@ class _ActionCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// سطر إحصاء صغير ضمن بطاقات تفصيل البيض/المال
+class _BreakdownStat extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _BreakdownStat({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(icon,
+              size: 16,
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(label, style: const TextStyle(fontSize: 12)),
+          ),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.bold, color: color)),
+        ],
       ),
     );
   }
