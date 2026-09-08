@@ -124,9 +124,9 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
                     controller: pinCtrl,
                     obscureText: true,
                     keyboardType: TextInputType.number,
-                    maxLength: 6,
+                    maxLength: 4,
                     decoration: const InputDecoration(
-                      labelText: 'الرمز السري (4-6 أرقام)',
+                      labelText: 'الرمز السري (4 أرقام)',
                       counterText: '',
                     ),
                   ),
@@ -159,8 +159,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
                     phoneCtrl.text.trim().isEmpty) {
                   return;
                 }
-                if (user == null &&
-                    !RegExp(r'^\d{4,6}$').hasMatch(pinCtrl.text)) {
+                if (user == null && pinCtrl.text.length != 4) {
                   return;
                 }
                 Navigator.pop(ctx, true);
@@ -208,9 +207,9 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
           controller: pinCtrl,
           obscureText: true,
           keyboardType: TextInputType.number,
-          maxLength: 6,
+          maxLength: 4,
           decoration: const InputDecoration(
-            labelText: 'الرمز الجديد (4-6 أرقام)',
+            labelText: 'الرمز الجديد (4 أرقام)',
             counterText: '',
           ),
         ),
@@ -220,7 +219,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
               child: const Text('إلغاء')),
           FilledButton(
             onPressed: () {
-              if (RegExp(r'^\d{4,6}$').hasMatch(pinCtrl.text)) {
+              if (pinCtrl.text.length == 4) {
                 Navigator.pop(ctx, true);
               }
             },

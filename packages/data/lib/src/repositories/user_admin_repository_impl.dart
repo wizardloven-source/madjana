@@ -16,6 +16,14 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
   })  : _remoteDatasource = remoteDatasource,
         _userDao = userDao;
 
+  static String _realMessage(Object e) {
+    try {
+      final msg = (e as dynamic).message as String?;
+      if (msg != null && msg.trim().isNotEmpty) return msg.trim();
+    } catch (_) {}
+    return e.toString().replaceFirst('Exception: ', '');
+  }
+
   @override
   Future<List<UserModel>> getUsers(String farmId) async {
     try {
@@ -44,6 +52,27 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
       return await _remoteDatasource.getAllFarms();
     } catch (_) {
       return [];
+    }
+  }
+
+  @override
+  Future<FarmModel> createFarmWithManager({
+    required String farmName,
+    String? location,
+    required String managerName,
+    required String phone,
+    required String pin,
+  }) async {
+    try {
+      return await _remoteDatasource.createFarmWithManager(
+        farmName: farmName,
+        location: location,
+        managerName: managerName,
+        phone: phone,
+        pin: pin,
+      );
+    } catch (e) {
+      throw Exception(_realMessage(e));
     }
   }
 
@@ -89,7 +118,7 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
       await getUsers(farmId);
       return created;
     } catch (e) {
-      throw Exception('تعذّر إنشاء المستخدم (تأكد من عدم تكرار رقم الهاتف)');
+      throw Exception(_realMessage(e));
     }
   }
 
@@ -110,7 +139,7 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
         isActive: isActive,
       );
     } catch (e) {
-      throw Exception('تعذّر تعديل المستخدم');
+      throw Exception(_realMessage(e));
     }
   }
 
@@ -119,7 +148,7 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
     try {
       await _remoteDatasource.resetPin(uid: uid, newPin: newPin);
     } catch (e) {
-      throw Exception('تعذّر إعادة تعيين الرمز السري');
+      throw Exception(_realMessage(e));
     }
   }
 
@@ -128,7 +157,7 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
     try {
       await _remoteDatasource.deleteUser(uid);
     } catch (e) {
-      throw Exception('تعذّر حذف المستخدم');
+      throw Exception(_realMessage(e));
     }
   }
 }

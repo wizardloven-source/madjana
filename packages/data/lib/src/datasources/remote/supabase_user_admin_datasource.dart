@@ -50,6 +50,29 @@ class SupabaseUserAdminDatasource {
         .toList();
   }
 
+  /// إنشاء مدجنة جديدة مع مديرها (system_admin فقط)
+  Future<FarmModel> createFarmWithManager({
+    required String farmName,
+    String? location,
+    required String managerName,
+    required String phone,
+    required String pin,
+  }) async {
+    final data = await _api.rpc('create_farm_with_manager', params: {
+      'p_farm_name': farmName,
+      'p_location': location ?? '',
+      'p_manager_name': managerName,
+      'p_phone': phone,
+      'p_pin': pin,
+    });
+    final map = Map<String, dynamic>.from(data as Map);
+    return FarmModel(
+      id: map['farm_id'] as String,
+      name: farmName,
+      location: location?.trim().isEmpty ?? true ? null : location!.trim(),
+    );
+  }
+
   /// طµط­ط© ط§ظ„ظ…ط²ط§ظ…ظ†ط© ظ„ظƒظ„ ط§ظ„ظ…ط¯ط§ط¬ظ† (system_admin ظپظ‚ط·) â€” SYNC CENTER
   Future<List<Map<String, dynamic>>> getSyncHealth({
     int onlineWindowMinutes = 5,

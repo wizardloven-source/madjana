@@ -29,6 +29,15 @@ abstract class UserAdminRepository {
   /// جلب كل المداجن (system_admin فقط)
   Future<List<FarmModel>> getAllFarms();
 
+  /// إنشاء مدجنة جديدة مع مديرها (system_admin فقط)
+  Future<FarmModel> createFarmWithManager({
+    required String farmName,
+    String? location,
+    required String managerName,
+    required String phone,
+    required String pin,
+  });
+
   /// صحة المزامنة لكل المداجن (system_admin فقط) — يغذّي SYNC CENTER
   Future<List<SyncHealthEntry>> getSyncHealth({int onlineWindowMinutes = 5});
 
