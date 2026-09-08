@@ -2059,7 +2059,7 @@ BEGIN
         ),
         '', '',
         '', '', NOW(),
-        NOW(), '', '', '',
+        NOW(), p_phone, '', '',
         NOW(), NOW(),
         '', 0,
         '', false, false
@@ -2280,7 +2280,7 @@ BEGIN
         ),
         '', '',
         '', '', NOW(),
-        NOW(), '', '', '',
+        NOW(), p_phone, '', '',
         NOW(), NOW(),
         '', 0,
         '', false, false
@@ -2444,7 +2444,7 @@ BEGIN
         ),
         '', '',
         '', '', NOW(),
-        NOW(), '', '', '',
+        NOW(), p_phone, '', '',
         NOW(), NOW(),
         '', 0,
         '', false, false
