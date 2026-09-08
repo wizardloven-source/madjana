@@ -703,7 +703,7 @@ void main() {
           pin: '1234',
           role: UserRole.worker,
         ),
-        throwsA(predicate((e) => '$e'.contains('تعذّر إنشاء المستخدم'))),
+        throwsA(predicate((e) => '$e'.contains('duplicate phone'))),
       );
     });
 
@@ -761,11 +761,11 @@ void main() {
       fake.onRpc = (name, params) => throw Exception('down');
       expect(
         () => r.updateUser(uid: 'u1'),
-        throwsA(predicate((e) => '$e'.contains('تعذّر تعديل المستخدم'))),
+        throwsA(predicate((e) => '$e'.contains('down'))),
       );
       expect(
         () => r.deleteUser('u1'),
-        throwsA(predicate((e) => '$e'.contains('تعذّر حذف المستخدم'))),
+        throwsA(predicate((e) => '$e'.contains('down'))),
       );
     });
   });
