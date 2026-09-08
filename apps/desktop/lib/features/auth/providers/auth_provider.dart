@@ -109,6 +109,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
     return result;
   }
 
+  /// تحديد المدجنة النشطة للمستخدم الحالي (من قائمة مداجنه المرتبطة)
+  Future<void> setActiveFarm(String farmId) async {
+    final user = state.currentUser;
+    if (user == null) return;
+    await _repository.setActiveFarm(farmId);
+    state = state.copyWith(
+      currentUser: user.copyWith(
+        farmId: farmId,
+        farmIds: user.farmIds,
+      ),
+    );
+  }
+
   /// تسجيل الخروج
   Future<void> logout() async {
     await _repository.logout();

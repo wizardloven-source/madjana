@@ -107,6 +107,12 @@ class _FakeRead implements RemoteRead {
   }
 
   @override
+  RemoteRead inFilter(String column, List<dynamic> values) {
+    _filters.add(('in', column, values));
+    return this;
+  }
+
+  @override
   RemoteRead order(String column, {bool ascending = true}) {
     _order = column;
     _asc = ascending;
@@ -208,6 +214,8 @@ class _FakeRead implements RemoteRead {
         return _compare(actual, expected) >= 0;
       case 'lte':
         return _compare(actual, expected) <= 0;
+      case 'in':
+        return (expected as List).contains(actual);
     }
     return false;
   }

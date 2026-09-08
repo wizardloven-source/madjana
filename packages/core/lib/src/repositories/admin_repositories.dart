@@ -44,11 +44,20 @@ abstract class UserAdminRepository {
     String? location,
   });
 
-  /// ربط/فكّ ربط مستخدم موجود بمزرعة (system_admin فقط)
+  /// إضافة ربط مستخدم موجود بمدجنة (بدون تحويل) (system_admin فقط)
   Future<void> assignUserToFarm({
     required String uid,
-    String? farmId,
+    required String farmId,
   });
+
+  /// فكّ ربط مستخدم بمدجنة محددة (system_admin فقط)
+  Future<void> unassignUserFromFarm({
+    required String uid,
+    required String farmId,
+  });
+
+  /// المداجن المرتبط بها المستخدم الحالي مع أسمائها (مبدّل المداجن)
+  Future<List<FarmModel>> getCurrentUserFarms();
 
   /// صحة المزامنة لكل المداجن (system_admin فقط) — يغذّي SYNC CENTER
   Future<List<SyncHealthEntry>> getSyncHealth({int onlineWindowMinutes = 5});

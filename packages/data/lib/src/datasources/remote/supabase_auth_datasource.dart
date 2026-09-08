@@ -152,12 +152,19 @@ class SupabaseAuthDatasource {
       final resolvedRole = (meta['role'] as String?) ?? 'worker';
       final resolvedFarmId = (meta['farm_id'] as String?) ?? '';
 
+      // 3b) كل المداجن المرتبط بها المستخدم (لتمكين الربط المتعدد)
+      final farmIds = await _fetchCurrentUserFarmIds();
+      final activeFarmId = resolvedFarmId.isNotEmpty
+          ? resolvedFarmId
+          : (farmIds.isNotEmpty ? farmIds.first : '');
+
       return UserModel.fromJson({
         'uid': uid,
         'name': resolvedName,
         'phone': resolvedPhone,
         'role': resolvedRole,
-        'farm_id': resolvedFarmId,
+        'farm_id': activeFarmId,
+        'farm_ids': farmIds,
         'created_at': null,
       });
     } on AuthApiException catch (e) {
@@ -204,6 +211,42 @@ class SupabaseAuthDatasource {
     return null;
   }
 
+  /// جلب معرّفات المداجن المرتبط بها المستخدم الحالي (آمنة: تعيد ما يخصّه فقط)
+  Future<List<String>> _fetchCurrentUserFarmIds() async {
+    try {
+      final rows = await _client
+          .rpc('current_user_farm_ids')
+          .timeout(const Duration(seconds: 8), onTimeout: () => null);
+      if (rows is! List) return const [];
+      return rows
+          .map((e) => e.toString())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// تحديد المدجنة النشطة للمستخدم الحالي وإعادة صورة المستخدم المحدّثة
+  Future<UserModel?> setActiveFarm(String farmId) async {
+    final res = await _client
+        .rpc('set_active_farm', params: {'p_farm_id': farmId})
+        .timeout(const Duration(seconds: 10), onTimeout: () => null);
+    final map = _asMap(res);
+    if (map == null) return null;
+    final farmIds = await _fetchCurrentUserFarmIds();
+    return UserModel.fromJson({
+      'uid': map['id'],
+      'name': map['name'],
+      'phone': map['phone'],
+      'role': map['role'],
+      'farm_id': map['farm_id'] ?? (farmIds.isNotEmpty ? farmIds.first : null),
+      'farm_ids': farmIds,
+      'is_active': map['is_active'],
+      'created_at': map['created_at'],
+    });
+  }
+
   /// جلب مستخدم بالمعرّف
   Future<Map<String, dynamic>?> getUserById(String uid) async {
     try {
@@ -214,7 +257,7 @@ class SupabaseAuthDatasource {
           .maybeSingle()
           .timeout(const Duration(seconds: 8), onTimeout: () => null);
       if (data == null) return null;
-      return {
+      final map = <String, dynamic>{
         'uid': data['id'],
         'name': data['name'],
         'phone': data['phone'],
@@ -222,6 +265,11 @@ class SupabaseAuthDatasource {
         'farm_id': data['farm_id'],
         'created_at': data['created_at'],
       };
+      if (uid == currentUid) {
+        final farmIds = await _fetchCurrentUserFarmIds();
+        if (farmIds.isNotEmpty) map['farm_ids'] = farmIds;
+      }
+      return map;
     } catch (_) {
       return null;
     }

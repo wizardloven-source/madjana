@@ -33,6 +33,7 @@ abstract interface class RemoteRead {
   RemoteRead eq(String column, dynamic value);
   RemoteRead gte(String column, dynamic value);
   RemoteRead lte(String column, dynamic value);
+  RemoteRead inFilter(String column, List<dynamic> values);
   RemoteRead order(String column, {bool ascending = true});
   RemoteRead limit(int count);
   Future<List<Map<String, dynamic>>> get();
@@ -131,6 +132,12 @@ class _ReadAdapter implements RemoteRead {
   @override
   RemoteRead lte(String column, dynamic value) {
     _builder = _builder.lte(column, value);
+    return this;
+  }
+
+  @override
+  RemoteRead inFilter(String column, List<dynamic> values) {
+    _builder = _builder.inFilter(column, values);
     return this;
   }
 

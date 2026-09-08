@@ -642,9 +642,24 @@ void main() {
           'created_at': '2026-01-01T00:00:00.000',
         };
 
+    Map<String, dynamic> userRowWithFarms(String id, String role) => {
+          'user_id': id,
+          'active_farm_id': 'farm-1',
+          'name': 'مستخدم $id',
+          'phone': '0$id',
+          'role': role,
+          'is_active': true,
+          'created_at': '2026-01-01T00:00:00.000',
+          'farm_ids': ['farm-1'],
+        };
+
     test('getUsers: من البعيد مع زراعة كاش محلي، وعند الانقطاع من الكاش',
         () async {
       fake.seed('users', [userRow('u1', 'worker'), userRow('u2', 'worker')]);
+      fake.seed('user_farms', [
+        {'user_id': 'u1', 'farm_id': 'farm-1'},
+        {'user_id': 'u2', 'farm_id': 'farm-1'},
+      ]);
       final r = repo();
 
       final users = await r.getUsers('farm-1');
@@ -658,6 +673,9 @@ void main() {
 
     test('createUser يمنع مديراً ثانياً في نفس المدجنة', () async {
       fake.seed('users', [userRow('mgr', 'manager')]);
+      fake.seed('user_farms', [
+        {'user_id': 'mgr', 'farm_id': 'farm-1'},
+      ]);
       expect(
         () => repo().createUser(
           farmId: 'farm-1',
@@ -710,8 +728,8 @@ void main() {
     test('getAllUsers / getAllFarms / getSyncHealth عبر RPC', () async {
       fake.onRpc = (name, params) {
         switch (name) {
-          case 'admin_select_all_users':
-            return [userRow('a1', 'worker')];
+          case 'admin_select_all_users_with_farms':
+            return [userRowWithFarms('a1', 'worker')];
           case 'admin_select_all_farms':
             return [
               {'id': 'farm-1', 'name': 'مزرعة الشام'}

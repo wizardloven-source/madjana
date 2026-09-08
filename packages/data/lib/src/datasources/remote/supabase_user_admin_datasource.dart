@@ -16,26 +16,67 @@ class SupabaseUserAdminDatasource {
         'phone': d['phone'],
         'role': d['role'],
         'farm_id': d['farm_id'],
+        'farm_ids': d['user_farms'] is List
+            ? (d['user_farms'] as List)
+                .map((e) =>
+                    (Map<String, dynamic>.from(e as Map))['farm_id'].toString())
+                .where((e) => e.isNotEmpty)
+                .toList()
+            : d['farm_ids'],
         'is_active': d['is_active'],
         'created_at': d['created_at'],
       });
 
   /// ط¬ظ„ط¨ ظ…ط³طھط®ط¯ظ…ظٹ ظ…ط²ط±ط¹ط© ظ…ط­ط¯ط¯ط© (manager)
   Future<List<UserModel>> getUsers(String farmId) async {
-    final data = await _api.from('users').select().eq('farm_id', farmId).get();
+    // كل المعرّفات المرتبطة بهذه المدجنة عبر جدول الربط (متعدد-إلى-متعدد)
+    final linkRows = await _api
+        .from('user_farms')
+        .select(const ['user_id'])
+        .eq('farm_id', farmId)
+        .get();
+    final ids = linkRows.map((e) => e['user_id'].toString()).toList();
+    if (ids.isEmpty) return [];
+
+    final data = await _api.from('users').select().inFilter('id', ids).get();
     final users = (data)
-        .map((e) => _fromMap(Map<String, dynamic>.from(e as Map)))
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .map((e) => UserModel.fromJson(<String, dynamic>{
+          'uid': e['id'],
+          'name': e['name'],
+          'phone': e['phone'],
+          'role': e['role'],
+          'farm_id': e['farm_id'],
+          'is_active': e['is_active'],
+          'created_at': e['created_at'],
+        }))
         .toList();
     users.sort((a, b) => a.createdAt.compareTo(b.createdAt));
     return users;
   }
 
-  /// ط¬ظ„ط¨ ظƒظ„ ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ† (system_admin ظپظ‚ط·)
+  /// ط¬ظ„ط¨ ظƒظ„ ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ† ظ…ط¹ ظ…ط¯ط§ط¬ظ†ظ‡ظ… (system_admin ظپظ‚ط·)
   Future<List<UserModel>> getAllUsers() async {
-    final data = await _api.rpc('admin_select_all_users');
+    final data = await _api.rpc('admin_select_all_users_with_farms');
     if (data == null) return [];
     final users = (data as List)
-        .map((e) => _fromMap(Map<String, dynamic>.from(e as Map)))
+        .map((e) {
+          final m = Map<String, dynamic>.from(e as Map);
+          final farmIds = (m['farm_ids'] as List? ?? const [])
+              .map((e2) => e2.toString())
+              .where((e2) => e2.isNotEmpty)
+              .toList();
+          return UserModel.fromJson({
+            'uid': m['user_id'],
+            'name': m['name'],
+            'phone': m['phone'],
+            'role': m['role'],
+            'farm_id': m['active_farm_id'],
+            'farm_ids': farmIds,
+            'is_active': m['is_active'],
+            'created_at': m['created_at'],
+          });
+        })
         .toList();
     users.sort((a, b) => a.createdAt.compareTo(b.createdAt));
     return users;
@@ -85,15 +126,41 @@ class SupabaseUserAdminDatasource {
     return FarmModel.fromJson(Map<String, dynamic>.from(data as Map));
   }
 
-  /// ربط/فكّ ربط مستخدم موجود بمزرعة (system_admin فقط)
+  /// إضافة ربط مستخدم موجود بمدجنة (بدون تحويل) (system_admin فقط)
   Future<void> assignUserToFarm({
     required String uid,
-    String? farmId,
+    required String farmId,
   }) async {
     await _api.rpc('admin_assign_user_to_farm', params: {
       'p_uid': uid,
       'p_farm_id': farmId,
     });
+  }
+
+  /// فكّ ربط مستخدم بمدجنة محددة (system_admin فقط)
+  Future<void> unassignUserFromFarm({
+    required String uid,
+    required String farmId,
+  }) async {
+    await _api.rpc('admin_unassign_user_from_farm', params: {
+      'p_uid': uid,
+      'p_farm_id': farmId,
+    });
+  }
+
+  /// المداجن المرتبط بها المستخدم الحالي مع أسمائها (مبدّل المداجن)
+  Future<List<FarmModel>> getCurrentUserFarms() async {
+    final data = await _api.rpc('current_user_farms_with_names');
+    if (data == null) return [];
+    return (data as List)
+        .map((e) {
+          final m = Map<String, dynamic>.from(e as Map);
+          return FarmModel(
+            id: m['id'].toString(),
+            name: m['name']?.toString() ?? '',
+          );
+        })
+        .toList();
   }
 
   /// طµط­ط© ط§ظ„ظ…ط²ط§ظ…ظ†ط© ظ„ظƒظ„ ط§ظ„ظ…ط¯ط§ط¬ظ† (system_admin ظپظ‚ط·) â€” SYNC CENTER

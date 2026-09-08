@@ -30,6 +30,9 @@ abstract class AuthRepository {
   /// استرجاع بيانات المستخدم الكاملة من السحابة
   Future<UserModel?> fetchUserById(String uid);
 
+  /// تحديد المدجنة النشطة للمستخدم الحالي (عضو في المدجنة أو system_admin)
+  Future<void> setActiveFarm(String farmId);
+
   /// تسجيل الخروج
   Future<void> logout();
 }

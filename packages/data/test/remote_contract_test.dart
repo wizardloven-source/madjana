@@ -434,22 +434,44 @@ void main() {
   });
 
   group('SupabaseUserAdminDatasource — عقود admin RPC', () {
-    test('getAllUsers يستدعي admin_select_all_users', () async {
+    test('getAllUsers يستدعي admin_select_all_users_with_farms', () async {
       fake.onRpc = (name, _) => [
             {
-              'id': 'u1',
+              'user_id': 'u1',
+              'active_farm_id': 'f',
               'name': 'م',
               'phone': '0',
               'role': 'worker',
-              'farm_id': 'f',
               'is_active': true,
               'created_at': null,
+              'farm_ids': ['f', 'g'],
             },
           ];
 
       final users = await SupabaseUserAdminDatasource(fake).getAllUsers();
       expect(users, hasLength(1));
-      expect(fake.findCall('rpc admin_select_all_users '), isTrue);
+      expect(users.single.farmIds, ['f', 'g']);
+      expect(fake.findCall('rpc admin_select_all_users_with_farms '), isTrue);
+    });
+
+    test('assignUserToFarm / unassignUserFromFarm بالأسماء الصحيحة', () async {
+      final ds = SupabaseUserAdminDatasource(fake);
+      await ds.assignUserToFarm(uid: 'u1', farmId: 'farm-1');
+      expect(fake.findCall('rpc admin_assign_user_to_farm'), isTrue);
+      await ds.unassignUserFromFarm(uid: 'u1', farmId: 'farm-1');
+      expect(fake.findCall('rpc admin_unassign_user_from_farm'), isTrue);
+    });
+
+    test('getCurrentUserFarms يستدعي current_user_farms_with_names', () async {
+      fake.onRpc = (name, _) => [
+            {'id': 'farm-1', 'name': 'مزرعة الشام'},
+            {'id': 'farm-2', 'name': 'مزرعة الأقصى'},
+          ];
+      final farms =
+          await SupabaseUserAdminDatasource(fake).getCurrentUserFarms();
+      expect(farms, hasLength(2));
+      expect(farms.first.name, 'مزرعة الشام');
+      expect(fake.findCall('rpc current_user_farms_with_names'), isTrue);
     });
 
     test('createUser يمرّر كامل المعاملات بالاسم المرمّز', () async {

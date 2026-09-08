@@ -208,6 +208,17 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<void> setActiveFarm(String farmId) async {
+    final user = await _remoteDatasource.setActiveFarm(farmId);
+    if (user == null) return;
+    try {
+      await _sessionDao.saveUserJson(jsonEncode(user.toJson()));
+      await _settingsDao.set('offline_farm_id', user.farmId ?? farmId);
+      await _settingsDao.set('offline_user_json', jsonEncode(user.toJson()));
+    } catch (_) {}
+  }
+
+  @override
   Future<void> logout() async {
     await _sessionDao.clear();
     await _remoteDatasource.logout();

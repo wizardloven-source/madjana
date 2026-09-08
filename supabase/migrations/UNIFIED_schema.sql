@@ -94,6 +94,16 @@ CREATE INDEX idx_users_farm ON users(farm_id);
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_phone ON users(phone);
 
+-- علاقة مجموعة-إلى-مجموعة بين المستخدمين والمداجن (ربط بدون تحويل)
+CREATE TABLE user_farms (
+    user_id    UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    farm_id    UUID NOT NULL REFERENCES public.farms(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (user_id, farm_id)
+);
+
+CREATE INDEX idx_user_farms_farm ON user_farms(farm_id);
+
 -- ============================================================
 -- 3) الجداول التشغيلية
 -- ============================================================
@@ -528,6 +538,90 @@ STABLE
 SET search_path = public, pg_temp
 AS $$
     SELECT u.farm_id FROM public.users AS u WHERE u.id = auth.uid() LIMIT 1;
+$$;
+
+-- جميع المداجن المرتبط بها المستخدم الحالي (مصفوفة معرّفات)
+CREATE OR REPLACE FUNCTION public.current_user_farm_ids()
+RETURNS uuid[]
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT COALESCE(
+        ARRAY(
+            SELECT uf.farm_id
+            FROM public.user_farms uf
+            WHERE uf.user_id = auth.uid()
+            ORDER BY uf.created_at
+        ),
+        ARRAY[]::uuid[]
+    );
+$$;
+
+-- المداجن المرتبط بها المستخدم الحالي مع أسمائها (لمبدّل المداجن)
+CREATE OR REPLACE FUNCTION public.current_user_farms_with_names()
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT COALESCE(
+        jsonb_agg(
+            jsonb_build_object('id', f.id, 'name', f.name)
+            ORDER BY f.name
+        ),
+        '[]'::jsonb
+    )
+    FROM public.user_farms uf
+    JOIN public.farms f ON f.id = uf.farm_id
+    WHERE uf.user_id = auth.uid();
+$$;
+
+-- تحديد المدجنة النشطة للمستخدم الحالي (عضو في المدجنة أو system_admin)
+CREATE OR REPLACE FUNCTION public.set_active_farm(
+    p_farm_id text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_farm_uuid   uuid;
+    v_user_record record;
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RAISE EXCEPTION 'يجب تسجيل الدخول أولاً';
+    END IF;
+
+    v_farm_uuid := NULLIF(p_farm_id, '')::uuid;
+    IF v_farm_uuid IS NULL THEN
+        RAISE EXCEPTION 'حدد المدجنة أولاً';
+    END IF;
+
+    IF NOT public.is_system_admin() THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM public.user_farms
+            WHERE user_id = auth.uid() AND farm_id = v_farm_uuid
+        ) THEN
+            RAISE EXCEPTION 'أنت غير مرتبط بهذه المدجنة';
+        END IF;
+    END IF;
+
+    UPDATE public.users
+    SET farm_id = v_farm_uuid, updated_at = NOW()
+    WHERE id = auth.uid();
+
+    UPDATE auth.users
+    SET raw_user_meta_data = raw_user_meta_data
+        || jsonb_build_object('farm_id', v_farm_uuid::text)
+    WHERE id = auth.uid();
+
+    SELECT * INTO v_user_record FROM public.users WHERE id = auth.uid();
+    RETURN to_jsonb(v_user_record);
+END;
 $$;
 
 -- تحويل PIN إلى كلمة مرور
@@ -2019,7 +2113,14 @@ BEGIN
         IF p_role NOT IN ('worker', 'manager', 'system_admin') THEN
             RAISE EXCEPTION 'الدور غير صالح';
         END IF;
+        IF NULLIF(p_farm_id, '') IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM farms WHERE id = NULLIF(p_farm_id, '')::uuid) THEN
+            RAISE EXCEPTION 'المدجنة غير موجودة';
+        END IF;
     ELSE
+        IF NULLIF(p_farm_id, '') IS NULL THEN
+            RAISE EXCEPTION 'يجب تحديد المدجنة';
+        END IF;
         PERFORM public.assert_current_is_manager_of(p_farm_id::uuid);
         IF p_role NOT IN ('worker', 'manager') THEN
             RAISE EXCEPTION 'المدير لا يمكنه إنشاء system_admin';
@@ -2053,7 +2154,7 @@ BEGIN
         '{"provider":"email","providers":["email"]}',
         jsonb_build_object(
             'role', p_role,
-            'farm_id', p_farm_id,
+            'farm_id', NULLIF(p_farm_id, ''),
             'phone', p_phone,
             'full_name', p_name
         ),
@@ -2082,7 +2183,7 @@ BEGIN
     INSERT INTO users (id, name, phone, role, pin_hash, farm_id, is_active)
     VALUES (v_auth_uuid, p_name, p_phone, p_role,
             extensions.crypt(public.app_password_from_pin(p_pin), extensions.gen_salt('bf')),
-            p_farm_id::uuid, true)
+            NULLIF(p_farm_id, '')::uuid, true)
     ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         phone = EXCLUDED.phone,
@@ -2091,6 +2192,12 @@ BEGIN
         farm_id = EXCLUDED.farm_id,
         is_active = EXCLUDED.is_active
     RETURNING * INTO v_row;
+
+    IF NULLIF(p_farm_id, '') IS NOT NULL THEN
+        INSERT INTO public.user_farms (user_id, farm_id)
+        VALUES (v_auth_uuid, NULLIF(p_farm_id, '')::uuid)
+        ON CONFLICT (user_id, farm_id) DO NOTHING;
+    END IF;
 
     RETURN to_jsonb(v_row);
 END;
@@ -2478,6 +2585,10 @@ BEGIN
         farm_id = EXCLUDED.farm_id,
         is_active = EXCLUDED.is_active;
 
+    INSERT INTO public.user_farms (user_id, farm_id)
+    VALUES (v_user_id, v_farm_id)
+    ON CONFLICT (user_id, farm_id) DO NOTHING;
+
     SELECT jsonb_build_object(
         'user_id', v_user_id,
         'farm_id', v_farm_id,
@@ -2523,7 +2634,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.admin_create_farm(text, text) TO authenticated;
 
 -- ============================================================
--- 34c) admin_assign_user_to_farm: ربط/فكّ ربط مستخدم موجود بمزرعة
+-- 34c) admin_assign_user_to_farm: إضافة ربط مستخدم بمدجنة (بدون تحويل)
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.admin_assign_user_to_farm(
     p_uid text,
@@ -2536,6 +2647,7 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_user_record record;
+    v_farm_uuid   uuid;
 BEGIN
     IF NOT public.is_system_admin() THEN
         RAISE EXCEPTION 'غير مصرح: فقط system_admin يمكنه ربط المستخدمين بالمداجن';
@@ -2544,24 +2656,27 @@ BEGIN
         RAISE EXCEPTION 'المستخدم غير موجود';
     END IF;
 
-    IF NULLIF(p_farm_id, '') IS NOT NULL THEN
-        UPDATE public.users
-        SET farm_id = NULLIF(p_farm_id, '')::uuid, updated_at = NOW()
-        WHERE id = p_uid::uuid;
-    ELSE
-        UPDATE public.users
-        SET farm_id = NULL, updated_at = NOW()
-        WHERE id = p_uid::uuid;
+    v_farm_uuid := NULLIF(p_farm_id, '')::uuid;
+    IF v_farm_uuid IS NULL THEN
+        RAISE EXCEPTION 'حدد المدجنة أولاً';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.farms WHERE id = v_farm_uuid) THEN
+        RAISE EXCEPTION 'المدجنة غير موجودة';
     END IF;
 
-    IF NULLIF(p_farm_id, '') IS NOT NULL THEN
+    -- إضافة علاقة الربط (المستخدم قد يكون مرتبطاً بعدة مداجن)
+    INSERT INTO public.user_farms (user_id, farm_id)
+    VALUES (p_uid::uuid, v_farm_uuid)
+    ON CONFLICT (user_id, farm_id) DO NOTHING;
+
+    -- إذا لم تكن للمستخدم مدجنة نشطة بعد، اجعل هذه المدجنة هي النشطة
+    IF NOT EXISTS (SELECT 1 FROM public.users WHERE id = p_uid::uuid AND farm_id IS NOT NULL) THEN
+        UPDATE public.users
+        SET farm_id = v_farm_uuid, updated_at = NOW()
+        WHERE id = p_uid::uuid;
         UPDATE auth.users
         SET raw_user_meta_data = raw_user_meta_data
-            || jsonb_build_object('farm_id', NULLIF(p_farm_id, ''))
-        WHERE id = p_uid::uuid;
-    ELSE
-        UPDATE auth.users
-        SET raw_user_meta_data = raw_user_meta_data - 'farm_id'
+            || jsonb_build_object('farm_id', v_farm_uuid::text)
         WHERE id = p_uid::uuid;
     END IF;
 
@@ -2571,6 +2686,114 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.admin_assign_user_to_farm(text, text) TO authenticated;
+
+-- ============================================================
+-- 34d) admin_unassign_user_from_farm: فكّ ربط مستخدم بمدجنة محددة
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.admin_unassign_user_from_farm(
+    p_uid text,
+    p_farm_id text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_user_record record;
+    v_farm_uuid   uuid;
+    v_new_active  uuid;
+BEGIN
+    IF NOT public.is_system_admin() THEN
+        RAISE EXCEPTION 'غير مصرح: فقط system_admin يمكنه فك ربط المستخدمين بالمداجن';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.users WHERE id = p_uid::uuid) THEN
+        RAISE EXCEPTION 'المستخدم غير موجود';
+    END IF;
+
+    v_farm_uuid := NULLIF(p_farm_id, '')::uuid;
+    IF v_farm_uuid IS NULL THEN
+        RAISE EXCEPTION 'حدد المدجنة أولاً';
+    END IF;
+
+    DELETE FROM public.user_farms
+    WHERE user_id = p_uid::uuid AND farm_id = v_farm_uuid;
+
+    -- إذا كانت المدجنة المُزالة هي النشطة، انقل النشاط إلى مدجنة أخرى أو افرغه
+    IF EXISTS (SELECT 1 FROM public.users WHERE id = p_uid::uuid AND farm_id = v_farm_uuid) THEN
+        SELECT farm_id INTO v_new_active
+        FROM public.user_farms
+        WHERE user_id = p_uid::uuid AND farm_id <> v_farm_uuid
+        ORDER BY created_at
+        LIMIT 1;
+
+        IF v_new_active IS NOT NULL THEN
+            UPDATE public.users
+            SET farm_id = v_new_active, updated_at = NOW()
+            WHERE id = p_uid::uuid;
+            UPDATE auth.users
+            SET raw_user_meta_data = raw_user_meta_data
+                || jsonb_build_object('farm_id', v_new_active::text)
+            WHERE id = p_uid::uuid;
+        ELSE
+            UPDATE public.users
+            SET farm_id = NULL, updated_at = NOW()
+            WHERE id = p_uid::uuid;
+            UPDATE auth.users
+            SET raw_user_meta_data = raw_user_meta_data - 'farm_id'
+            WHERE id = p_uid::uuid;
+        END IF;
+    END IF;
+
+    SELECT * INTO v_user_record FROM public.users WHERE id = p_uid::uuid;
+    RETURN to_jsonb(v_user_record);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_unassign_user_from_farm(text, text) TO authenticated;
+
+-- ============================================================
+-- 34e) admin_select_all_users_with_farms: كل المستخدمين مع مداجنهم
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.admin_select_all_users_with_farms()
+RETURNS TABLE (
+    user_id        uuid,
+    active_farm_id uuid,
+    name           text,
+    phone          text,
+    role           text,
+    is_active      boolean,
+    created_at     timestamptz,
+    updated_at     timestamptz,
+    farm_ids       text[]
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT
+        u.id                   AS user_id,
+        u.farm_id              AS active_farm_id,
+        u.name                 AS name,
+        u.phone                AS phone,
+        u.role::text           AS role,
+        u.is_active            AS is_active,
+        u.created_at           AS created_at,
+        u.updated_at           AS updated_at,
+        COALESCE(
+            ARRAY(
+                SELECT uf.farm_id::text
+                FROM public.user_farms uf
+                WHERE uf.user_id = u.id
+                ORDER BY uf.created_at
+            ),
+            ARRAY[]::text[]
+        )                      AS farm_ids
+    FROM public.users u
+    WHERE public.is_system_admin()
+    ORDER BY u.created_at;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_select_all_users_with_farms() TO authenticated;
 
 -- ============================================================
 -- 35) admin_select_all_users
@@ -2892,7 +3115,11 @@ CREATE POLICY users_select_self ON users
         OR is_system_admin()
         OR (
             current_user_role() = 'manager'
-            AND farm_id = current_user_farm_id()
+            AND EXISTS (
+                SELECT 1 FROM public.user_farms uf
+                WHERE uf.user_id = users.id
+                  AND uf.farm_id = current_user_farm_id()
+            )
         )
     );
 
@@ -2909,9 +3136,44 @@ CREATE POLICY users_update_self ON users
         OR is_system_admin()
         OR (
             current_user_role() = 'manager'
-            AND farm_id = current_user_farm_id()
+            AND EXISTS (
+                SELECT 1 FROM public.user_farms uf
+                WHERE uf.user_id = users.id
+                  AND uf.farm_id = current_user_farm_id()
+            )
         )
     );
+
+-- ============================================================
+-- 42b) user_farms RLS: المستخدم يرى روابطه فقط، والإدارة للمدير العام
+-- ============================================================
+ALTER TABLE user_farms ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS user_farms_select_own ON user_farms;
+CREATE POLICY user_farms_select_own ON user_farms
+    FOR SELECT TO authenticated
+    USING (
+        user_id = auth.uid()
+        OR is_system_admin()
+        OR (
+            current_user_role() = 'manager'
+            AND EXISTS (
+                SELECT 1 FROM public.user_farms uf2
+                WHERE uf2.user_id = user_farms.user_id
+                  AND uf2.farm_id = current_user_farm_id()
+            )
+        )
+    );
+
+DROP POLICY IF EXISTS user_farms_admin_write ON user_farms;
+CREATE POLICY user_farms_admin_write ON user_farms
+    FOR INSERT TO authenticated
+    WITH CHECK (is_system_admin());
+
+DROP POLICY IF EXISTS user_farms_admin_delete ON user_farms;
+CREATE POLICY user_farms_admin_delete ON user_farms
+    FOR DELETE TO authenticated
+    USING (is_system_admin());
 
 -- ============================================================
 -- 43) إضافة version للجداول الناقصة
@@ -2944,6 +3206,11 @@ GRANT EXECUTE ON FUNCTION public.app_password_from_pin(text) TO anon, authentica
 GRANT EXECUTE ON FUNCTION public.app_user_email(uuid) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.current_user_role() TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.current_user_farm_id() TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.current_user_farm_ids() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.current_user_farms_with_names() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.set_active_farm(text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_select_all_users_with_farms() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_unassign_user_from_farm(text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cleanup_old_sync_changes(int, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.compact_sync_changes(uuid) TO authenticated;
 
