@@ -284,22 +284,19 @@ class _BarnSummary {
 
   List<int> get eggsLast7 {
     final today = DateTime.now();
+    final start = DateTime(today.year, today.month, today.day);
     return [
       for (var i = 6; i >= 0; i--)
-        (_dailyEggs[DateTime(today.year, today.month, today.day)
-                    .subtract(const Duration(days: i))] ??
-                0) ~/
-            1,
+        _dailyEggs[start.subtract(Duration(days: i))] ?? 0,
     ];
   }
 
   List<int> get mortLast7 {
     final today = DateTime.now();
+    final start = DateTime(today.year, today.month, today.day);
     return [
       for (var i = 6; i >= 0; i--)
-        _dailyMort[DateTime(today.year, today.month, today.day)
-                .subtract(const Duration(days: i))] ??
-            0,
+        _dailyMort[start.subtract(Duration(days: i))] ?? 0,
     ];
   }
 
