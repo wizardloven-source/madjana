@@ -32,7 +32,7 @@ class SupabaseUserAdminDatasource {
     // كل المعرّفات المرتبطة بهذه المدجنة عبر جدول الربط (متعدد-إلى-متعدد)
     final linkRows = await _api
         .from('user_farms')
-        .select(const ['user_id'])
+        .select(columns: const ['user_id'])
         .eq('farm_id', farmId)
         .get();
     final ids = linkRows.map((e) => e['user_id'].toString()).toList();

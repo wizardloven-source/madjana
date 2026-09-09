@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/csv_exporter.dart';
 import '../../../core/providers.dart';
+import '../../../shared/widgets/farm_dropdown.dart';
 import '../../../shared/widgets/period_filter.dart';
 import '../../auth/providers/auth_provider.dart';
 
@@ -165,6 +166,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             runSpacing: 12,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
+              // مبدّل المدجنة (عند الربط المتعدد)
+              const FarmDropdown(),
               OutlinedButton.icon(
                 onPressed: () async {
                   final d = await showDatePicker(

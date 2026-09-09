@@ -5,6 +5,7 @@ import 'package:core/core.dart';
 import '../../../core/csv_exporter.dart';
 import '../../../core/providers.dart';
 import '../../../core/shell_state.dart';
+import '../../../shared/widgets/farm_dropdown.dart';
 import '../../../shared/widgets/period_filter.dart';
 import '../../auth/providers/auth_provider.dart';
 
@@ -209,6 +210,8 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
             runSpacing: 12,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
+              // مبدّل المدجنة (عند الربط المتعدد)
+              const FarmDropdown(),
               OutlinedButton.icon(
                 onPressed: _pickFromDate,
                 icon: const Icon(Icons.date_range),

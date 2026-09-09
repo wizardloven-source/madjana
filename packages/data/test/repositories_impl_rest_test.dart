@@ -523,6 +523,38 @@ void main() {
       expect(customers.map((c) => c.name).toSet(), {'أحمد', 'سامر'});
     });
 
+    test('getCustomers: عند الاتصال يسحب من السحابة ويعبّئ الكاش, وعند الانقطاع يقرأ المحلي',
+        () async {
+      fake.seed('customers', [
+        {
+          'id': 'g1',
+          'farm_id': 'farm-1',
+          'name': 'زيد',
+          'phone': '05',
+          'total_debt': 0,
+          'created_at': '2026-02-01T00:00:00.000',
+          'sync_status': 'synced',
+        },
+      ]);
+
+      final online = await repo().getCustomers('farm-1');
+      expect(online.map((c) => c.name), ['زيد']);
+      // الكاش محلي مليء من السحب
+      expect(await CustomerDao().getByFarm('farm-1'), hasLength(1));
+
+      // انقطاع: يقرأ المحلي الذي عُبّئ سابقاً
+      final dao = CustomerDao();
+      await dao.insert(CustomerModel(
+        id: 'local-1',
+        farmId: 'farm-1',
+        name: 'محلي',
+        phone: '00',
+      ));
+      fake.failReads = true;
+      final offline = await repo().getCustomers('farm-1');
+      expect(offline.map((c) => c.name).toSet(), {'زيد', 'محلي'});
+    });
+
     test('addCustomer عند انقطاع الشبكة: يبقى pending محلياً بدون خطأ', () async {
       fake.failWrites = true;
       final id = await repo().addCustomer(CustomerModel(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers.dart';
 import '../../../core/shell_state.dart';
+import '../../../shared/widgets/farm_dropdown.dart';
 import '../../approvals/presentation/approvals_screen.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../dashboard/presentation/dashboard_screen.dart';
@@ -284,6 +285,9 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                         ),
                       ),
                       const Spacer(),
+                      // مبدّل المدجنة النشطة (لمدير/عامل يملك أكثر من مدجنة)
+                      const FarmDropdown(),
+                      const SizedBox(width: 12),
                       // شعار مداجن
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -314,8 +318,13 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                     ],
                   ),
                 ),
-                // محتوى الشاشة
-                Expanded(child: _screens[selectedIndex]),
+                // محتوى الشاشة — يُعاد تركيبها عند تبديل المدجنة لتحميل بياناتها
+                Expanded(
+                  child: KeyedSubtree(
+                    key: ValueKey('farm-${user?.farmId ?? ''}'),
+                    child: _screens[selectedIndex],
+                  ),
+                ),
               ],
             ),
           ),

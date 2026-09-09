@@ -5,7 +5,11 @@ import '../providers/auth_provider.dart';
 /// شاشة التهيئة الأولى: إنشاء حساب سوبر أدمن
 /// (تظهر فقط عندما لا يوجد أي مستخدم في النظام بعد)
 class BootstrapAdminScreen extends ConsumerStatefulWidget {
-  const BootstrapAdminScreen({super.key});
+  /// عند وجود حساب سابق (مثلاً بروفايل محذوف بعد إعادة تطبيق المخطط)
+  /// يسمح بالذهاب لشاشة تسجيل الدخول.
+  final VoidCallback? onBackToLogin;
+
+  const BootstrapAdminScreen({super.key, this.onBackToLogin});
 
   @override
   ConsumerState<BootstrapAdminScreen> createState() => _BootstrapAdminScreenState();
@@ -203,6 +207,14 @@ class _BootstrapAdminScreenState extends ConsumerState<BootstrapAdminScreen> {
                             )
                           : const Text('إنشاء حساب سوبر أدمن'),
                     ),
+                    if (widget.onBackToLogin != null) ...[
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed:
+                            isLoading ? null : widget.onBackToLogin,
+                        child: const Text('لديك حساب مسبق؟ سجّل الدخول'),
+                      ),
+                    ],
                   ],
                 ),
               ),

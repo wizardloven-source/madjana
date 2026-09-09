@@ -64,6 +64,10 @@ class _UnauthenticatedGate extends ConsumerStatefulWidget {
 }
 
 class _UnauthenticatedGateState extends ConsumerState<_UnauthenticatedGate> {
+  /// عند كسر التحقق (مثلاً بروفايل سوبر أدمن محذوف) يسمح بالانتقال
+  /// يدوياً إلى شاشة تسجيل الدخول.
+  bool _forceLogin = false;
+
   @override
   void initState() {
     super.initState();
@@ -76,6 +80,7 @@ class _UnauthenticatedGateState extends ConsumerState<_UnauthenticatedGate> {
 
   @override
   Widget build(BuildContext context) {
+    if (_forceLogin) return const LoginScreen();
     final needsBootstrap = ref.watch(needsBootstrapProvider);
 
     return needsBootstrap.when(
@@ -96,8 +101,11 @@ class _UnauthenticatedGateState extends ConsumerState<_UnauthenticatedGate> {
         ),
       ),
       error: (_, __) => const LoginScreen(),
-      data: (needsBootstrap) =>
-          needsBootstrap == true ? const BootstrapAdminScreen() : const LoginScreen(),
+      data: (needsBootstrap) => needsBootstrap == true
+          ? BootstrapAdminScreen(
+              onBackToLogin: () => setState(() => _forceLogin = true),
+            )
+          : const LoginScreen(),
     );
   }
 }

@@ -6,6 +6,7 @@ import 'package:core/core.dart';
 import '../../../core/design_tokens.dart';
 import '../../../shared/widgets/custom_numpad.dart';
 import '../../../shared/widgets/date_picker_field.dart';
+import '../../../shared/widgets/farm_selector.dart';
 import '../../../shared/widgets/modern_ui.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../reference_data/providers/reference_data_provider.dart';
@@ -192,6 +193,12 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // مبدّل المدجنة (عند الربط المتعدد)
+            const Align(
+              alignment: Alignment.centerRight,
+              child: FarmSelector(),
+            ),
+            const SizedBox(height: 12),
             // التاريخ
             DatePickerField(
               value: _selectedDate,

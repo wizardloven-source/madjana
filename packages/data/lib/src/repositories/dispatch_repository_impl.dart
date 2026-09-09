@@ -36,8 +36,18 @@ class DispatchRepositoryImpl implements DispatchRepository {
   }
 
   @override
-  Future<List<CustomerModel>> getCustomers(String farmId) {
-    return _customerDao.getByFarm(farmId);
+  Future<List<CustomerModel>> getCustomers(String farmId) async {
+    try {
+      // قراءة من السحابة مع تعبئة الكاش المحلي (مثل القطعان)
+      final remote = await _remoteDatasource.getCustomers(farmId);
+      for (final customer in remote) {
+        await _customerDao.upsertFromRemote(customer);
+      }
+      return remote;
+    } catch (_) {
+      // انقطاع اتصال: نعرض النسخة المحلية
+      return _customerDao.getByFarm(farmId);
+    }
   }
 
   @override

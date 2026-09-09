@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/design_tokens.dart';
+import '../../../shared/widgets/farm_selector.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../notifications/providers/notifications_provider.dart';
 import '../../sync/providers/sync_provider.dart';
@@ -129,6 +130,16 @@ class HomeScreen extends ConsumerWidget {
                         onPressed: () => _confirmLogout(context, ref),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  // مبدّل المدجنة (عند الربط المتعدد)
+                  FarmSelector(
+                    onChanged: () {
+                      final farmId = ref.read(authProvider).currentUser?.farmId;
+                      if (farmId != null && farmId.isNotEmpty) {
+                        ref.read(syncProvider.notifier).setFarmId(farmId);
+                      }
+                    },
                   ),
                 ],
               ),
@@ -568,6 +579,8 @@ class _TodaySummaryCardState extends ConsumerState<_TodaySummaryCard> {
   double _feedKg = 0;
   bool _loading = true;
 
+  ProviderSubscription<int>? _pendingSub;
+
   @override
   void initState() {
     super.initState();
@@ -578,10 +591,16 @@ class _TodaySummaryCardState extends ConsumerState<_TodaySummaryCard> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     // يُحدّث عند تغيّر عدد المعلّق (بعد إضافة سجل محلياً)
-    ref.listen<int>(
+    _pendingSub ??= ref.listenManual<int>(
       syncProvider.select((s) => s.pendingCount),
       (_, __) => _load(),
     );
+  }
+
+  @override
+  void dispose() {
+    _pendingSub?.close();
+    super.dispose();
   }
 
   Future<void> _load() async {

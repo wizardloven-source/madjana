@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../shared/widgets/custom_numpad.dart';
 import '../../../shared/widgets/date_picker_field.dart';
+import '../../../shared/widgets/farm_selector.dart';
 import '../../../shared/widgets/modern_ui.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/feed_consumption_provider.dart';
@@ -159,6 +160,18 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // مبدّل المدجنة (عند الربط المتعدد)
+            Align(
+              alignment: Alignment.centerRight,
+              child: FarmSelector(
+                onChanged: () {
+                  final fid =
+                      ref.read(authProvider).currentUser?.farmId;
+                  if (fid != null) setState(() => _selectedFarmId = fid);
+                },
+              ),
+            ),
+            const SizedBox(height: 12),
             // التاريخ
             DatePickerField(
               value: _selectedDate,

@@ -720,7 +720,7 @@ class _FarmDetailViewState extends ConsumerState<_FarmDetailView> {
     try {
       await ref
           .read(userAdminRepositoryProvider)
-          .assignUserToFarm(uid: user.uid, farmId: null);
+          .unassignUserFromFarm(uid: user.uid, farmId: widget.farmId);
       _load();
     } catch (e) {
       _error(e);
@@ -754,7 +754,8 @@ class _FarmDetailViewState extends ConsumerState<_FarmDetailView> {
     }
 
     final candidates = _users
-        .where((u) => u.farmId != widget.farmId && u.uid != currentUid)
+        .where((u) =>
+            !u.farmIds.contains(widget.farmId) && u.uid != currentUid)
         .toList();
     if (candidates.isEmpty) {
       _error(Exception(
@@ -800,7 +801,8 @@ class _FarmDetailViewState extends ConsumerState<_FarmDetailView> {
     final name = _farm?.name ?? widget.farmName;
     final location = _farm?.location;
     final currentUid = ref.read(authProvider).currentUser?.uid;
-    final assigned = _users.where((u) => u.farmId == widget.farmId).toList();
+    final assigned =
+        _users.where((u) => u.farmIds.contains(widget.farmId)).toList();
 
     return Padding(
       padding: const EdgeInsets.all(24),

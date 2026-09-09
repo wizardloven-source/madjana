@@ -66,6 +66,10 @@ final supabaseNotificationDatasourceProvider = Provider<SupabaseNotificationData
   (ref) => SupabaseNotificationDatasource(ref.watch(supabaseApiProvider)),
 );
 
+final supabaseUserAdminDatasourceProvider = Provider<SupabaseUserAdminDatasource>(
+  (ref) => SupabaseUserAdminDatasource(ref.watch(supabaseApiProvider)),
+);
+
 // ─────────────── المستودعات ───────────────
 final authRepositoryProvider = Provider<AuthRepository>(
   (ref) => AuthRepositoryImpl(
@@ -125,6 +129,18 @@ final paymentRepositoryProvider = Provider<PaymentRepository>(
     remoteDatasource: ref.watch(supabasePaymentDatasourceProvider),
   ),
 );
+
+final userAdminRepositoryProvider = Provider<UserAdminRepository>(
+  (ref) => UserAdminRepositoryImpl(
+    remoteDatasource: ref.watch(supabaseUserAdminDatasourceProvider),
+    userDao: ref.watch(userDaoProvider),
+  ),
+);
+
+/// مداجن المستخدم الحالي بأسمائها (مبدّل المدجنة)
+final currentUserFarmsProvider = FutureProvider<List<FarmModel>>((ref) {
+  return ref.read(userAdminRepositoryProvider).getCurrentUserFarms();
+});
 
 // ─────────────── المزامنة ───────────────
 final connectivityServiceProvider = Provider<ConnectivityService>(
