@@ -174,10 +174,9 @@ final farmRepositoryProvider = Provider<FarmRepository>(
   ),
 );
 
-/// عملة العرض (تُحمّل من الإعدادات المحلية)
+/// عملة العرض (الدولار هو الأساسي دائماً للعرض)
 final currencyProvider = FutureProvider<String>((ref) async {
-  final repo = ref.watch(farmRepositoryProvider);
-  return repo.getCurrency();
+  return AppCurrency.dollar.symbol;
 });
 
 /// مزامنة السجلات المعلقة (تلقائياً بعد فتح التطبيق)

@@ -313,6 +313,7 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
                   columns: const [
                     DataColumn(label: Text('السلالة')),
                     DataColumn(label: Text('تاريخ البدء')),
+                    DataColumn(label: Text('العمر')),
                     DataColumn(label: Text('العدد الأولي')),
                     DataColumn(label: Text('العدد الحالي')),
                     DataColumn(label: Text('العنابر')),
@@ -324,6 +325,7 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
                     return DataRow(cells: [
                       DataCell(Text(f.breed)),
                       DataCell(Text(DateFormat('yyyy/MM/dd').format(f.startDate))),
+                      DataCell(Text(f.ageLabel)),
                       DataCell(Text('${f.initialCount}')),
                       DataCell(Text('${f.currentCount}')),
                       DataCell(Text(f.sectionsCount > 1

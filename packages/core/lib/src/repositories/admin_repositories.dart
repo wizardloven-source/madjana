@@ -89,10 +89,14 @@ abstract class FarmRepository {
 
   Future<void> updateFarm(FarmModel farm);
 
-  /// رمز العملة المعروض (مثل: ل.س، $)
-  Future<String> getCurrency();
+  /// يحفظ إعدادات المدجنة (وزن الكيس، بيض/كرتون، بيض/صينية، معدل النفوق)
+  /// في السحابة مع تحديث الكاش المحلي - المصدر: إعدادات سطح مكتب المدير.
+  Future<void> updateSettings(FarmModel farm);
 
-  Future<void> setCurrency(String symbol);
+  /// عملة الإدخال للقبض والمصروفات (دولار/ليرة) - الدولار أساسي للعرض
+  Future<AppCurrency> getInputCurrency();
+
+  Future<void> setInputCurrency(AppCurrency currency);
 
   /// إعدادات النظام
   Future<double> getFeedBagWeightKg();
@@ -106,4 +110,8 @@ abstract class FarmRepository {
   
   Future<double> getDefaultMortalityRate();
   Future<void> setDefaultMortalityRate(double rate);
+
+  /// حد التنبيه لمخزون صحون الكرتون (صحن)
+  Future<int> getCartonLowThreshold();
+  Future<void> setCartonLowThreshold(int trays);
 }

@@ -61,12 +61,14 @@ class SupabaseDispatchDatasource {
     await _api.from('customers').delete().eq('id', id).run();
   }
 
-  /// ط¬ظ„ط¨ ط§ظ„ط²ط¨ط§ط¦ظ†
+  /// جلب الزبائن
+  ///
+  /// لا يُطبَّق مرشح farm_id هنا: نطاق الرؤية تحدده RLS (المدير يرى
+  /// الزبائن العامة في كل المداجن + زبائن مدجنته، والعامل يرى العامة + مدجنته).
   Future<List<CustomerModel>> getCustomers(String farmId) async {
     final data = await _api
         .from('customers')
         .select()
-        .eq('farm_id', farmId)
         .order('name')
         .get();
 

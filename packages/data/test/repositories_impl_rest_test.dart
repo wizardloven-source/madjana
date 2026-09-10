@@ -638,23 +638,26 @@ void main() {
 
     test('الإعدادات: قيم افتراضية ثم دورة تخزين/استرجاع', () async {
       final r = repo();
-      expect(await r.getCurrency(), 'ل.س');
+      expect(await r.getInputCurrency(), AppCurrency.dollar);
       expect(await r.getFeedBagWeightKg(), 50.0);
       expect(await r.getEggsPerCarton(), 360);
       expect(await r.getEggsPerTray(), 30);
       expect(await r.getDefaultMortalityRate(), 0.0);
+      expect(await r.getCartonLowThreshold(), 100);
 
-      await r.setCurrency(r'$');
+      await r.setInputCurrency(AppCurrency.lira);
       await r.setFeedBagWeightKg(25);
       await r.setEggsPerCarton(300);
       await r.setEggsPerTray(24);
       await r.setDefaultMortalityRate(2.5);
+      await r.setCartonLowThreshold(200);
 
-      expect(await r.getCurrency(), r'$');
+      expect(await r.getInputCurrency(), AppCurrency.lira);
       expect(await r.getFeedBagWeightKg(), 25.0);
       expect(await r.getEggsPerCarton(), 300);
       expect(await r.getEggsPerTray(), 24);
       expect(await r.getDefaultMortalityRate(), 2.5);
+      expect(await r.getCartonLowThreshold(), 200);
     });
   });
 
@@ -701,6 +704,21 @@ void main() {
       fake.failReads = true;
       final offline = await r.getUsers('farm-1');
       expect(offline, hasLength(2));
+    });
+
+    test('getUsers يضم مدير النظام حتى لو لم يكن مرتبطاً بالمزرعة', () async {
+      fake.seed('users', [
+        userRow('mgr', 'manager'),
+        userRow('admin', 'system_admin'),
+        userRow('w1', 'worker'),
+      ]);
+      fake.seed('user_farms', [
+        {'user_id': 'mgr', 'farm_id': 'farm-1'},
+        {'user_id': 'w1', 'farm_id': 'farm-1'},
+      ]);
+
+      final users = await repo().getUsers('farm-1');
+      expect(users.map((u) => u.uid).toSet(), {'mgr', 'w1', 'admin'});
     });
 
     test('createUser يمنع مديراً ثانياً في نفس المدجنة', () async {

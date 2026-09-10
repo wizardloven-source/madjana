@@ -83,62 +83,139 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     final amountCtrl = TextEditingController(
         text: expense != null ? expense.amount.toString() : '');
     final descCtrl = TextEditingController(text: expense?.description ?? '');
+    final bundlesCtrl = TextEditingController(
+        text: expense?.cartonBundles?.toString() ?? '');
     var date = expense?.date ?? DateTime.now();
     var category = expense?.category ?? ExpenseCategory.other;
+    final defaultCurrency = expense != null
+        ? null
+        : await ref.read(farmRepositoryProvider).getInputCurrency();
+    var currency = expense?.currency ?? defaultCurrency ?? AppCurrency.dollar;
+    var exchangeRate = expense?.exchangeRate;
 
+    // لتحويل الليرة → دولار عند الحفظ (المخزّن بالدولار دائماً)
+    double toDollar(double value) =>
+        currency == AppCurrency.lira && (exchangeRate ?? 0) > 0
+            ? value / exchangeRate!
+            : value;
+    String inputSymbol(AppCurrency cu) => cu.symbol;
+
+    if (!mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialog) => AlertDialog(
           title: Text(expense == null ? 'مصروف جديد' : 'تعديل المصروف'),
           content: SizedBox(
-            width: 380,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<ExpenseCategory>(
-                  value: category,
-                  decoration: const InputDecoration(labelText: 'الفئة'),
-                  items: ExpenseCategory.values
-                      .map((c) => DropdownMenuItem(
-                          value: c, child: Text(c.label)))
-                      .toList(),
-                  onChanged: (v) {
-                    if (v != null) setDialog(() => category = v);
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: amountCtrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'المبلغ'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: descCtrl,
-                  decoration:
-                      const InputDecoration(labelText: 'الوصف (اختياري)'),
-                ),
-                const SizedBox(height: 12),
-                Row(children: [
-                  Expanded(
-                    child: Text('التاريخ: ${DateFormat('yyyy/MM/dd').format(date)}'),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      final picked = await showDatePicker(
-                        context: ctx,
-                        initialDate: date,
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime.now(),
-                      );
-                      if (picked != null) setDialog(() => date = picked);
+            width: 400,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<ExpenseCategory>(
+                    value: category,
+                    decoration: const InputDecoration(labelText: 'الفئة'),
+                    items: ExpenseCategory.values
+                        .map((c) => DropdownMenuItem(
+                            value: c, child: Text(c.label)))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) setDialog(() => category = v);
                     },
-                    child: const Text('تغيير'),
                   ),
-                ]),
-              ],
+                  const SizedBox(height: 12),
+                  // ─── عملة الإدخال ───
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final c in AppCurrency.values)
+                        ChoiceChip(
+                          label: Text('${c.label} (${c.symbol})'),
+                          selected: currency == c,
+                          onSelected: (_) => setDialog(() => currency = c),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // ─── سعر الصرف عند الإدخال بالليرة ───
+                  if (currency == AppCurrency.lira) ...[
+                    TextField(
+                      keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true),
+                      decoration: const InputDecoration(
+                          labelText: 'سعر صرف (ليرة لكل 1 دولار)'),
+                      onChanged: (v) {
+                        final r = double.tryParse(v.trim());
+                        setDialog(() => exchangeRate = r);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  // ─── شراء صحون الكرتون: عدد الربطات + سعر الربطة ───
+                  if (category == ExpenseCategory.carton) ...[
+                    TextField(
+                      controller: bundlesCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                          labelText: 'عدد الربطات (الربطة = 100 صحن)'),
+                    ),
+                    const SizedBox(height: 8),
+                    if (double.tryParse(amountCtrl.text) != null &&
+                        double.parse(amountCtrl.text.trim()) > 0 &&
+                        int.tryParse(bundlesCtrl.text) != null &&
+                        (int.tryParse(bundlesCtrl.text) ?? 0) > 0)
+                      Text(
+                        'سعر الربطة الواحدة: ${(double.parse(amountCtrl.text.trim()) /
+                            (int.tryParse(bundlesCtrl.text) ?? 1))
+                            .toStringAsFixed(2)} ${inputSymbol(currency)}',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    const SizedBox(height: 8),
+                  ],
+                  TextField(
+                    controller: amountCtrl,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                        labelText: category == ExpenseCategory.carton
+                            ? 'إجمالي المبلغ (${inputSymbol(currency)})'
+                            : 'المبلغ (${inputSymbol(currency)})'),
+                    onChanged: (_) => setDialog(() {}),
+                  ),
+                  if (currency == AppCurrency.lira &&
+                      double.tryParse(amountCtrl.text) != null)
+                    Text(
+                      'ما يقابلها بالدولار: ${Formatters.formatCurrency(toDollar(double.parse(amountCtrl.text.trim())))}',
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: descCtrl,
+                    decoration:
+                        const InputDecoration(labelText: 'الوصف (اختياري)'),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    Expanded(
+                      child: Text(
+                          'التاريخ: ${DateFormat('yyyy/MM/dd').format(date)}'),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        final picked = await showDatePicker(
+                          context: ctx,
+                          initialDate: date,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime.now(),
+                        );
+                        if (picked != null) setDialog(() => date = picked);
+                      },
+                      child: const Text('تغيير'),
+                    ),
+                  ]),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -149,6 +226,17 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
               onPressed: () {
                 if (double.tryParse(amountCtrl.text.trim()) == null ||
                     double.parse(amountCtrl.text.trim()) <= 0) {
+                  return;
+                }
+                if (currency == AppCurrency.lira && (exchangeRate ?? 0) <= 0) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                      content: Text('أدخل سعر صرف صحيحاً لليرة')));
+                  return;
+                }
+                if (category == ExpenseCategory.carton &&
+                    int.tryParse(bundlesCtrl.text) == null) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(content: Text('أدخل عدد الربطات')));
                   return;
                 }
                 Navigator.pop(ctx, true);
@@ -162,6 +250,10 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     if (ok != true) return;
 
     try {
+      final amount = double.parse(amountCtrl.text.trim());
+      final cartonBundles = category == ExpenseCategory.carton
+          ? int.parse(bundlesCtrl.text.trim())
+          : null;
       await ref.read(expenseRepositoryProvider).save(ExpenseModel(
             id: expense?.id,
             farmId: _farmId,
@@ -170,7 +262,11 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
             description: descCtrl.text.trim().isEmpty
                 ? null
                 : descCtrl.text.trim(),
-            amount: double.parse(amountCtrl.text.trim()),
+            amount: toDollar(amount),
+            currency: currency,
+            exchangeRate:
+                currency == AppCurrency.lira ? exchangeRate : null,
+            cartonBundles: cartonBundles,
           ));
       _load();
     } catch (e) {
@@ -288,10 +384,15 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                     DataColumn(label: Text('إجراءات')),
                   ],
                   rows: _expenses.map((e) {
+                    final isCarton = e.category == ExpenseCategory.carton &&
+                        e.cartonBundles != null;
                     return DataRow(cells: [
                       DataCell(Text(DateFormat('yyyy/MM/dd').format(e.date))),
                       DataCell(Text(e.category.label)),
-                      DataCell(Text(e.description ?? '-')),
+                      DataCell(Text(
+                          isCarton
+                              ? '${e.cartonBundles} ربطة × ${e.description ?? ''}'
+                              : (e.description ?? '-'))),
                       DataCell(Text(
                           '${NumberFormat('#,##0.##').format(e.amount)} $currency')),
                       DataCell(Row(children: [

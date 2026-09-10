@@ -86,6 +86,9 @@ class ExpenseDao {
       'category': expense.category.name,
       'description': expense.description,
       'amount': expense.amount,
+      'currency': expense.currency.name,
+      'exchange_rate': expense.exchangeRate,
+      'carton_bundles': expense.cartonBundles,
       'sync_status': expense.syncStatus.name,
       'created_at': (expense.createdAt ?? DateTime.now()).toIso8601String(),
       'updated_at': DateTime.now().toIso8601String(),
@@ -99,6 +102,9 @@ class ExpenseDao {
         'category': expense.category.name,
         'description': expense.description,
         'amount': expense.amount,
+        'currency': expense.currency.name,
+        if (expense.exchangeRate != null) 'exchange_rate': expense.exchangeRate,
+        if (expense.cartonBundles != null) 'carton_bundles': expense.cartonBundles,
       },
     );
     return id;
@@ -116,6 +122,9 @@ class ExpenseDao {
         'category': expense.category.name,
         'description': expense.description,
         'amount': expense.amount,
+        'currency': expense.currency.name,
+        'exchange_rate': expense.exchangeRate,
+        'carton_bundles': expense.cartonBundles,
         'sync_status': expense.syncStatus.name,
         'updated_at': DateTime.now().toIso8601String(),
       },
@@ -132,6 +141,9 @@ class ExpenseDao {
         'category': expense.category.name,
         'description': expense.description,
         'amount': expense.amount,
+        'currency': expense.currency.name,
+        if (expense.exchangeRate != null) 'exchange_rate': expense.exchangeRate,
+        if (expense.cartonBundles != null) 'carton_bundles': expense.cartonBundles,
       },
     );
   }
@@ -164,6 +176,9 @@ class ExpenseDao {
         'category': e.category.name,
         'description': e.description,
         'amount': e.amount,
+        'currency': e.currency.name,
+        'exchange_rate': e.exchangeRate,
+        'carton_bundles': e.cartonBundles,
         'sync_status': SyncStatus.synced.name,
         'created_at': (e.createdAt ?? DateTime.now()).toIso8601String(),
       });
@@ -181,6 +196,11 @@ class ExpenseDao {
       ),
       description: map['description'] as String?,
       amount: (map['amount'] as num?)?.toDouble() ?? 0,
+      currency: AppCurrency.fromName(map['currency'] as String?),
+      exchangeRate: map['exchange_rate'] != null
+          ? (map['exchange_rate'] as num).toDouble()
+          : null,
+      cartonBundles: map['carton_bundles'] as int?,
       syncStatus: SyncStatus.values.firstWhere(
         (e) => e.name == map['sync_status'],
         orElse: () => SyncStatus.synced,

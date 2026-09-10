@@ -5,6 +5,9 @@ class AppConstants {
   static const int traysPerCarton = 12;
   static const int eggsPerCarton = eggsPerTray * traysPerCarton; // 360
 
+  // صحون الكرتون: الربطة = 100 صحن
+  static const int traysPerBundle = 100;
+
   // تحويلات العلف
   static const double kgPerBag = 24.0;
   static const double kgPerTon = 1000.0;

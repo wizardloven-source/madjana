@@ -9,6 +9,7 @@ class AppSettingsKeys {
   static const String eggsPerTray = 'eggs_per_tray';
   static const String feedBagWeight = 'feed_bag_weight_kg';
   static const String defaultMortalityRate = 'default_mortality_rate';
+  static const String cartonLowThreshold = 'carton_low_threshold';
 }
 
 /// تنفيذ مستودع المدجنة والإعدادات - للمدير
@@ -25,10 +26,22 @@ class FarmRepositoryImpl implements FarmRepository {
   @override
   Future<FarmModel> getFarm(String farmId) async {
     try {
-      return await _remoteDatasource.getFarm(farmId)
+      final farm = await _remoteDatasource.getFarm(farmId)
           .timeout(const Duration(seconds: 10), onTimeout: () {
         throw Exception('انتهت مهلة الاتصال');
       });
+      // نزامن الكاش المحلي مع قيم الخادم (المصدر: سطح مكتب المدير)
+      await _settingsDao.set(
+          AppSettingsKeys.feedBagWeight, farm.feedBagWeightKg.toString());
+      await _settingsDao.set(
+          AppSettingsKeys.eggsPerCarton, farm.eggsPerCarton.toString());
+      await _settingsDao.set(
+          AppSettingsKeys.eggsPerTray, farm.eggsPerTray.toString());
+      await _settingsDao.set(
+          AppSettingsKeys.defaultMortalityRate, farm.defaultMortalityRate.toString());
+      await _settingsDao.set(
+          AppSettingsKeys.cartonLowThreshold, farm.cartonLowThreshold.toString());
+      return farm;
     } catch (e) {
       return FarmModel(id: farmId, name: 'المدجنة');
     }
@@ -42,16 +55,43 @@ class FarmRepositoryImpl implements FarmRepository {
     } catch (_) {}
   }
 
+  @override
+  Future<void> updateSettings(FarmModel farm) async {
+    // المصدر: سطح مكتب المدير - نكتب الإعدادات في جدول المداجن (الخادم)
+    // ليطّلع عليها الموبايل، مع تحديث الكاش المحلي كاحتياطي.
+    await updateFarm(farm);
+    await _settingsDao.set(
+        AppSettingsKeys.feedBagWeight, farm.feedBagWeightKg.toString());
+    await _settingsDao.set(AppSettingsKeys.eggsPerCarton, farm.eggsPerCarton.toString());
+    await _settingsDao.set(AppSettingsKeys.eggsPerTray, farm.eggsPerTray.toString());
+    await _settingsDao.set(
+        AppSettingsKeys.defaultMortalityRate, farm.defaultMortalityRate.toString());
+    await _settingsDao.set(
+        AppSettingsKeys.cartonLowThreshold, farm.cartonLowThreshold.toString());
+  }
+
   // ─────────────── الإعدادات المحلية ───────────────
 
   @override
-  Future<String> getCurrency() async {
-    return await _settingsDao.get(AppSettingsKeys.currency) ?? 'ل.س';
+  Future<AppCurrency> getInputCurrency() async {
+    final value = await _settingsDao.get(AppSettingsKeys.currency);
+    return AppCurrency.fromName(value ?? AppCurrency.dollar.name);
   }
 
   @override
-  Future<void> setCurrency(String symbol) async {
-    await _settingsDao.set(AppSettingsKeys.currency, symbol);
+  Future<void> setInputCurrency(AppCurrency currency) async {
+    await _settingsDao.set(AppSettingsKeys.currency, currency.name);
+  }
+
+  @override
+  Future<int> getCartonLowThreshold() async {
+    final value = await _settingsDao.get(AppSettingsKeys.cartonLowThreshold);
+    return value != null ? int.tryParse(value) ?? 100 : 100;
+  }
+
+  @override
+  Future<void> setCartonLowThreshold(int trays) async {
+    await _settingsDao.set(AppSettingsKeys.cartonLowThreshold, trays.toString());
   }
 
   @override

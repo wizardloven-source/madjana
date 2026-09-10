@@ -28,6 +28,7 @@ class MortalityScreen extends ConsumerStatefulWidget {
 class _MortalityScreenState extends ConsumerState<MortalityScreen> {
   DateTime _selectedDate = DateTime.now();
   String? _selectedFlockId;
+  int? _selectedSection;
   int _count = 0;
   MortalityReason? _selectedReason;
   File? _imageFile;
@@ -123,8 +124,9 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
           ? _otherController.text
           : null,
       notes: _notesController.text.isEmpty ? null : _notesController.text,
-      imageUrl: _imageFile?.path, // سيُرفع لاحقاً
+      imageUrl: _imageFile?.path,
       workerId: user.uid,
+      sectionNo: _selectedSection,
     );
 
     final result = await ref
@@ -169,6 +171,7 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
     setState(() {
       _count = 0;
       _selectedReason = null;
+      _selectedSection = null;
       _imageFile = null;
       _otherController.clear();
       _notesController.clear();
@@ -217,9 +220,35 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
                   child: Text(flock.displayName),
                 );
               }).toList(),
-              onChanged: (v) => setState(() => _selectedFlockId = v),
+              onChanged: (v) => setState(() {
+                _selectedFlockId = v;
+                _selectedSection = null;
+              }),
             ),
             const SizedBox(height: 16),
+
+            // اختيار العنبر (يظهر فقط إذا كان القطيع يحتوي على أكثر من عنبر)
+            if (_selectedFlockId != null) ...[
+              () {
+                final selectedFlock = flocks.where((f) => f.id == _selectedFlockId).firstOrNull;
+                if (selectedFlock != null && selectedFlock.sectionsCount > 1) {
+                  return DropdownButtonFormField<int>(
+                    initialValue: _selectedSection,
+                    decoration: const InputDecoration(labelText: 'العنبر'),
+                    items: List.generate(
+                      selectedFlock.sectionsCount,
+                      (i) => DropdownMenuItem(
+                        value: i + 1,
+                        child: Text('العنبر ${i + 1}'),
+                      ),
+                    ),
+                    onChanged: (v) => setState(() => _selectedSection = v),
+                  );
+                }
+                return const SizedBox.shrink();
+              }(),
+              const SizedBox(height: 16),
+            ],
 
             // عدد النافق
             NumberTile(

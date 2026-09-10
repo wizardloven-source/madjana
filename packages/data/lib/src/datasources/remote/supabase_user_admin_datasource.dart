@@ -27,18 +27,34 @@ class SupabaseUserAdminDatasource {
         'created_at': d['created_at'],
       });
 
-  /// ط¬ظ„ط¨ ظ…ط³طھط®ط¯ظ…ظٹ ظ…ط²ط±ط¹ط© ظ…ط­ط¯ط¯ط© (manager)
+  /// ط¬ظ„ط¨ ظ…ط³طھط®ط¯ظ…ظٹ ظ…ط²ط±ط¹ط© ظ…ط­ط¯ظ‘ط¯ط© (manager)
+  ///
+  /// الأعضاء: المرتبطون بالمدجنة عبر جدول الربط (متعدد-إلى-متعدد)
+  /// مضافاً إليهم مديرو النظام (يظهرون في قائمة كل مدجنة).
   Future<List<UserModel>> getUsers(String farmId) async {
-    // كل المعرّفات المرتبطة بهذه المدجنة عبر جدول الربط (متعدد-إلى-متعدد)
     final linkRows = await _api
         .from('user_farms')
         .select(columns: const ['user_id'])
         .eq('farm_id', farmId)
         .get();
-    final ids = linkRows.map((e) => e['user_id'].toString()).toList();
+    final ids = linkRows.map((e) => e['user_id'].toString()).toSet();
+
+    final adminRows = await _api
+        .from('users')
+        .select(columns: const ['id'])
+        .eq('role', 'system_admin')
+        .get();
+    for (final e in adminRows) {
+      final id = e['id']?.toString();
+      if (id != null && id.isNotEmpty) ids.add(id);
+    }
     if (ids.isEmpty) return [];
 
-    final data = await _api.from('users').select().inFilter('id', ids).get();
+    final data = await _api
+        .from('users')
+        .select()
+        .inFilter('id', ids.toList())
+        .get();
     final users = (data)
         .map((e) => Map<String, dynamic>.from(e as Map))
         .map((e) => UserModel.fromJson(<String, dynamic>{

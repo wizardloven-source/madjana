@@ -65,6 +65,8 @@ class _FlockManagementScreenState extends ConsumerState<FlockManagementScreen> {
                   title: Text(flock.breed, style: const TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: Text(
                     '${flock.currentCount} طائر من أصل ${flock.initialCount}\n'
+                    'العمر: ${flock.ageLabel} | '
+                    '${flock.sectionsCount > 1 ? "${flock.sectionsCount} عنابر" : "عنبر واحد"}\n'
                     'تاريخ البداية: ${Formatters.formatDate(flock.startDate)}',
                   ),
                   isThreeLine: true,

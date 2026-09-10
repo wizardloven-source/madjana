@@ -17,6 +17,21 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   List<InventoryItemModel> _items = [];
   bool _loading = true;
 
+  // الرصيد التلقائي (يحسب من السجلات: علف وبيض)
+  double _feedStockKg = 0;
+  double _feedReceivedKg = 0;
+  double _feedConsumedKg = 0;
+  double _bagWeightKg = 50;
+  int _eggsProduced = 0;
+  int _eggsDispatched = 0;
+  int _eggStock = 0;
+
+  // مخزون صحون الكرتون (صحن): المشترى (ربطات × 100) - المستهلك (كراتين×12 + أطباق)
+  int _cartonPurchasedTrays = 0;
+  int _cartonConsumedTrays = 0;
+  int _cartonStockTrays = 0;
+  int _cartonLowThreshold = 100;
+
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
 
   @override
@@ -32,8 +47,65 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     try {
       final items =
           await ref.read(inventoryRepositoryProvider).getItems(_farmId);
+      final feedRepo = ref.read(feedRepositoryProvider);
+      final eggRepo = ref.read(eggProductionRepositoryProvider);
+      final dispatchRepo = ref.read(dispatchRepositoryProvider);
+      final farmRepo = ref.read(farmRepositoryProvider);
+      final expenseRepo = ref.read(expenseRepositoryProvider);
+
+      // رصيد العلف: الوارد - المستهلك
+      final received = await feedRepo.getAllReceived(farmId: _farmId);
+      final consumed = await feedRepo.getAllConsumption(farmId: _farmId);
+      final stockIl = await feedRepo.getCurrentFeedStock(_farmId);
+      final receivedIl = received.fold<double>(0, (s, r) => s + r.quantityKg);
+      final consumedIl =
+          consumed.fold<double>(0, (s, r) => s + r.quantityKg);
+
+      // رصيد البيض: الإنتاج (صالح للبيع) - التخريج
+      final production = await eggRepo.getAllRecords(farmId: _farmId);
+      final dispatches = await dispatchRepo.getAll(farmId: _farmId);
+      final producedIl = production.fold<int>(
+          0,
+          (s, e) =>
+              s + (e.totalEggs - e.brokenEggs - e.dirtyEggs));
+      final dispatchedIl =
+          dispatches.fold<int>(0, (s, d) => s + d.totalEggs);
+
+      // مخزون صحون الكرتون: المشترى (ربطات × 100 صحن) - المستهلك (كراتين×12 + أطباق)
+      final cartonExpenses = await expenseRepo.getExpenses(farmId: _farmId);
+      final purchasedTrays = cartonExpenses
+          .where((e) =>
+              e.category == ExpenseCategory.carton &&
+              e.cartonBundles != null)
+          .fold<int>(0, (s, e) => s + (e.cartonBundles ?? 0) * AppConstants.traysPerBundle);
+      final consumedTrays = dispatches.fold<int>(
+          0,
+          (s, d) =>
+              s + d.cartons * AppConstants.traysPerCarton + d.trays);
+
+      double bagWeight = 50;
+      int cartonThreshold = 100;
+      try {
+        final farm = await farmRepo.getFarm(_farmId);
+        bagWeight = farm.feedBagWeightKg;
+        cartonThreshold = farm.cartonLowThreshold;
+      } catch (_) {}
+
       if (!mounted) return;
-      setState(() => _items = items);
+      setState(() {
+        _items = items;
+        _feedStockKg = stockIl;
+        _feedReceivedKg = receivedIl;
+        _feedConsumedKg = consumedIl;
+        _bagWeightKg = bagWeight;
+        _eggsProduced = producedIl;
+        _eggsDispatched = dispatchedIl;
+        _eggStock = producedIl - dispatchedIl;
+        _cartonPurchasedTrays = purchasedTrays;
+        _cartonConsumedTrays = consumedTrays;
+        _cartonStockTrays = purchasedTrays - consumedTrays;
+        _cartonLowThreshold = cartonThreshold;
+      });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -267,6 +339,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             ],
           ),
           const SizedBox(height: 16),
+          _buildAutoStockSection(),
+          const SizedBox(height: 16),
           if (_loading)
             const Expanded(
                 child: Center(child: CircularProgressIndicator()))
@@ -337,6 +411,227 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  /// قسم الرصيد التلقائي: رصيد العلف والبيض المحسوب من السجلات
+  Widget _buildAutoStockSection() {
+    final feedBags = _bagWeightKg > 0 ? _feedStockKg / _bagWeightKg : 0;
+    final feedLow = _feedStockKg <= 0;
+
+    // تحويل رصيد البيض إلى كراتين/أطباق/مفرد
+    final cartons = _eggStock ~/ AppConstants.eggsPerCarton;
+    final remAfterCartons = _eggStock % AppConstants.eggsPerCarton;
+    final trays = remAfterCartons ~/ AppConstants.eggsPerTray;
+    final loose = remAfterCartons % AppConstants.eggsPerTray;
+
+    String eggStockLabel;
+    if (_eggStock <= 0) {
+      eggStockLabel = 'لا يوجد رصيد';
+    } else if (cartons > 0 && trays > 0) {
+      eggStockLabel = '$cartons كرتون + $trays صحن';
+    } else if (cartons > 0) {
+      eggStockLabel = '$cartons كرتون';
+    } else if (trays > 0) {
+      eggStockLabel = '$trays صحن';
+    } else {
+      eggStockLabel = '$loose بيضة';
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(
+                color: feedLow ? Colors.red.shade200 : Colors.green.shade200,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.grain_rounded,
+                          color: Colors.orange.shade700, size: 28),
+                      const SizedBox(width: 8),
+                      const Text('رصيد العلف',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'الرصيد الحالي: ${NumberFormat('#,##0.#').format(_feedStockKg)} كغ '
+                    '(≈ ${NumberFormat('#,##0.#').format(feedBags)} كيس)',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: feedLow ? Colors.red : Colors.green.shade800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'الوارد: ${NumberFormat('#,##0.#').format(_feedReceivedKg)} كغ  ·  '
+                    'المستهلك: ${NumberFormat('#,##0.#').format(_feedConsumedKg)} كغ',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'وزن الكيس: ${NumberFormat('#,##0.#').format(_bagWeightKg)} كغ',
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey.shade500),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(
+                color: _eggStock <= 0
+                    ? Colors.red.shade200
+                    : Colors.amber.shade200,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.egg_alt_rounded,
+                          color: Colors.amber.shade800, size: 28),
+                      const SizedBox(width: 8),
+                      const Text('رصيد البيض',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    eggStockLabel,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: _eggStock <= 0
+                          ? Colors.red
+                          : Colors.amber.shade900,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'الإنتاج: ${NumberFormat('#,##0').format(_eggsProduced)} بيضة  ·  '
+                    'التخريج: ${NumberFormat('#,##0').format(_eggsDispatched)} بيضة',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'الرصيد: ${NumberFormat('#,##0').format(_eggStock)} بيضة',
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey.shade500),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        _buildCartonStockCard(),
+      ],
+    );
+  }
+
+  /// بطاقة مخزون صحون الكرتون (مشترى بالربطات - مستهلك بالتخريج)
+  Widget _buildCartonStockCard() {
+    final cartonLow = _cartonStockTrays < _cartonLowThreshold;
+    final bundles = _cartonStockTrays ~/ AppConstants.traysPerBundle;
+    final remTrays = _cartonStockTrays % AppConstants.traysPerBundle;
+
+    String label;
+    if (_cartonStockTrays <= 0) {
+      label = 'لا يوجد رصيد';
+    } else if (bundles > 0 && remTrays > 0) {
+      label = '$bundles ربطة + $remTrays صحن';
+    } else if (bundles > 0) {
+      label = '$bundles ربطة';
+    } else {
+      label = '$remTrays صحن';
+    }
+
+    return Expanded(
+      child: Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(
+            color: cartonLow ? Colors.red.shade200 : Colors.teal.shade200,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.inventory_2_outlined,
+                      color: Colors.teal.shade700, size: 28),
+                  const SizedBox(width: 8),
+                  const Text('مخزون صحون الكرتون',
+                      style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: cartonLow ? Colors.red : Colors.teal.shade800,
+                ),
+              ),
+              if (cartonLow)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    '⚠ تحذير: الرصيد أقل من حد التنبيه ($_cartonLowThreshold صحن)',
+                    style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              Text(
+                'المشترى: ${NumberFormat('#,##0').format(_cartonPurchasedTrays)} صحن  ·  '
+                'المستهلك: ${NumberFormat('#,##0').format(_cartonConsumedTrays)} صحن',
+                style: TextStyle(color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'الرصيد: ${NumberFormat('#,##0').format(_cartonStockTrays)} صحن  '
+                '(حد التنبيه: $_cartonLowThreshold)',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'يُراجع من إعدادات المدجنة · كل ربطة = ${AppConstants.traysPerBundle} صحن',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

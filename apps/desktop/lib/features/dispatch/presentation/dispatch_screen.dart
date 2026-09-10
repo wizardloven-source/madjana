@@ -102,6 +102,9 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
   /// فتح نافذة تسجيل القبض لفاتورة
   Future<void> _recordPayment(DispatchModel dispatch) async {
     final existing = _payments.where((p) => p.dispatchId == dispatch.id).toList();
+    final inputCurrency =
+        await ref.read(farmRepositoryProvider).getInputCurrency();
+    if (!mounted) return;
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -109,6 +112,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
         dispatch: dispatch,
         customer: _customers[dispatch.customerId],
         existingPayments: existing,
+        defaultCurrency: inputCurrency,
       ),
     );
 
@@ -122,6 +126,8 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
         totalDue: result['totalDue'] as double,
         amountPaid: result['amountPaid'] as double,
         paymentMethod: result['method'] as PaymentMethod,
+        currency: result['currency'] as AppCurrency,
+        exchangeRate: result['exchangeRate'] as double?,
         notes: result['notes'] as String?,
         managerId: _managerId,
       );
@@ -451,11 +457,13 @@ class _PaymentDialog extends StatefulWidget {
   final DispatchModel dispatch;
   final CustomerModel? customer;
   final List<PaymentModel> existingPayments;
+  final AppCurrency defaultCurrency;
 
   const _PaymentDialog({
     required this.dispatch,
     required this.customer,
     required this.existingPayments,
+    required this.defaultCurrency,
   });
 
   @override
@@ -465,12 +473,25 @@ class _PaymentDialog extends StatefulWidget {
 class _PaymentDialogState extends State<_PaymentDialog> {
   final _priceController = TextEditingController();
   final _amountController = TextEditingController();
+  final _rateController = TextEditingController();
   final _notesController = TextEditingController();
   PaymentMethod _method = PaymentMethod.cash;
+  AppCurrency _currency = AppCurrency.dollar;
+  double? _exchangeRate;
+
+  /// تحويل مبلغ إلى الدولار (الأساسي): ليرة ÷ سعر الصرف
+  double _toDollar(double value) =>
+      _currency == AppCurrency.lira && (_exchangeRate ?? 0) > 0
+          ? value / _exchangeRate!
+          : value;
+
+  /// رمز عملة الإدخال الحالية
+  String get _inputSymbol => _currency.symbol;
 
   @override
   void initState() {
     super.initState();
+    _currency = widget.defaultCurrency;
     // تعبئة السعر من قبض سابق إن وجد
     if (widget.existingPayments.isNotEmpty) {
       _priceController.text =
@@ -482,6 +503,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
   void dispose() {
     _priceController.dispose();
     _amountController.dispose();
+    _rateController.dispose();
     _notesController.dispose();
     super.dispose();
   }
@@ -490,10 +512,11 @@ class _PaymentDialogState extends State<_PaymentDialog> {
   Widget build(BuildContext context) {
     final paidSoFar =
         widget.existingPayments.fold<double>(0, (s, p) => s + p.amountPaid);
-    final totalDue = _priceController.text.isNotEmpty
+    final totalDueLira = _priceController.text.isNotEmpty
         ? double.tryParse(_priceController.text) ?? 0.0
         : 0.0;
-    final remaining = (totalDue * widget.dispatch.cartons) - paidSoFar;
+    final totalDueDollar = _toDollar(totalDueLira * widget.dispatch.cartons);
+    final remaining = totalDueDollar - paidSoFar;
 
     return AlertDialog(
       title: Text('قبض فاتورة - ${widget.customer?.name ?? ''}'),
@@ -507,21 +530,55 @@ class _PaymentDialogState extends State<_PaymentDialog> {
               Text('التاريخ: ${Formatters.formatDate(widget.dispatch.date)}'),
               Text('الكراتين: ${widget.dispatch.cartons}'),
               const SizedBox(height: 8),
+              // ─── عملة الإدخال ───
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final c in AppCurrency.values)
+                    ChoiceChip(
+                      label: Text('${c.label} (${c.symbol})'),
+                      selected: _currency == c,
+                      onSelected: (_) => setState(() => _currency = c),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: _priceController,
                 keyboardType: TextInputType.number,
                 textDirection: TextDirection.ltr,
                 onChanged: (_) => setState(() {}),
-                decoration: const InputDecoration(
-                  labelText: 'سعر الكرتون (د.ع)',
-                  prefixIcon: Icon(Icons.attach_money),
+                decoration: InputDecoration(
+                  labelText: 'سعر الكرتون ($_inputSymbol)',
+                  prefixIcon: const Icon(Icons.attach_money),
                 ),
               ),
+              // ─── سعر الصرف عند الإدخال بالليرة ───
+              if (_currency == AppCurrency.lira) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _rateController,
+                  keyboardType: TextInputType.number,
+                  textDirection: TextDirection.ltr,
+                  onChanged: (v) => setState(() {
+                    _exchangeRate = double.tryParse(v);
+                  }),
+                  decoration: const InputDecoration(
+                    labelText: 'سعر صرف (ليرة لكل 1 دولار)',
+                    prefixIcon: Icon(Icons.currency_exchange),
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
               Text(
-                'إجمالي المستحق: ${Formatters.formatCurrency(totalDue * widget.dispatch.cartons)}',
+                'إجمالي المستحق: ${Formatters.formatCurrency(totalDueDollar)}',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
+              if (_currency == AppCurrency.lira)
+                Text(
+                  '(${Formatters.formatNumber(totalDueLira * widget.dispatch.cartons)} ${_inputSymbol})',
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                ),
               Text(
                 'المسدد سابقاً: ${Formatters.formatCurrency(paidSoFar)}',
                 style: const TextStyle(color: Colors.orangeAccent),
@@ -535,11 +592,20 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                 controller: _amountController,
                 keyboardType: TextInputType.number,
                 textDirection: TextDirection.ltr,
-                decoration: const InputDecoration(
-                  labelText: 'المبلغ المقبوض (د.ع)',
-                  prefixIcon: Icon(Icons.payments),
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: 'المبلغ المقبوض ($_inputSymbol)',
+                  prefixIcon: const Icon(Icons.payments),
                 ),
               ),
+              if (_currency == AppCurrency.lira)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'ما يقابلها بالدولار: ${Formatters.formatCurrency(_toDollar(double.tryParse(_amountController.text) ?? 0))}',
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                ),
               const SizedBox(height: 12),
               DropdownButtonFormField<PaymentMethod>(
                 value: _method,
@@ -594,11 +660,20 @@ class _PaymentDialogState extends State<_PaymentDialog> {
               );
               return;
             }
+            if (_currency == AppCurrency.lira && (_exchangeRate ?? 0) <= 0) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('أدخل سعر صرف صحيحاً لليرة')),
+              );
+              return;
+            }
+            // تُخزَّن القيم بالدولار دائماً مع حفظ العملة وسعر الصرف
             Navigator.pop(context, {
-              'price': price,
-              'totalDue': price * widget.dispatch.cartons,
-              'amountPaid': amount ?? 0,
+              'price': _toDollar(price),
+              'totalDue': _toDollar(price * widget.dispatch.cartons),
+              'amountPaid': _toDollar(amount ?? 0),
               'method': _method,
+              'currency': _currency,
+              'exchangeRate': _currency == AppCurrency.lira ? _exchangeRate : null,
               'notes': _notesController.text.isEmpty
                   ? null
                   : _notesController.text,

@@ -32,6 +32,18 @@ class FlockModel {
   double get productionRate =>
       currentCount == 0 ? 0 : (1 / currentCount) * 100;
 
+  /// عمر القطيع بالأيام من تاريخ البدء
+  int get ageInDays => DateTime.now().difference(startDate).inDays;
+
+  /// عمر القطيع بشكل مقروء (أيام/أسابيع/أشهر)
+  String get ageLabel {
+    final days = ageInDays;
+    if (days < 7) return '$days يوم';
+    if (days < 30) return '${days ~/ 7} أسابيع';
+    if (days < 365) return '${days ~/ 30} أشهر';
+    return '${days ~/ 365} سنوات و${(days % 365) ~/ 30} أشهر';
+  }
+
   factory FlockModel.fromJson(Map<String, dynamic> json) {
     return FlockModel(
       id: json['id'] as String,

@@ -70,6 +70,7 @@ CREATE TABLE farms (
     eggs_per_carton      INTEGER NOT NULL DEFAULT 360,
     eggs_per_tray        INTEGER NOT NULL DEFAULT 30,
     default_mortality_rate NUMERIC(5,2) NOT NULL DEFAULT 0.0,
+    carton_low_threshold INTEGER NOT NULL DEFAULT 100,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -132,12 +133,28 @@ CREATE TABLE customers (
     phone      TEXT NOT NULL,
     notes      TEXT,
     total_debt NUMERIC(12,2) DEFAULT 0,
+    is_global  BOOLEAN NOT NULL DEFAULT false,
     version    BIGINT NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     deleted_at TIMESTAMPTZ
 );
 CREATE INDEX idx_customers_farm ON customers(farm_id);
+
+-- نطاق الزبون: المدير/مدير النظام يضيف زبوناً "عاماً" يظهر لكل المداجن،
+-- أما العامل فيظل الزبون محصوراً في مدجنته فقط.
+CREATE OR REPLACE FUNCTION public.customers_scope_guard()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.is_global := COALESCE(current_user_role() IN ('manager', 'system_admin'), false);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_customers_scope_guard ON customers;
+CREATE TRIGGER trg_customers_scope_guard
+    BEFORE INSERT ON customers
+    FOR EACH ROW EXECUTE FUNCTION public.customers_scope_guard();
 
 CREATE TABLE egg_production (
     id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -282,6 +299,8 @@ CREATE TABLE payments (
     total_due        NUMERIC(12,2) NOT NULL CHECK (total_due >= 0),
     amount_paid      NUMERIC(12,2) NOT NULL CHECK (amount_paid >= 0),
     payment_method   TEXT NOT NULL CHECK (payment_method IN ('cash', 'transfer', 'check', 'credit')),
+    currency         TEXT NOT NULL DEFAULT 'dollar' CHECK (currency IN ('dollar', 'lira')),
+    exchange_rate    NUMERIC(12,4),
     due_date         DATE,
     notes            TEXT,
     manager_id       UUID NOT NULL REFERENCES users(id),
@@ -332,10 +351,13 @@ CREATE TABLE expenses (
     date        DATE NOT NULL DEFAULT CURRENT_DATE,
     category    TEXT NOT NULL CHECK (category IN (
         'electricity', 'water', 'labor', 'maintenance',
-        'transport', 'feed', 'medicine', 'other'
+        'transport', 'feed', 'medicine', 'carton', 'other'
     )),
     description TEXT,
     amount      NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+    currency    TEXT NOT NULL DEFAULT 'dollar' CHECK (currency IN ('dollar', 'lira')),
+    exchange_rate NUMERIC(12,4),
+    carton_bundles INTEGER,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ DEFAULT NOW(),
     deleted_at  TIMESTAMPTZ,
@@ -1478,11 +1500,11 @@ BEGIN
                 WHEN 'medications' THEN v_allowed_cols := ARRAY['flock_id','date','type','medicine_name','dosage','administration_route','treatment_days','withdrawal_days','notes','worker_id'];
                 WHEN 'customers' THEN v_allowed_cols := ARRAY['name','phone','notes'];
                 WHEN 'flocks' THEN v_allowed_cols := ARRAY['breed','start_date','initial_count','status','sections_count'];
-                WHEN 'expenses' THEN v_allowed_cols := ARRAY['date','category','description','amount'];
+                WHEN 'expenses' THEN v_allowed_cols := ARRAY['date','category','description','amount','currency','exchange_rate','carton_bundles'];
                 WHEN 'inventory_items' THEN v_allowed_cols := ARRAY['name','unit','low_stock_threshold','notes'];
                 WHEN 'inventory_transactions' THEN v_allowed_cols := ARRAY['item_id','date','type','quantity','note','user_id'];
                 WHEN 'opening_balances' THEN v_allowed_cols := ARRAY['flock_id','eggs_produced','eggs_dispatched','feed_consumed_kg','initial_birds','mortality_count','total_payments','total_revenues','sections'];
-                WHEN 'payments' THEN v_allowed_cols := ARRAY['dispatch_id','customer_id','date','price_per_carton','total_due','amount_paid','payment_method','due_date','notes','manager_id'];
+                WHEN 'payments' THEN v_allowed_cols := ARRAY['dispatch_id','customer_id','date','price_per_carton','total_due','amount_paid','payment_method','currency','exchange_rate','due_date','notes','manager_id'];
                 ELSE v_allowed_cols := ARRAY[]::text[];
             END CASE;
 
@@ -2934,15 +2956,27 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+DECLARE
+    v_customers boolean := (p_table = 'customers');
 BEGIN
     EXECUTE format('DROP POLICY IF EXISTS op_select ON %I', p_table);
     EXECUTE format('DROP POLICY IF EXISTS op_insert ON %I', p_table);
     EXECUTE format('DROP POLICY IF EXISTS op_update ON %I', p_table);
     EXECUTE format('DROP POLICY IF EXISTS op_delete ON %I', p_table);
-    EXECUTE format('CREATE POLICY op_select ON %I FOR SELECT TO authenticated USING (is_system_admin() OR farm_id = current_user_farm_id())', p_table);
-    EXECUTE format('CREATE POLICY op_insert ON %I FOR INSERT TO authenticated WITH CHECK (is_system_admin() OR farm_id = current_user_farm_id())', p_table);
-    EXECUTE format('CREATE POLICY op_update ON %I FOR UPDATE TO authenticated USING (is_system_admin() OR farm_id = current_user_farm_id()) WITH CHECK (is_system_admin() OR farm_id = current_user_farm_id())', p_table);
-    EXECUTE format('CREATE POLICY op_delete ON %I FOR DELETE TO authenticated USING ((is_system_admin() OR farm_id = current_user_farm_id()) AND (is_system_admin() OR current_user_role() = ''manager''))', p_table);
+
+    IF v_customers THEN
+        -- الزبائن: الفلاحون يظهرون في كل المداجن، وعمال المزرعة يرونها
+        -- إضافة إلى زبائن مدجنتهم فقط.
+        EXECUTE format('CREATE POLICY op_select ON %I FOR SELECT TO authenticated USING (is_system_admin() OR is_global OR farm_id = current_user_farm_id())', p_table);
+        EXECUTE format('CREATE POLICY op_insert ON %I FOR INSERT TO authenticated WITH CHECK (is_system_admin() OR farm_id = current_user_farm_id())', p_table);
+        EXECUTE format('CREATE POLICY op_update ON %I FOR UPDATE TO authenticated USING (is_system_admin() OR is_global OR farm_id = current_user_farm_id()) WITH CHECK (is_system_admin() OR is_global OR farm_id = current_user_farm_id())', p_table);
+        EXECUTE format('CREATE POLICY op_delete ON %I FOR DELETE TO authenticated USING ((is_system_admin() OR is_global OR farm_id = current_user_farm_id()) AND (is_system_admin() OR current_user_role() = ''manager''))', p_table);
+    ELSE
+        EXECUTE format('CREATE POLICY op_select ON %I FOR SELECT TO authenticated USING (is_system_admin() OR farm_id = current_user_farm_id())', p_table);
+        EXECUTE format('CREATE POLICY op_insert ON %I FOR INSERT TO authenticated WITH CHECK (is_system_admin() OR farm_id = current_user_farm_id())', p_table);
+        EXECUTE format('CREATE POLICY op_update ON %I FOR UPDATE TO authenticated USING (is_system_admin() OR farm_id = current_user_farm_id()) WITH CHECK (is_system_admin() OR farm_id = current_user_farm_id())', p_table);
+        EXECUTE format('CREATE POLICY op_delete ON %I FOR DELETE TO authenticated USING ((is_system_admin() OR farm_id = current_user_farm_id()) AND (is_system_admin() OR current_user_role() = ''manager''))', p_table);
+    END IF;
 END;
 $$;
 
@@ -3115,10 +3149,13 @@ CREATE POLICY users_select_self ON users
         OR is_system_admin()
         OR (
             current_user_role() = 'manager'
-            AND EXISTS (
-                SELECT 1 FROM public.user_farms uf
-                WHERE uf.user_id = users.id
-                  AND uf.farm_id = current_user_farm_id()
+            AND (
+                role = 'system_admin'
+                OR EXISTS (
+                    SELECT 1 FROM public.user_farms uf
+                    WHERE uf.user_id = users.id
+                      AND uf.farm_id = current_user_farm_id()
+                )
             )
         )
     );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../reference_data/providers/reference_data_provider.dart';
 import '../../sync/providers/sync_provider.dart';
 import '../providers/auto_sync_provider.dart';
 import '../providers/theme_provider.dart';
@@ -86,7 +87,57 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
 
-          // الوضع الليلي
+          // إعدادات المدجنة (المصدر: سطح مكتب المدير)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'إعدادات المدجنة (من سطح المكتب)',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                if (user?.farmId == null || user!.farmId!.isEmpty)
+                  const Text('لا توجد مدجنة نشطة')
+                else
+                  ref
+                      .watch(farmSettingsProvider(user!.farmId!))
+                      .when(
+                        loading: () => const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(8),
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                        error: (e, _) => const Text('تعذّر جلب إعدادات المدجنة'),
+                        data: (farm) => Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildInfoRow('المدجنة', farm.name),
+                            _buildInfoRow(
+                              'وزن كيس العلف',
+                              '${farm.feedBagWeightKg.toStringAsFixed(1)} كغ',
+                            ),
+                            _buildInfoRow('عدد البيض في الكرتون',
+                                '${farm.eggsPerCarton}'),
+                            _buildInfoRow(
+                                'عدد البيض في الصينية', '${farm.eggsPerTray}'),
+                            _buildInfoRow(
+                              'معدل النفوق الافتراضي',
+                              '${farm.defaultMortalityRate.toStringAsFixed(1)}%',
+                            ),
+                          ],
+                        ),
+                      ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
           _buildSettingTile(
             context,
             icon: Icons.dark_mode,

@@ -26,6 +26,8 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
   double _pricePerCarton = 0;
   double _amountPaid = 0;
   PaymentMethod _paymentMethod = PaymentMethod.cash;
+  AppCurrency _currency = AppCurrency.dollar;
+  double? _exchangeRate;
   String _activeField = 'price';
 
   final _notesController = TextEditingController();
@@ -38,14 +40,32 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
   final Map<String, String> _buffers = {
     'price': '',
     'amount': '',
+    'rate': '',
   };
+
+  /// تحويل مبلغ إلى الدولار (الأساسي): ليرة ÷ سعر الصرف
+  double _toDollar(double value) =>
+      _currency == AppCurrency.lira && (_exchangeRate ?? 0) > 0
+          ? value / _exchangeRate!
+          : value;
+
+  String get _inputSymbol => _currency.symbol;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadDispatches();
+      _loadInputCurrency();
     });
+  }
+
+  Future<void> _loadInputCurrency() async {
+    try {
+      final cur = await ref.read(farmRepositoryProvider).getInputCurrency();
+      if (!mounted) return;
+      setState(() => _currency = cur);
+    } catch (_) {}
   }
 
   @override
@@ -92,6 +112,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
       _buffers[_activeField] = buf;
       _pricePerCarton = double.tryParse(_buffers['price']!) ?? 0;
       _amountPaid = double.tryParse(_buffers['amount']!) ?? 0;
+      _exchangeRate = double.tryParse(_buffers['rate']!) ?? 0;
     });
   }
 
@@ -121,6 +142,10 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
       _showError('أدخل المبلغ المقبوض');
       return;
     }
+    if (_currency == AppCurrency.lira && (_exchangeRate ?? 0) <= 0) {
+      _showError('أدخل سعر الصرف لليرة');
+      return;
+    }
 
     try {
       final payment = PaymentModel(
@@ -128,10 +153,12 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
         dispatchId: _selectedDispatchId,
         customerId: _selectedCustomerId!,
         date: _selectedDate,
-        pricePerCarton: _pricePerCarton,
-        totalDue: _totalDue,
-        amountPaid: _amountPaid,
+        pricePerCarton: _toDollar(_pricePerCarton),
+        totalDue: _toDollar(_totalDue),
+        amountPaid: _toDollar(_amountPaid),
         paymentMethod: _paymentMethod,
+        currency: _currency,
+        exchangeRate: _currency == AppCurrency.lira ? _exchangeRate : null,
         notes: _notesController.text.trim().isEmpty
             ? null
             : _notesController.text.trim(),
@@ -145,8 +172,10 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
       setState(() {
         _buffers['price'] = '';
         _buffers['amount'] = '';
+        _buffers['rate'] = '';
         _pricePerCarton = 0;
         _amountPaid = 0;
+        _exchangeRate = null;
         _selectedDispatchId = null;
         _notesController.clear();
       });
@@ -206,8 +235,25 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
               onChanged: (v) => setState(() => _selectedDispatchId = v),
             ),
             const SizedBox(height: 24),
+            // ─── عملة الإدخال ───
+            SegmentedButton<AppCurrency>(
+              segments: [
+                for (final c in AppCurrency.values)
+                  ButtonSegment(
+                    value: c,
+                    label: Text('${c.label} (${c.symbol})'),
+                  ),
+              ],
+              selected: {_currency},
+              onSelectionChanged: (s) => setState(() => _currency = s.first),
+            ),
+            const SizedBox(height: 16),
             _buildMoneyField('سعر الكرتون', 'price'),
             const SizedBox(height: 12),
+            if (_currency == AppCurrency.lira) ...[
+              _buildMoneyField('سعر الصرف (ليرة لكل 1 دولار)', 'rate'),
+              const SizedBox(height: 12),
+            ],
             _buildMoneyField('المبلغ المقبوض', 'amount'),
             const SizedBox(height: 16),
             Container(
@@ -216,18 +262,35 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
                 color: const Color(AppConstants.colorSuccess).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text('الإجمالي المستحق:', style: TextStyle(fontSize: 16)),
-                  Text(
-                    Formatters.formatCurrency(_totalDue),
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(AppConstants.colorSuccess),
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('الإجمالي المستحق:', style: TextStyle(fontSize: 16)),
+                      Text(
+                        Formatters.formatCurrency(_toDollar(_totalDue)),
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Color(AppConstants.colorSuccess),
+                        ),
+                      ),
+                    ],
                   ),
+                  if (_currency == AppCurrency.lira)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('أو:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        Text(
+                          '(${Formatters.formatNumber(_totalDue)} $_inputSymbol)',
+                          style: const TextStyle(
+                              fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),

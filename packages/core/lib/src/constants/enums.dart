@@ -74,10 +74,28 @@ enum ExpenseCategory {
   transport('نقل وتوصيل'),
   feed('علف'),
   medicine('أدوية وتطعيمات'),
+  carton('صحون كرتون'),
   other('أخرى');
 
   final String label;
   const ExpenseCategory(this.label);
+}
+
+/// عملة الإدخال (الدولار هو الأساسي للعرض والتخزين)
+enum AppCurrency {
+  dollar('دولار', '\$'),
+  lira('ليرة', 'ل.س');
+
+  final String label;
+  final String symbol;
+  const AppCurrency(this.label, this.symbol);
+
+  static AppCurrency fromName(String? name) {
+    return AppCurrency.values.firstWhere(
+      (e) => e.name == name,
+      orElse: () => AppCurrency.dollar,
+    );
+  }
 }
 
 /// وحدات قياس المخزون

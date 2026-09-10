@@ -22,13 +22,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _loading = true;
   late TextEditingController _nameCtrl;
   late TextEditingController _locationCtrl;
-  final _currencyCtrl = TextEditingController();
+  AppCurrency _inputCurrency = AppCurrency.dollar;
   
   // متحكمات إعدادات الحسابات
   late TextEditingController _feedBagWeightCtrl;
   late TextEditingController _eggsPerCartonCtrl;
   late TextEditingController _eggsPerTrayCtrl;
   late TextEditingController _mortalityRateCtrl;
+  late TextEditingController _cartonThresholdCtrl;
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
 
@@ -41,6 +42,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _eggsPerCartonCtrl = TextEditingController();
     _eggsPerTrayCtrl = TextEditingController();
     _mortalityRateCtrl = TextEditingController();
+    _cartonThresholdCtrl = TextEditingController();
     _load();
   }
 
@@ -48,11 +50,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void dispose() {
     _nameCtrl.dispose();
     _locationCtrl.dispose();
-    _currencyCtrl.dispose();
     _feedBagWeightCtrl.dispose();
     _eggsPerCartonCtrl.dispose();
     _eggsPerTrayCtrl.dispose();
     _mortalityRateCtrl.dispose();
+    _cartonThresholdCtrl.dispose();
     super.dispose();
   }
 
@@ -60,22 +62,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() => _loading = true);
     try {
       final farm = await ref.read(farmRepositoryProvider).getFarm(_farmId);
-      final currency = await ref.read(farmRepositoryProvider).getCurrency();
+      final inputCurrency =
+          await ref.read(farmRepositoryProvider).getInputCurrency();
       final feedWeight = await ref.read(farmRepositoryProvider).getFeedBagWeightKg();
       final eggsCarton = await ref.read(farmRepositoryProvider).getEggsPerCarton();
       final eggsTray = await ref.read(farmRepositoryProvider).getEggsPerTray();
       final mortalityRate = await ref.read(farmRepositoryProvider).getDefaultMortalityRate();
+      final cartonThreshold =
+          await ref.read(farmRepositoryProvider).getCartonLowThreshold();
       
       if (!mounted) return;
       setState(() {
         _farm = farm;
         _nameCtrl.text = farm.name;
         _locationCtrl.text = farm.location ?? '';
-        _currencyCtrl.text = currency;
+        _inputCurrency = inputCurrency;
         _feedBagWeightCtrl.text = feedWeight.toString();
         _eggsPerCartonCtrl.text = eggsCarton.toString();
         _eggsPerTrayCtrl.text = eggsTray.toString();
         _mortalityRateCtrl.text = mortalityRate.toString();
+        _cartonThresholdCtrl.text = cartonThreshold.toString();
         _loading = false;
       });
     } catch (e) {
@@ -108,17 +114,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  Future<void> _saveCurrency() async {
-    final symbol = _currencyCtrl.text.trim();
-    if (symbol.isEmpty) return;
-    await ref.read(farmRepositoryProvider).setCurrency(symbol);
+  Future<void> _saveInputCurrency() async {
+    await ref.read(farmRepositoryProvider).setInputCurrency(_inputCurrency);
     ref.invalidate(currencyProvider);
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('تم تغيير العملة إلى $symbol')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+            'تم تعيين عملة الإدخال إلى ${_inputCurrency.label} - العرض بالدولار دائماً')));
   }
 
   // دوال حفظ إعدادات الحسابات
+  // تُحفظ في جدول المداجن (الخادم) ليطّلع عليها الموبايل، مع الكاش المحلي احتياطاً.
+  Future<FarmModel?> _updatedFarm({
+    double? feedWeight,
+    int? eggsCarton,
+    int? eggsTray,
+    double? mortalityRate,
+    int? cartonThreshold,
+  }) async {
+    final farm = _farm;
+    if (farm == null) return null;
+    final updated = FarmModel(
+      id: farm.id,
+      name: farm.name,
+      location: farm.location,
+      ownerId: farm.ownerId,
+      createdAt: farm.createdAt,
+      feedBagWeightKg: feedWeight ?? farm.feedBagWeightKg,
+      eggsPerCarton: eggsCarton ?? farm.eggsPerCarton,
+      eggsPerTray: eggsTray ?? farm.eggsPerTray,
+      defaultMortalityRate: mortalityRate ?? farm.defaultMortalityRate,
+      cartonLowThreshold: cartonThreshold ?? farm.cartonLowThreshold,
+    );
+    await ref.read(farmRepositoryProvider).updateSettings(updated);
+    return updated;
+  }
+
   Future<void> _saveFeedBagWeight() async {
     final value = double.tryParse(_feedBagWeightCtrl.text);
     if (value == null || value <= 0) {
@@ -126,10 +157,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SnackBar(content: Text('الرجاء إدخال وزن صحيح')));
       return;
     }
-    await ref.read(farmRepositoryProvider).setFeedBagWeightKg(value);
+    if (_farm == null) {
+      await ref.read(farmRepositoryProvider).setFeedBagWeightKg(value);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('غير متصل - حُفظ محلياً مؤقتاً')));
+      return;
+    }
+    final updated = await _updatedFarm(feedWeight: value);
     if (!mounted) return;
+    if (updated != null) setState(() => _farm = updated);
     ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تم حفظ وزن الكيس: ${value.toStringAsFixed(1)} كغ')));
+        SnackBar(content: Text('تم حفظ وزن الكيس: ${value.toStringAsFixed(1)} كغ (للموبايل)')));
   }
 
   Future<void> _saveEggsPerCarton() async {
@@ -139,10 +178,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SnackBar(content: Text('الرجاء إدخال عدد صحيح')));
       return;
     }
-    await ref.read(farmRepositoryProvider).setEggsPerCarton(value);
+    if (_farm == null) {
+      await ref.read(farmRepositoryProvider).setEggsPerCarton(value);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('غير متصل - حُفظ محلياً مؤقتاً')));
+      return;
+    }
+    final updated = await _updatedFarm(eggsCarton: value);
     if (!mounted) return;
+    if (updated != null) setState(() => _farm = updated);
     ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تم حفظ عدد البيض في الكرتون: $value بيضة')));
+        SnackBar(content: Text('تم حفظ عدد البيض في الكرتون: $value بيضة (للموبايل)')));
   }
 
   Future<void> _saveEggsPerTray() async {
@@ -152,10 +199,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SnackBar(content: Text('الرجاء إدخال عدد صحيح')));
       return;
     }
-    await ref.read(farmRepositoryProvider).setEggsPerTray(value);
+    if (_farm == null) {
+      await ref.read(farmRepositoryProvider).setEggsPerTray(value);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('غير متصل - حُفظ محلياً مؤقتاً')));
+      return;
+    }
+    final updated = await _updatedFarm(eggsTray: value);
     if (!mounted) return;
+    if (updated != null) setState(() => _farm = updated);
     ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تم حفظ عدد البيض في الصينية: $value بيضة')));
+        SnackBar(content: Text('تم حفظ عدد البيض في الصينية: $value بيضة (للموبايل)')));
   }
 
   Future<void> _saveMortalityRate() async {
@@ -165,10 +220,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SnackBar(content: Text('الرجاء إدخال نسبة صحيحة (0-100)')));
       return;
     }
-    await ref.read(farmRepositoryProvider).setDefaultMortalityRate(value);
+    if (_farm == null) {
+      await ref.read(farmRepositoryProvider).setDefaultMortalityRate(value);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('غير متصل - حُفظ محلياً مؤقتاً')));
+      return;
+    }
+    final updated = await _updatedFarm(mortalityRate: value);
     if (!mounted) return;
+    if (updated != null) setState(() => _farm = updated);
     ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تم حفظ معدل النفوق الافتراضي: ${value.toStringAsFixed(1)}%')));
+        SnackBar(content: Text('تم حفظ معدل النفوق الافتراضي: ${value.toStringAsFixed(1)}% (للموبايل)')));
+  }
+
+  Future<void> _saveCartonThreshold() async {
+    final value = int.tryParse(_cartonThresholdCtrl.text);
+    if (value == null || value <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('الرجاء إدخال عدد صحيح')));
+      return;
+    }
+    if (_farm == null) {
+      await ref.read(farmRepositoryProvider).setCartonLowThreshold(value);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('غير متصل - حُفظ محلياً مؤقتاً')));
+      return;
+    }
+    final updated = await _updatedFarm(cartonThreshold: value);
+    if (!mounted) return;
+    if (updated != null) setState(() => _farm = updated);
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تم حفظ حد التنبيه: $value صحن كرتون')));
   }
 
   // ─────────────── النسخ الاحتياطي ───────────────
@@ -404,19 +488,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   Row(children: [
                     const Icon(Icons.payments_outlined),
                     const SizedBox(width: 8),
-                    Text('عملة النظام',
+                    Text('عملة الإدخال',
                         style: Theme.of(context).textTheme.titleMedium),
                   ]),
+                  const SizedBox(height: 8),
+                  const Text(
+                      'اختر عملة الإدخال للقبض والمصروفات. العرض دائماً بالدولار (\$) وهو الأساسي.',
+                      style: TextStyle(color: Colors.grey)),
                   const SizedBox(height: 16),
                   Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      for (final c in ['ل.س', '\$', '€', 'ر.س', 'ج.م'])
+                      for (final c in AppCurrency.values)
                         ChoiceChip(
-                          label: Text(c),
-                          selected: _currencyCtrl.text == c,
+                          label: Text('${c.label} (${c.symbol})'),
+                          selected: _inputCurrency == c,
                           onSelected: (_) {
-                            setState(() => _currencyCtrl.text = c);
-                            _saveCurrency();
+                            setState(() => _inputCurrency = c);
+                            _saveInputCurrency();
                           },
                         ),
                     ],
@@ -493,6 +581,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     onSave: _saveMortalityRate,
                     isNumber: true,
                     suffix: '%',
+                  ),
+                  const SizedBox(height: 12),
+
+                  // حد التنبيه لمخزون صحون الكرتون
+                  _buildSettingField(
+                    context,
+                    icon: Icons.warning_amber_outlined,
+                    label: 'حد التنبيه لمخزون صحون الكرتون (صحن)',
+                    initialValue: _cartonThresholdCtrl.text,
+                    onChanged: (v) => setState(() => _cartonThresholdCtrl.text = v),
+                    onSave: _saveCartonThreshold,
+                    isNumber: true,
+                    suffix: 'صحن',
                   ),
                 ],
               ),

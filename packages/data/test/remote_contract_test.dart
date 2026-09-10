@@ -173,16 +173,18 @@ void main() {
       expect(fake.tables['customers']!.first['name'], 'جديد');
     });
 
-    test('getCustomers يفرز بالاسم', () async {
+    test('getCustomers يجلب الزبائن دون مرشح مزرعة (RLS تحدد النطاق) ويفرز بالاسم',
+        () async {
       fake.seed('customers', [
-        {'id': 'c2', 'farm_id': 'farm-1', 'name': 'ب', 'phone': '2'},
+        {'id': 'c2', 'farm_id': 'farm-2', 'name': 'ب', 'phone': '2'},
         {'id': 'c1', 'farm_id': 'farm-1', 'name': 'أ', 'phone': '1'},
+        {'id': 'c3', 'farm_id': 'farm-1', 'is_global': true, 'name': 'د', 'phone': '3'},
       ]);
       final customers = await SupabaseDispatchDatasource(fake)
           .getCustomers('farm-1');
 
-      expect(customers.map((c) => c.id).toList(), ['c1', 'c2']);
-      expect(fake.findCall('eq farm_id=farm-1'), isTrue);
+      expect(customers.map((c) => c.id).toList(), ['c1', 'c2', 'c3']);
+      expect(fake.findCall('eq farm_id=farm-1'), isFalse);
       expect(fake.findCall('name asc=true'), isTrue);
     });
   });

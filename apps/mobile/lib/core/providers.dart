@@ -70,6 +70,10 @@ final supabaseUserAdminDatasourceProvider = Provider<SupabaseUserAdminDatasource
   (ref) => SupabaseUserAdminDatasource(ref.watch(supabaseApiProvider)),
 );
 
+final supabaseFarmDatasourceProvider = Provider<SupabaseFarmDatasource>(
+  (ref) => SupabaseFarmDatasource(ref.watch(supabaseApiProvider)),
+);
+
 // ─────────────── المستودعات ───────────────
 final authRepositoryProvider = Provider<AuthRepository>(
   (ref) => AuthRepositoryImpl(
@@ -134,6 +138,13 @@ final userAdminRepositoryProvider = Provider<UserAdminRepository>(
   (ref) => UserAdminRepositoryImpl(
     remoteDatasource: ref.watch(supabaseUserAdminDatasourceProvider),
     userDao: ref.watch(userDaoProvider),
+  ),
+);
+
+final farmRepositoryProvider = Provider<FarmRepository>(
+  (ref) => FarmRepositoryImpl(
+    remoteDatasource: ref.watch(supabaseFarmDatasourceProvider),
+    settingsDao: ref.watch(settingsDaoProvider),
   ),
 );
 

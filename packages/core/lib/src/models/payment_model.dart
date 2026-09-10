@@ -14,6 +14,8 @@ class PaymentModel {
   final DateTime? dueDate;
   final String? notes;
   final String managerId;
+  final AppCurrency currency;
+  final double? exchangeRate;
   final SyncStatus syncStatus;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -31,6 +33,8 @@ class PaymentModel {
     this.dueDate,
     this.notes,
     required this.managerId,
+    this.currency = AppCurrency.dollar,
+    this.exchangeRate,
     this.syncStatus = SyncStatus.synced,
     this.createdAt,
     this.updatedAt,
@@ -38,6 +42,9 @@ class PaymentModel {
 
   /// هل المبلغ مسدد بالكامل؟
   bool get isPaid => amountPaid >= totalDue;
+
+  /// عرض رمز العملة (الدولار هو الأساسي دائماً)
+  String get currencySymbol => AppCurrency.dollar.symbol;
 
   factory PaymentModel.fromJson(Map<String, dynamic> json) {
     return PaymentModel(
@@ -58,6 +65,10 @@ class PaymentModel {
           : null,
       notes: json['notes'] as String?,
       managerId: json['manager_id'] as String,
+      currency: AppCurrency.fromName(json['currency'] as String?),
+      exchangeRate: json['exchange_rate'] != null
+          ? (json['exchange_rate'] as num).toDouble()
+          : null,
       syncStatus: SyncStatus.values.firstWhere(
         (e) => e.name == (json['sync_status'] ?? 'synced'),
         orElse: () => SyncStatus.synced,
@@ -84,6 +95,8 @@ class PaymentModel {
         'due_date': dueDate?.toIso8601String().split('T').first,
         'notes': notes,
         'manager_id': managerId,
+        'currency': currency.name,
+        if (exchangeRate != null) 'exchange_rate': exchangeRate,
         if (syncStatus != SyncStatus.synced) 'sync_status': syncStatus.name,
         if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
         if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),

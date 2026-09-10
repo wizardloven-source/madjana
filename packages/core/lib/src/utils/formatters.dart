@@ -24,8 +24,8 @@ class Formatters {
     return '${kg.toStringAsFixed(2)} كغ';
   }
 
-  /// تنسيق العملة
-  static String formatCurrency(double amount, {String symbol = 'د.ع'}) {
+  /// تنسيق العملة (الدولار هو الأساسي)
+  static String formatCurrency(double amount, {String symbol = '\$'}) {
     return '${formatNumber(amount)} $symbol';
   }
 }

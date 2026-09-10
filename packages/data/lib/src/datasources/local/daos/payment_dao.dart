@@ -23,6 +23,8 @@ class PaymentDao {
       'total_due': payment.totalDue,
       'amount_paid': payment.amountPaid,
       'payment_method': payment.paymentMethod.name,
+      'currency': payment.currency.name,
+      'exchange_rate': payment.exchangeRate,
       'due_date': payment.dueDate?.toIso8601String().split('T').first,
       'notes': payment.notes,
       'manager_id': payment.managerId,
@@ -43,6 +45,8 @@ class PaymentDao {
         'total_due': payment.totalDue,
         'amount_paid': payment.amountPaid,
         'payment_method': payment.paymentMethod.name,
+        'currency': payment.currency.name,
+        if (payment.exchangeRate != null) 'exchange_rate': payment.exchangeRate,
         'due_date': payment.dueDate?.toIso8601String().split('T').first,
         'notes': payment.notes,
         'manager_id': payment.managerId,
@@ -66,6 +70,8 @@ class PaymentDao {
         'total_due': payment.totalDue,
         'amount_paid': payment.amountPaid,
         'payment_method': payment.paymentMethod.name,
+        'currency': payment.currency.name,
+        'exchange_rate': payment.exchangeRate,
         'due_date': payment.dueDate?.toIso8601String().split('T').first,
         'notes': payment.notes,
         'manager_id': payment.managerId,
@@ -88,6 +94,8 @@ class PaymentDao {
         'total_due': payment.totalDue,
         'amount_paid': payment.amountPaid,
         'payment_method': payment.paymentMethod.name,
+        'currency': payment.currency.name,
+        if (payment.exchangeRate != null) 'exchange_rate': payment.exchangeRate,
         'due_date': payment.dueDate?.toIso8601String().split('T').first,
         'notes': payment.notes,
         'manager_id': payment.managerId,
@@ -238,6 +246,10 @@ class PaymentDao {
         (e) => e.name == map['payment_method'],
         orElse: () => PaymentMethod.cash,
       ),
+      currency: AppCurrency.fromName(map['currency'] as String?),
+      exchangeRate: map['exchange_rate'] != null
+          ? (map['exchange_rate'] as num).toDouble()
+          : null,
       dueDate: map['due_date'] != null
           ? DateTime.tryParse(map['due_date'] as String)
           : null,

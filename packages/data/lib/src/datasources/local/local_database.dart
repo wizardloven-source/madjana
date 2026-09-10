@@ -14,7 +14,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 20;
+  static const int _dbVersion = 21;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -263,6 +263,8 @@ class LocalDatabase {
         total_due REAL NOT NULL DEFAULT 0,
         amount_paid REAL NOT NULL DEFAULT 0,
         payment_method TEXT NOT NULL DEFAULT 'cash',
+        currency TEXT DEFAULT 'dollar',
+        exchange_rate REAL,
         due_date TEXT,
         notes TEXT,
         manager_id TEXT NOT NULL,
@@ -283,6 +285,9 @@ class LocalDatabase {
         category TEXT NOT NULL,
         description TEXT,
         amount REAL NOT NULL DEFAULT 0,
+        currency TEXT DEFAULT 'dollar',
+        exchange_rate REAL,
+        carton_bundles INTEGER,
         sync_status TEXT DEFAULT 'synced',
         version INTEGER DEFAULT 1,
         deleted_at TEXT,
@@ -842,6 +847,29 @@ class LocalDatabase {
           }
           if (!await _columnExists(db, 'egg_dispatch', 'flock_id')) {
             await db.execute('ALTER TABLE egg_dispatch ADD COLUMN flock_id TEXT');
+          }
+        }
+
+        // v21: العملة وسعر الصرف للقبض والمصروفات + شراء صحون الكرتون بالربطات
+        if (oldVersion < 21) {
+          // payments
+          if (!await _columnExists(db, 'payments', 'currency')) {
+            await db.execute(
+                "ALTER TABLE payments ADD COLUMN currency TEXT DEFAULT 'dollar'");
+          }
+          if (!await _columnExists(db, 'payments', 'exchange_rate')) {
+            await db.execute('ALTER TABLE payments ADD COLUMN exchange_rate REAL');
+          }
+          // expenses
+          if (!await _columnExists(db, 'expenses', 'currency')) {
+            await db.execute(
+                "ALTER TABLE expenses ADD COLUMN currency TEXT DEFAULT 'dollar'");
+          }
+          if (!await _columnExists(db, 'expenses', 'exchange_rate')) {
+            await db.execute('ALTER TABLE expenses ADD COLUMN exchange_rate REAL');
+          }
+          if (!await _columnExists(db, 'expenses', 'carton_bundles')) {
+            await db.execute('ALTER TABLE expenses ADD COLUMN carton_bundles INTEGER');
           }
         }
   }

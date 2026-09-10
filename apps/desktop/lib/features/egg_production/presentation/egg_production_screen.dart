@@ -241,7 +241,7 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
                   onChanged: (v) => setState(() => _flockFilter = v),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               Chip(
                 label: Text('الإجمالي: ${Formatters.formatNumber(totalEggs)} بيضة'),
                 avatar: const Icon(Icons.egg_alt, size: 18),

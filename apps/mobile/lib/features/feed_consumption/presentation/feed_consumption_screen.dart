@@ -6,6 +6,7 @@ import '../../../shared/widgets/date_picker_field.dart';
 import '../../../shared/widgets/farm_selector.dart';
 import '../../../shared/widgets/modern_ui.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../reference_data/providers/reference_data_provider.dart';
 import '../providers/feed_consumption_provider.dart';
 
 /// شاشة استهلاك العلف
@@ -24,9 +25,11 @@ class FeedConsumptionScreen extends ConsumerStatefulWidget {
 class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
   DateTime _selectedDate = DateTime.now();
   String? _selectedFarmId;
+  String? _selectedFlockId;
   FeedEntryMode _entryMode = FeedEntryMode.bags;
   int _bagsCount = 0;
   double _quantityKg = 0;
+  double _kgPerBag = AppConstants.kgPerBag;
 
   // سجلات اليوم
   List<FeedConsumptionModel> _todayRecords = [];
@@ -62,10 +65,10 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
   set _currentValue(num v) {
     if (_entryMode == FeedEntryMode.bags) {
       _bagsCount = v.toInt();
-      _quantityKg = _bagsCount * AppConstants.kgPerBag;
+      _quantityKg = _bagsCount * _kgPerBag;
     } else {
       _quantityKg = v.toDouble();
-      _bagsCount = (_quantityKg / AppConstants.kgPerBag).round();
+      _bagsCount = (_quantityKg / _kgPerBag).round();
     }
   }
 
@@ -124,6 +127,7 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
 
     final record = FeedConsumptionModel(
       farmId: farmId,
+      flockId: _selectedFlockId,
       date: _selectedDate,
       entryMode: _entryMode,
       bagsCount: _bagsCount,
@@ -153,6 +157,19 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final user = ref.watch(authProvider).currentUser;
+    final farmId = user?.farmId ?? '';
+    final flocksAsync = ref.watch(flocksProvider(farmId));
+    final flocks = flocksAsync.value ?? const <FlockModel>[];
+    final farmSettingsAsync = ref.watch(farmSettingsProvider(farmId));
+    final farmSettings = farmSettingsAsync.value;
+    final kgPerBag = farmSettings?.feedBagWeightKg ?? AppConstants.kgPerBag;
+    if (_kgPerBag != kgPerBag) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _kgPerBag = kgPerBag);
+      });
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('استهلاك العلف')),
       body: SingleChildScrollView(
@@ -172,6 +189,23 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
               ),
             ),
             const SizedBox(height: 12),
+
+            // اختيار القطيع
+            if (flocks.isNotEmpty) ...[
+              DropdownButtonFormField<String>(
+                initialValue: _selectedFlockId,
+                decoration: const InputDecoration(labelText: 'القطيع'),
+                items: flocks.map((flock) {
+                  return DropdownMenuItem(
+                    value: flock.id,
+                    child: Text(flock.displayName),
+                  );
+                }).toList(),
+                onChanged: (v) => setState(() => _selectedFlockId = v),
+              ),
+              const SizedBox(height: 12),
+            ],
+
             // التاريخ
             DatePickerField(
               value: _selectedDate,
@@ -195,7 +229,7 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
                       isActive: _entryMode == FeedEntryMode.bags,
                       onTap: () => setState(() {
                         _entryMode = FeedEntryMode.bags;
-                        _quantityKg = _bagsCount * AppConstants.kgPerBag;
+                        _quantityKg = _bagsCount * _kgPerBag;
                       }),
                     ),
                   ),
@@ -205,7 +239,7 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
                       isActive: _entryMode == FeedEntryMode.kg,
                       onTap: () => setState(() {
                         _entryMode = FeedEntryMode.kg;
-                        _bagsCount = (_quantityKg / AppConstants.kgPerBag).round();
+                        _bagsCount = (_quantityKg / _kgPerBag).round();
                       }),
                     ),
                   ),
@@ -248,7 +282,7 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '(الكيس = ${AppConstants.kgPerBag.toInt()} كغ)',
+                    '(الكيس = ${_kgPerBag.toInt()} كغ)',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.grey.shade600,
