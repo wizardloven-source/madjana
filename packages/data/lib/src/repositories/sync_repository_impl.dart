@@ -226,6 +226,7 @@ class SyncRepositoryImpl implements SyncRepository {
     }
 
     try {
+      final deviceId = await LocalDatabase.getDeviceId();
       final payload = records.map((r) {
         final p = r.payload ?? {};
         if (r.operationId == null || r.operationId!.isEmpty) {
@@ -240,6 +241,7 @@ class SyncRepositoryImpl implements SyncRepository {
           'operation': r.operation.name,
           'operation_id': r.operationId,
           'data': p,
+          'device_id': deviceId,
           'previous_version': p['previous_version'] ?? p['version'],
         };
       }).toList();
@@ -599,6 +601,29 @@ class SyncRepositoryImpl implements SyncRepository {
       final uploadResult = await uploadBatch(pending);
       final pullResult = await pullAndMerge(farmId);
       await cleanupOldSyncedRecords(daysToKeep: 30);
+
+      // P1-008: إذا طلب الخادم إعادة مزامنة كاملة، نُعيد تعيين
+      // آخر إصدار مُستلم ونسحب من الصفر لمنع الانجراف الدائم.
+      if (pullResult.resyncRequired) {
+        try {
+          final db = await LocalDatabase.database;
+          await db.rawUpdate(
+            '''INSERT OR REPLACE INTO sync_state (id, last_pulled_version, updated_at)
+               VALUES ('local', 0, ?)''',
+            [DateTime.now().toIso8601String()],
+          );
+          // سحب ثانٍ فوري من الإصدار 0
+          final retryPull = await pullAndMerge(farmId);
+          await _recordHistory(FullSyncResult(
+            uploadedCount: 0,
+            downloadedCount: retryPull.appliedCount,
+            failedCount: retryPull.conflictCount,
+            completedAt: DateTime.now(),
+          ));
+        } catch (resyncErr) {
+          debugPrint('resync recovery failed: $resyncErr');
+        }
+      }
 
       final result = FullSyncResult(
         uploadedCount: uploadResult.successCount,

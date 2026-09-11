@@ -272,7 +272,7 @@ class _OldFlockWizardScreenState extends ConsumerState<OldFlockWizardScreen> {
             style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 4),
         const Text(
-          'أدخل基本信息 عن القطيع القديم',
+          'أدخل البيانات الأساسية عن القطيع القديم',
           style: TextStyle(color: Colors.grey),
         ),
         const SizedBox(height: 16),

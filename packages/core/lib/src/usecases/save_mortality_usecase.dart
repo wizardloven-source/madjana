@@ -25,7 +25,8 @@ class SaveMortalityUseCase {
 
     // 3. جلب العدد الحالي للقطيع للتحذير
     final flockCount = await repository.getFlockCurrentCount(record.flockId);
-    final mortalityPercentage = (record.count / flockCount) * 100;
+    // حماية من القسمة على صفر (قطيع بدون طيور أو عدد غير مُحلَّى بعد)
+    final mortalityPercentage = flockCount > 0 ? (record.count / flockCount) * 100 : 0.0;
     
     bool highMortalityWarning = false;
     if (mortalityPercentage > 1.0) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/providers.dart';
 
 /// شاشة طوارئ للعامل
 /// تتيح إرسال تنبيه فوري للمدير عند وجود مشكلة حرجة
@@ -172,30 +173,72 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
 
   Future<void> _sendEmergency() async {
     setState(() => _isSending = true);
-    
-    // محاكاة إرسال التنبيه
-    await Future.delayed(const Duration(seconds: 2));
-    
-    if (!mounted) return;
-    
-    setState(() => _isSending = false);
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        icon: Icon(Icons.check_circle, color: Colors.green, size: 60),
-        title: const Text('تم الإرسال!'),
-        content: Text('تم إرسال تنبيه الطوارئ بنجاح إلى المدير بخصوص: $_selectedEmergencyType'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            child: const Text('موافق'),
-          ),
-        ],
-      ),
-    );
+
+    try {
+      final supabase = ref.read(supabaseClientProvider);
+      final user = supabase.auth.currentUser;
+      final farmId = user?.userMetadata?['farm_id']?.toString() ?? '';
+
+      if (farmId.isEmpty) {
+        throw Exception('لا توجد مزرعة مرتبطة بالحساب');
+      }
+
+      // إرسال تنبيه الطوارئ فعلياً إلى جدول الإشعارات
+      // (يظهر فوراً لشاشة الإشعارات لدى المدير/المشرف)
+      final title = '🚨 طارئ: ${_selectedEmergencyType ?? 'حالة طارئة'}';
+      final body = _description.trim().isEmpty
+          ? 'تنبيه طارئ من عامل — ${_selectedEmergencyType ?? 'غير محدد'}'
+          : _description.trim();
+      await supabase.from('app_notifications').insert({
+        'farm_id': farmId,
+        'title': title,
+        'body': body,
+        'level': 'danger',
+        'is_persistent': true,
+        'is_active': true,
+        'created_by': user?.id,
+      });
+
+      if (!mounted) return;
+
+      setState(() => _isSending = false);
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          icon: Icon(Icons.check_circle, color: Colors.green, size: 60),
+          title: const Text('تم الإرسال!'),
+          content: Text(
+              'تم إرسال تنبيه الطوارئ بنجاح إلى المدير بخصوص: $_selectedEmergencyType'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pop(context);
+              },
+              child: const Text('موافق'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSending = false);
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          icon: Icon(Icons.error, color: Colors.red, size: 60),
+          title: const Text('فشل الإرسال'),
+          content: Text('تعذّر إرسال التنبيه: $e\n'
+              'تأكد من اتصالك بالإنترنت ثم حاول مجدداً.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('حسناً'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 }

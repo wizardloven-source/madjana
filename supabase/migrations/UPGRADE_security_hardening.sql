@@ -37,6 +37,28 @@ CREATE TRIGGER guard_user_role_change
   FOR EACH ROW
   EXECUTE FUNCTION trg_guard_user_role_change();
 
+-- Guard INSERT as well: only system_admin may create a system_admin.
+-- NOTE: bootstrap runs SECURITY DEFINER with auth.uid() = NULL (first admin),
+-- so it is exempt; direct anon inserts are already blocked by RLS.
+CREATE OR REPLACE FUNCTION trg_guard_user_role_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.role = 'system_admin'
+     AND auth.uid() IS NOT NULL
+     AND NOT is_system_admin() THEN
+    RAISE EXCEPTION 'AUTHORIZATION_DENIED: فقط مدير النظام يمكنه إنشاء مدير نظام';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER
+   SET search_path = public;
+
+DROP TRIGGER IF EXISTS guard_user_role_insert ON users;
+CREATE TRIGGER guard_user_role_insert
+  BEFORE INSERT ON users
+  FOR EACH ROW
+  EXECUTE FUNCTION trg_guard_user_role_insert();
+
 -- Also prevent non-admins from setting is_active
 CREATE OR REPLACE FUNCTION trg_guard_user_active_change()
 RETURNS TRIGGER AS $$

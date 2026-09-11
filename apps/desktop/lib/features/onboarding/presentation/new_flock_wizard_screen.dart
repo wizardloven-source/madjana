@@ -269,7 +269,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
             style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 4),
         const Text(
-          'أدخل基本信息 عن الفوج الجديد',
+          'أدخل البيانات الأساسية عن الفوج الجديد',
           style: TextStyle(color: Colors.grey, fontSize: 13),
         ),
         const SizedBox(height: 16),

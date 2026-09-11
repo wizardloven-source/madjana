@@ -52,18 +52,7 @@ class MortalityNotifier extends StateNotifier<bool> {
     String? imageUrl = record.imageUrl;
     if (imageFile != null) {
       imageUrl = await _repository.uploadImage(imageFile, record.id ?? '', farmId: record.farmId);
-      record = MortalityModel(
-        id: record.id,
-        farmId: record.farmId,
-        flockId: record.flockId,
-        date: record.date,
-        count: record.count,
-        reason: record.reason,
-        reasonOther: record.reasonOther,
-        notes: record.notes,
-        imageUrl: imageUrl,
-        workerId: record.workerId,
-      );
+      record = record.copyWith(imageUrl: imageUrl);
     }
 
     final result = await _saveUseCase.call(record);

@@ -65,6 +65,48 @@ class LocalDatabase {
     );
   }
 
+  static String? _cachedDeviceId;
+
+  /// معرّف الجهاز — يُولَّد مرة واحدة ويُخزَّن في app_settings.
+  /// يُستخدم في طابور المزامنة لتتبّع مصدر كل تغيير.
+  static Future<String> getDeviceId() async {
+    if (_cachedDeviceId != null) return _cachedDeviceId!;
+    final db = await database;
+    final rows = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: ['device_id'],
+      limit: 1,
+    );
+    if (rows.isNotEmpty) {
+      final existing = rows.first['value'] as String?;
+      if (existing != null && existing.isNotEmpty) {
+        _cachedDeviceId = existing;
+        return existing;
+      }
+    }
+    final newId = _generateUuidV4();
+    await db.insert(
+      'app_settings',
+      {'key': 'device_id', 'value': newId},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    _cachedDeviceId = newId;
+    return newId;
+  }
+
+  /// توليد UUID v4 عشوائي آمن
+  static String _generateUuidV4() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rng.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0F) | 0x40;
+    bytes[8] = (bytes[8] & 0x3F) | 0x80;
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
+        '${hex.substring(20)}';
+  }
+
   /// إنشاء الجداول
   static Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
@@ -917,6 +959,7 @@ class LocalDatabase {
   static Future<void> close() async {
     await _database?.close();
     _database = null;
+    _cachedDeviceId = null;
   }
 
   /// فحص سلامة قاعدة البيانات (PRAGMA integrity_check)

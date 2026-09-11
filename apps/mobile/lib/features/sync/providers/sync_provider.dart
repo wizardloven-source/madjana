@@ -50,10 +50,13 @@ class SyncNotifier extends StateNotifier<SyncState> {
 
   StreamSubscription<bool>? _connectivitySub;
   Timer? _syncTimer;
+  Timer? _backoffTimer;
   String? _farmId;
   bool _isSyncing = false;
   int _consecutiveFailures = 0;
+  int _backoffMinutes = 0;
   static const int _maxConsecutiveFailures = 5;
+  static const int _maxBackoffMinutes = 30;
   bool autoSyncEnabled = true;
 
   SyncNotifier({required this.repository, required this.connectivity})
@@ -124,11 +127,14 @@ class SyncNotifier extends StateNotifier<SyncState> {
     try {
       await repository.syncNow(fid);
       _consecutiveFailures = 0;
+      _backoffMinutes = 0;
+      _backoffTimer?.cancel();
       await _refreshCounts();
     } catch (_) {
       _consecutiveFailures++;
       if (_consecutiveFailures >= _maxConsecutiveFailures) {
         _stopPeriodicSync();
+        _scheduleBackoffRetry();
       }
     } finally {
       _isSyncing = false;
@@ -148,10 +154,29 @@ class SyncNotifier extends StateNotifier<SyncState> {
     await _syncOnce();
   }
 
+  /// جدولة إعادة مزامنة تلقائية بتأخير تصاعدي بعد فشل متكرر
+  void _scheduleBackoffRetry() {
+    _backoffTimer?.cancel();
+    if (_backoffMinutes == 0) {
+      _backoffMinutes = 2;
+    } else {
+      _backoffMinutes = (_backoffMinutes * 2).clamp(0, _maxBackoffMinutes);
+    }
+    _backoffTimer = Timer(Duration(minutes: _backoffMinutes), () {
+      if (!autoSyncEnabled || _farmId == null) return;
+      _consecutiveFailures = 0;
+      _backoffMinutes = 0;
+      if (state.connectionStatus != SyncConnectionStatus.disconnected) {
+        _startPeriodicSync();
+      }
+    });
+  }
+
   @override
   void dispose() {
     _connectivitySub?.cancel();
     _stopPeriodicSync();
+    _backoffTimer?.cancel();
     super.dispose();
   }
 }

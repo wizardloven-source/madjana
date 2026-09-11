@@ -44,10 +44,18 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
     if (!silent) setState(() => _loading = true);
 
     try {
-      var query = ref.read(supabaseClientProvider).from('dispatch_requests').select();
+      final supabase = ref.read(supabaseClientProvider);
+      final farmId =
+          supabase.auth.currentUser?.userMetadata?['farm_id']?.toString() ??
+              '';
+
+      var query = supabase.from('dispatch_requests').select();
 
       if (!_showAll) {
         query = query.eq('status', 'pending');
+      }
+      if (farmId.isNotEmpty) {
+        query = query.eq('farm_id', farmId);
       }
 
       final rows = await query.order('created_at', ascending: false).limit(200);
@@ -60,11 +68,21 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
 
     // تحديث شارة العدّاد في شريط التنقل (دائماً بعدّاد المعلقة)
     try {
-      final pendingRows = await ref
+      var countQuery = ref
           .read(supabaseClientProvider)
           .from('dispatch_requests')
           .select('id')
           .eq('status', 'pending');
+      final farmId = ref
+          .read(supabaseClientProvider)
+          .auth
+          .currentUser
+          ?.userMetadata?['farm_id']
+          ?.toString();
+      if (farmId != null && farmId.isNotEmpty) {
+        countQuery = countQuery.eq('farm_id', farmId);
+      }
+      final pendingRows = await countQuery;
       ref.read(pendingApprovalsProvider.notifier).state =
           (pendingRows as List).length;
     } catch (_) {}

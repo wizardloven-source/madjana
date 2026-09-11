@@ -19,6 +19,9 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
   String get _currentUid => ref.read(authProvider).currentUser?.uid ?? '';
+  UserRole get _currentRole =>
+      ref.read(authProvider).currentUser?.role ?? UserRole.worker;
+  bool get _isSystemAdmin => _currentRole == UserRole.system_admin;
 
   @override
   void initState() {
@@ -82,6 +85,10 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
     final phoneCtrl = TextEditingController(text: user?.phone ?? '');
     final pinCtrl = TextEditingController();
     UserRole role = user?.role ?? UserRole.worker;
+    // لا يُسمح لغير مدير النظام بتعيين أو تعديل دور «مدير النظام»
+    if (!_isSystemAdmin && role == UserRole.system_admin) {
+      role = UserRole.worker;
+    }
 
     final ok = await showDialog<bool>(
       context: context,
@@ -135,12 +142,16 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
                 DropdownButtonFormField<UserRole>(
                   value: role,
                   decoration: const InputDecoration(labelText: 'الدور'),
-                  items: const [
-                    DropdownMenuItem(value: UserRole.worker, child: Text('عامل')),
-                    DropdownMenuItem(
+                  items: [
+                    const DropdownMenuItem(
+                        value: UserRole.worker, child: Text('عامل')),
+                    const DropdownMenuItem(
                         value: UserRole.manager, child: Text('مدير')),
-                    DropdownMenuItem(
-                        value: UserRole.system_admin, child: Text('مدير النظام')),
+                    // مدير النظام فقط من يملك صلاحية إنشاء/تعيين مدير نظام
+                    if (_isSystemAdmin)
+                      const DropdownMenuItem(
+                          value: UserRole.system_admin,
+                          child: Text('مدير النظام')),
                   ],
                   onChanged: (v) {
                     if (v != null) setDialog(() => role = v);

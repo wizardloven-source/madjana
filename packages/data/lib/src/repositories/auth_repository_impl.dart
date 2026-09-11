@@ -221,6 +221,14 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<void> logout() async {
     await _sessionDao.clear();
+    // P2-01: حذف بيانات الدخول المحلية المخزنة للطوارئ
+    // لمنع أي حساب من استخدام بيانات مستخدم آخر بعد تسجيل الخروج
+    try {
+      await _settingsDao.set('offline_phone', '');
+      await _settingsDao.set('offline_pin_hash', '');
+      await _settingsDao.set('offline_user_json', '');
+      await _settingsDao.set('offline_farm_id', '');
+    } catch (_) {}
     await _remoteDatasource.logout();
   }
 }
