@@ -29,8 +29,6 @@ class EggProductionNotifier extends StateNotifier<bool> {
   Future<EggProductionSaveResult> save(EggProductionModel record) async {
     final result = await _saveUseCase.call(record);
     if (result.success) {
-      // مزامنة فورية بعد الحفظ
-      _repository.syncPendingRecords();
       return const EggProductionSaveResult.success();
     }
     return EggProductionSaveResult.failure(result.error ?? 'فشل الحفظ');

@@ -64,7 +64,6 @@ class MedicationsNotifier extends StateNotifier<bool> {
 
     final result = await _saveUseCase.call(record);
     if (result.success) {
-      _repository.syncPendingRecords();
       return MedicationSaveResult.success(withdrawalDays: result.withdrawalDays);
     }
     return MedicationSaveResult.failure(result.error ?? 'فشل الحفظ');

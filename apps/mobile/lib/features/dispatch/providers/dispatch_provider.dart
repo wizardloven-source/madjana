@@ -49,7 +49,6 @@ class DispatchNotifier extends StateNotifier<bool> {
 
     final result = await _saveUseCase.call(record);
     if (result.success) {
-      _repository.syncPendingRecords();
       return const DispatchSaveResult.success();
     }
     return DispatchSaveResult.failure(result.error ?? 'فشل الحفظ');

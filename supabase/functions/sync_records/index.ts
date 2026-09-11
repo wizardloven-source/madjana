@@ -183,8 +183,11 @@ Deno.serve(async (req) => {
       previous_version: r.previous_version,
     }));
 
+    // FIX: تمرير المصفوفة كقيمة JSON مباشرة (لا JSON.stringify) —
+    // parameter من نوع jsonb، والنص المُسلسل يصل scalar فتكسر
+    // jsonb_array_elements بـ "cannot extract elements from a scalar".
     const { data, error } = await supabaseUser.rpc("sync_records_batch", {
-      p_records: JSON.stringify(rpcInput),
+      p_records: rpcInput,
     });
 
     if (error) {

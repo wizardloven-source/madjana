@@ -68,7 +68,6 @@ class MortalityNotifier extends StateNotifier<bool> {
 
     final result = await _saveUseCase.call(record);
     if (result.success) {
-      _repository.syncPendingRecords();
       return MortalitySaveResult.success(
         highMortalityWarning: result.highMortalityWarning,
         mortalityPercentage: result.mortalityPercentage,

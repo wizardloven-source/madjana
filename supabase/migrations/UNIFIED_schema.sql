@@ -1557,6 +1557,25 @@ BEGIN
 
             BEGIN
                 IF v_operation = 'insert' THEN
+                    -- منع الرفع المزدوج: إن وُجد السجل أصلاً بنفس id لنفس المزرعة
+                    -- (أدخله مسار REST المباشر قبل الطابور) نعتبر المزامنة ناجحة.
+                    EXECUTE format(
+                        'SELECT to_jsonb(t) FROM %I t WHERE t.id = $1 AND t.farm_id = $2',
+                        v_table_name
+                    ) INTO v_existing_record
+                    USING v_record_id, v_user_farm;
+
+                    IF v_existing_record IS NOT NULL THEN
+                        v_affected := v_affected + 1;
+                        v_result := v_result || jsonb_build_object(
+                            'record_id', v_record_id,
+                            'table_name', v_table_name,
+                            'status', 'ok',
+                            'new_version', COALESCE((v_existing_record->>'version')::bigint, 1)
+                        );
+                        CONTINUE;
+                    END IF;
+
                     v_cols := ARRAY['id', 'farm_id', 'version'];
                     v_vals := ARRAY[
                         quote_literal(v_record_id::text),

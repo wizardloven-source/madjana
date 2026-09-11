@@ -57,20 +57,22 @@ class FeedRepositoryImpl implements FeedRepository {
 
   @override
   Future<void> syncPendingConsumption() async {
+    // معالجة الاستهلاك
     final pending = await _localDao.getPendingConsumption();
-    if (pending.isEmpty) return;
-
-    final successIds = await _remoteDatasource.insertConsumptionBatch(pending);
-    for (final record in pending) {
-      if (record.id == null) continue;
-      await _localDao.updateConsumptionSyncStatus(
-        record.id!,
-        successIds.successIds.contains(record.id)
-            ? SyncStatus.synced
-            : SyncStatus.failed,
-      );
+    if (pending.isNotEmpty) {
+      final successIds = await _remoteDatasource.insertConsumptionBatch(pending);
+      for (final record in pending) {
+        if (record.id == null) continue;
+        await _localDao.updateConsumptionSyncStatus(
+          record.id!,
+          successIds.successIds.contains(record.id)
+              ? SyncStatus.synced
+              : SyncStatus.failed,
+        );
+      }
     }
 
+    // معالجة الاستلام (مستقلة عن الاستهلاك)
     final pendingReceived = await _localDao.getPendingReceived();
     if (pendingReceived.isNotEmpty) {
       final receivedIds = await _remoteDatasource.insertReceivedBatch(pendingReceived);
