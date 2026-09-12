@@ -25,11 +25,11 @@
 
 | Package | Result |
 |---------|--------|
-| core | PASS (no issues) |
-| data | TIMEOUT (analysis too slow for 180s limit; tests pass) |
-| domain | PASS (no issues) |
-| mobile | TIMEOUT (analysis too slow for 180s limit) |
-| desktop | TIMEOUT (analysis too slow for 180s limit) |
+| core | **PASS** (no issues) |
+| data | **PASS** (no issues) — previous timeout was tooling limitation |
+| domain | **PASS** (no issues) |
+| mobile | TIMEOUT (Gradle build 543s; `flutter analyze` too slow for 180s limit) |
+| desktop | **PASS** (no issues) |
 
 ## CI/CD
 
@@ -143,8 +143,8 @@ See `08_PRODUCTION_BLOCKERS.md` — 15 P2 and 10 P3 issues remain open.
 | Sync (Dart) | PASS | PASS |
 | Sync (SQL) | NOT VERIFIED | NOT VERIFIED (migration created) |
 | Security (SQL) | NOT VERIFIED | NOT VERIFIED (triggers created) |
-| Build (mobile) | NOT VERIFIED | NOT VERIFIED |
-| Build (desktop) | NOT VERIFIED | NOT VERIFIED |
+| Build (mobile) | NOT VERIFIED | **PASS** ✅ (`app-release.apk` 61.9MB) |
+| Build (desktop) | NOT VERIFIED | **PASS** ✅ (`madjana_desktop.exe` 91KB launcher) |
 | Demo Data | PASS | PASS |
 
 ## PRODUCTION DECISION
