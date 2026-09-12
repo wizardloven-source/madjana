@@ -426,6 +426,15 @@ class SyncRepositoryImpl implements SyncRepository {
       // السحب التالي.
       int commitPointVersion = lastVersion;
 
+      // الجداول الموجودة فعلياً محلياً: أي تغيير لجدول غير محلي
+      // (مثل app_notifications) نتخطاه ولا نعتبره فشلاً، وإلا
+      // سيعلّق commit-point ويتوقف وصول كل الإصدارات الأحدث.
+      final localTablesResult = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+      );
+      final localTables =
+          localTablesResult.map((r) => r['name'] as String).toSet();
+
       await db.transaction((txn) async {
         for (final change in changes) {
           final c = change as Map<String, dynamic>;
@@ -434,6 +443,17 @@ class SyncRepositoryImpl implements SyncRepository {
           final operation = c['operation'] as String;
           final payload = c['payload'] as Map<String, dynamic>? ?? {};
           final serverVersion = (c['server_version'] as num?)?.toInt() ?? 0;
+
+          // جدول غير موجود محلياً على هذا الجهاز: لا يمكن تطبيقه —
+          // نتخطاه ونُقدّم commit-point فوقه كي لا يُعاد إلى الأبد
+          // ولا يُعطّل وصول السجلات الأحدث.
+          if (!localTables.contains(tableName)) {
+            if (serverVersion > commitPointVersion) {
+              commitPointVersion = serverVersion;
+            }
+            debugPrint('pullAndMerge: skipping non-local table $tableName');
+            continue;
+          }
 
           try {
             // فحص الوجود المحلي
@@ -525,7 +545,7 @@ class SyncRepositoryImpl implements SyncRepository {
     final filtered = <String, dynamic>{};
     for (final entry in data.entries) {
       if (localCols.contains(entry.key)) {
-        filtered[entry.key] = entry.value;
+        filtered[entry.key] = _normalizeDbValue(entry.value);
       }
     }
 
@@ -541,6 +561,18 @@ class SyncRepositoryImpl implements SyncRepository {
       'INSERT INTO $tableName ($cols) VALUES ($placeholders)',
       values,
     );
+  }
+
+  /// يحوّل قيم payload (من JSON منقوص من الخادم) إلى صيغ SQLite الصالحة:
+  /// المصفوفات/الكائنات (مثل sections) تُسلسل نصياً، الأنصاف تُصبح 1/0،
+  /// والتواريخ تُحوَّل إلى ISO — وإلا يرفض SQLite الربط ويفشل السجل كاملاً
+  /// فيعلّق commit-point ويوقف وصول كل الإصدارات الأحدث.
+  dynamic _normalizeDbValue(dynamic value) {
+    if (value == null) return null;
+    if (value is bool) return value ? 1 : 0;
+    if (value is DateTime) return value.toIso8601String();
+    if (value is List || value is Map) return jsonEncode(value);
+    return value;
   }
 
   /// يملأ أعمدة housekeeping الإلزامية (NOT NULL بلا default) المفقودة
@@ -581,7 +613,7 @@ class SyncRepositoryImpl implements SyncRepository {
     for (final entry in data.entries) {
       if (localCols.contains(entry.key) && entry.key != 'id') {
         setParts.add('${entry.key} = ?');
-        values.add(entry.value);
+        values.add(_normalizeDbValue(entry.value));
       }
     }
 

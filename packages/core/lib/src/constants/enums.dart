@@ -60,6 +60,34 @@ enum MortalityReason {
 
   final String label;
   const MortalityReason(this.label);
+
+  /// قيمة السبب كما تُخزَّن في قاعدة البيانات (snake_case)
+  String get dbValue {
+    switch (this) {
+      case MortalityReason.notEating:
+        return 'not_eating';
+      case MortalityReason.internalBleeding:
+        return 'internal_bleeding';
+      case MortalityReason.immunityBreak:
+        return 'immunity_break';
+      case MortalityReason.heatStress:
+        return 'heat_stress';
+      case MortalityReason.cannibalism:
+        return 'cannibalism';
+      case MortalityReason.unknown:
+        return 'unknown';
+      case MortalityReason.other:
+        return 'other';
+    }
+  }
+
+  /// تحويل قيمة قاعدة البيانات إلى السبب (يقبل أيضاً القيم camelCase القديمة)/
+  static MortalityReason fromDbValue(String value) {
+    for (final e in MortalityReason.values) {
+      if (e.dbValue == value || e.name == value) return e;
+    }
+    return MortalityReason.other;
+  }
 }
 
 /// حالة المزامنة

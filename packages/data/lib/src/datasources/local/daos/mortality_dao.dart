@@ -1,4 +1,4 @@
-import 'package:core/core.dart';
+﻿import 'package:core/core.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 import '../local_database.dart';
@@ -18,7 +18,7 @@ class MortalityDao {
       'flock_id': record.flockId,
       'date': record.date.toIso8601String().split('T').first,
       'count': record.count,
-      'reason': record.reason.name,
+      'reason': record.reason.dbValue,
       'reason_other': record.reasonOther,
       'notes': record.notes,
       'image_url': record.imageUrl,
@@ -37,7 +37,7 @@ class MortalityDao {
         'flock_id': record.flockId,
         'date': record.date.toIso8601String().split('T').first,
         'count': record.count,
-        'reason': record.reason.name,
+        'reason': record.reason.dbValue,
         'reason_other': record.reasonOther,
         'notes': record.notes,
         'section_no': record.sectionNo,
@@ -144,7 +144,7 @@ class MortalityDao {
         'flock_id': model.flockId,
         'date': model.date.toIso8601String().split('T').first,
         'count': model.count,
-        'reason': model.reason.name,
+        'reason': model.reason.dbValue,
         'reason_other': model.reasonOther,
         'notes': model.notes,
         'image_url': model.imageUrl,
@@ -188,10 +188,7 @@ class MortalityDao {
       flockId: map['flock_id'] as String,
       date: DateTime.parse(map['date'] as String),
       count: map['count'] as int,
-      reason: MortalityReason.values.firstWhere(
-        (e) => e.name == map['reason'],
-        orElse: () => MortalityReason.other,
-      ),
+      reason: MortalityReason.fromDbValue(map['reason'] as String? ?? ''),
       reasonOther: map['reason_other'] as String?,
       notes: map['notes'] as String?,
       imageUrl: map['image_url'] as String?,

@@ -287,12 +287,11 @@ BEGIN
             'payload', sc.payload,
             'server_version', sc.server_version,
             'created_at', sc.created_at
-        )) INTO v_changes
+        ) ORDER BY sc.server_version ASC) INTO v_changes
         FROM sync_changes sc
         WHERE sc.farm_id = p_farm_id
           AND public.sync_can_read('worker', sc.table_name)
-          AND sc.server_version > p_from_version
-        ORDER BY sc.server_version ASC;
+          AND sc.server_version > p_from_version;
 
         SELECT COALESCE(MAX(server_version), p_from_version) INTO v_latest
         FROM sync_changes
@@ -312,11 +311,10 @@ BEGIN
             'payload', sc.payload,
             'server_version', sc.server_version,
             'created_at', sc.created_at
-        )) INTO v_changes
+        ) ORDER BY sc.server_version ASC) INTO v_changes
         FROM sync_changes sc
         WHERE sc.farm_id = p_farm_id
-          AND sc.server_version > p_from_version
-        ORDER BY sc.server_version ASC;
+          AND sc.server_version > p_from_version;
     END IF;
 
     IF p_from_version > 0 AND p_from_version < v_min_keep THEN
