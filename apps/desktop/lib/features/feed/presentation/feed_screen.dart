@@ -27,6 +27,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   DateTime _fromDate = DateTime.now().subtract(const Duration(days: 30));
   DateTime _toDate = DateTime.now();
   String _farmName = '';
+  double _bagWeightKg = AppConstants.kgPerBag;
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
 
@@ -57,9 +58,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       flocks = await flockRepo.getFlocks(_farmId, includeEnded: true);
     } catch (_) {}
     String farmName = '';
+    double bagWeightKg = AppConstants.kgPerBag;
     try {
       final farm = await farmRepo.getFarm(_farmId);
       farmName = farm.name;
+      bagWeightKg = farm.feedBagWeightKg;
     } catch (_) {}
 
     if (!mounted) return;
@@ -69,6 +72,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       _flocks = flocks;
       _stock = stock;
       _farmName = farmName;
+      _bagWeightKg = bagWeightKg;
       _loading = false;
     });
   }
@@ -79,6 +83,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       builder: (ctx) => _FeedConsumptionDialog(
         flocks: _flocks,
         farmName: _farmName,
+        feedBagWeightKg: _bagWeightKg,
       ),
     );
     if (result != null && mounted) {
@@ -94,7 +99,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
           date: result['date'] as DateTime,
           entryMode: FeedEntryMode.bags,
           bagsCount: bags,
-          quantityKg: bags * AppConstants.kgPerBag,
+          quantityKg: bags * _bagWeightKg,
           workerId: workerId,
           sectionNo: sectionNo,
         );
@@ -125,6 +130,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       builder: (ctx) => _FeedReceivedDialog(
         flocks: _flocks,
         farmName: _farmName,
+        feedBagWeightKg: _bagWeightKg,
       ),
     );
     if (result != null && mounted) {
@@ -380,12 +386,57 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     );
   }
 
-  /// تسجيل سعر العلف المستلم — ينشئ فاتورة مصروف تلقائياً
+  /// تسجيل سعر العلف المستلم — ينشئ فاتورة مصروف تلقائياً.
+  ///
+  /// يعتمد على عملة الإدخال المختارة: إن كانت الليرة يُفتح حقل سعر صرف
+  /// وتحوَّل القيمة إلى الدولار (الأساسي للتخزين والعرض). يدعم التسعير
+  /// بالكيلوغرام أو بالطن.
   Future<void> _showPriceDialog(FeedReceivedModel r) async {
-    final priceController =
-        TextEditingController(text: r.pricePerKg?.toStringAsFixed(2) ?? '');
-    double? total;
     final farmId = ref.read(authProvider).currentUser?.farmId;
+    AppCurrency currency = AppCurrency.dollar;
+    if (farmId != null && farmId.isNotEmpty) {
+      try {
+        currency = await ref.read(farmRepositoryProvider).getInputCurrency();
+      } catch (_) {}
+    }
+    if (!mounted) return;
+
+    final String feedFarmId =
+        (farmId == null || farmId.isEmpty) ? '' : farmId;
+    if (feedFarmId.isEmpty) return;
+
+    final priceController = TextEditingController();
+    final rateController = TextEditingController(text: '1');
+    bool perTon = false;
+    double exchangeRate = 1;
+    double? totalUsd;
+
+    void prefillPrice() {
+      if (r.pricePerKg == null) return;
+      final base = r.pricePerKg! *
+          (currency == AppCurrency.lira ? exchangeRate : 1);
+      priceController.text =
+          (perTon ? base * AppConstants.kgPerTon : base)
+              .toStringAsFixed(perTon ? 2 : 3);
+    }
+
+    prefillPrice();
+
+    double? computeUsdPerKg() {
+      final v = double.tryParse(priceController.text);
+      if (v == null || v <= 0) return null;
+      final perKg = perTon ? v / AppConstants.kgPerTon : v;
+      return currency == AppCurrency.lira ? perKg / exchangeRate : perKg;
+    }
+
+    void refreshTotal() {
+      exchangeRate = double.tryParse(rateController.text) ?? 1;
+      if (exchangeRate <= 0) exchangeRate = 1;
+      final usdPerKg = computeUsdPerKg();
+      totalUsd = usdPerKg == null || usdPerKg <= 0
+          ? null
+          : usdPerKg * r.quantityKg;
+    }
 
     await showDialog(
       context: context,
@@ -394,63 +445,92 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
           title: const Text('تسجيل سعر العلف'),
           content: SizedBox(
             width: 380,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('الكمية: ${Formatters.formatNumber(r.quantityKg)} كغ'),
-                if (r.supplier != null && r.supplier!.isNotEmpty)
-                  Text('المورد: ${r.supplier}'),
-                if (r.invoiceNumber != null && r.invoiceNumber!.isNotEmpty)
-                  Text('فاتورة رقم: ${r.invoiceNumber}'),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: priceController,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'سعر الكيلوغرام',
-                    suffixText: 'ر.ي / كغ',
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (v) => setDialogState(() {
-                    total = double.tryParse(v);
-                  }),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .primaryContainer
-                        .withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      const Text('إجمالي الفاتورة:'),
-                      const Spacer(),
-                      Text(
-                        total == null || total! <= 0
-                            ? '-'
-                            : Formatters.formatCurrency(
-                                total! * r.quantityKg,
-                              ),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('الكمية: ${Formatters.formatNumber(r.quantityKg)} كغ'),
+                  if (r.supplier != null && r.supplier!.isNotEmpty)
+                    Text('المورد: ${r.supplier}'),
+                  if (r.invoiceNumber != null && r.invoiceNumber!.isNotEmpty)
+                    Text('فاتورة رقم: ${r.invoiceNumber}'),
+                  const SizedBox(height: 16),
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(
+                        value: false,
+                        label: Text('سعر الكيلوغرام'),
                       ),
+                      ButtonSegment(value: true, label: Text('سعر الطن')),
                     ],
+                    selected: {perTon},
+                    onSelectionChanged: (s) => setDialogState(() {
+                      perTon = s.first;
+                      prefillPrice();
+                    }),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'سيتم إنشاء فاتورة في المصروفات تلقائياً',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: priceController,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: perTon ? 'سعر الطن' : 'سعر الكيلوغرام',
+                      suffixText:
+                          '${currency.symbol} / ${perTon ? 'طن' : 'كغ'}',
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setDialogState(refreshTotal),
+                  ),
+                  if (currency == AppCurrency.lira) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: rateController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'سعر الصرف (ل.س مقابل الدولار)',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setDialogState(refreshTotal),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primaryContainer
+                          .withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Text('إجمالي الفاتورة:'),
+                        const Spacer(),
+                        Text(
+                          totalUsd == null
+                              ? '-'
+                              : Formatters.formatCurrency(totalUsd!),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    currency == AppCurrency.lira
+                        ? 'سيتم إنشاء فاتورة في المصروفات بقيمتها الدولارية '
+                            '(بسعر الصرف المدخل) — العرض دائماً بالدولار'
+                        : 'سيتم إنشاء فاتورة في المصروفات تلقائياً بالدولار',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -460,20 +540,20 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
             ),
             FilledButton(
               onPressed: () async {
-                final price = double.tryParse(priceController.text);
-                if (price == null || price <= 0) return;
+                final usdPerKg = computeUsdPerKg();
+                if (usdPerKg == null || usdPerKg <= 0) return;
                 try {
                   await ref.read(feedRepositoryProvider).setReceivedPrice(
                         id: r.id!,
-                        pricePerKg: price,
+                        pricePerKg: usdPerKg,
                       );
 
                   // فاتورة المصروف — مع تحديث الفاتورة السابقة إن وُجدت
-                  final amount = price * r.quantityKg;
+                  final amount = usdPerKg * r.quantityKg;
                   final marker = '[FR:${r.id}]';
                   final expenses = await ref
                       .read(expenseRepositoryProvider)
-                      .getExpenses(farmId: farmId!);
+                      .getExpenses(farmId: feedFarmId);
                   ExpenseModel? existing;
                   for (final e in expenses) {
                     if ((e.description ?? '').contains(marker)) {
@@ -496,7 +576,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                   } else {
                     await ref.read(expenseRepositoryProvider).save(
                           ExpenseModel(
-                            farmId: farmId!,
+                            farmId: feedFarmId,
                             date: r.date,
                             category: ExpenseCategory.feed,
                             description: description,
@@ -598,7 +678,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 class _FeedConsumptionDialog extends StatefulWidget {
   final List<FlockModel> flocks;
   final String farmName;
-  const _FeedConsumptionDialog({required this.flocks, required this.farmName});
+  final double feedBagWeightKg;
+  const _FeedConsumptionDialog({
+    required this.flocks,
+    required this.farmName,
+    required this.feedBagWeightKg,
+  });
   @override
   State<_FeedConsumptionDialog> createState() => _FeedConsumptionDialogState();
 }
@@ -617,6 +702,11 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
   int get _maxSections => widget.flocks
       .where((f) => f.sectionsCount > 1)
       .fold<int>(1, (m, f) => f.sectionsCount > m ? f.sectionsCount : m);
+
+  double get _computedKg {
+    final bags = int.tryParse(_bagsCtrl.text) ?? 0;
+    return bags * widget.feedBagWeightKg;
+  }
 
   @override
   void dispose() {
@@ -703,10 +793,15 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
                   controller: _bagsCtrl,
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
                     labelText: 'عدد الأكياس',
-                    border: OutlineInputBorder(),
-                    hintText: 'كل كيس 50 كجم',
+                    border: const OutlineInputBorder(),
+                    hintText:
+                        'كل كيس ${widget.feedBagWeightKg.toStringAsFixed(0)} كجم',
+                    suffixText: _computedKg > 0
+                        ? '(${_computedKg.toStringAsFixed(0)} كغ)'
+                        : null,
                   ),
                 )
               else
@@ -771,7 +866,12 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
 class _FeedReceivedDialog extends StatefulWidget {
   final List<FlockModel> flocks;
   final String farmName;
-  const _FeedReceivedDialog({required this.flocks, required this.farmName});
+  final double feedBagWeightKg;
+  const _FeedReceivedDialog({
+    required this.flocks,
+    required this.farmName,
+    required this.feedBagWeightKg,
+  });
   @override
   State<_FeedReceivedDialog> createState() => _FeedReceivedDialogState();
 }
@@ -797,7 +897,7 @@ class _FeedReceivedDialogState extends State<_FeedReceivedDialog> {
   double get _quantityKg {
     final qty = double.tryParse(_quantityCtrl.text) ?? 0;
     return switch (_mode) {
-      FeedEntryMode.bags => qty * AppConstants.kgPerBag,
+      FeedEntryMode.bags => qty * widget.feedBagWeightKg,
       FeedEntryMode.kg => qty,
       FeedEntryMode.ton => qty * AppConstants.kgPerTon,
     };

@@ -29,9 +29,38 @@ class SupabaseUserAdminDatasource {
 
   /// ط¬ظ„ط¨ ظ…ط³طھط®ط¯ظ…ظٹ ظ…ط²ط±ط¹ط© ظ…ط­ط¯ظ‘ط¯ط© (manager)
   ///
-  /// الأعضاء: المرتبطون بالمدجنة عبر جدول الربط (متعدد-إلى-متعدد)
-  /// مضافاً إليهم مديرو النظام (يظهرون في قائمة كل مدجنة).
+  /// يفضّل دالة get_farm_users (تضمن ظهور المدير + سوبر أدمن حتى لو
+  /// ناقص ربط user_farms)، ويعود للمسار القديم إن لم تكن الدالة متاحة.
   Future<List<UserModel>> getUsers(String farmId) async {
+    try {
+      final data = await _api.rpc('get_farm_users', params: {
+        'p_farm_id': farmId,
+      });
+      if (data is List) {
+        final users = (data)
+            .map((e) {
+              final m = Map<String, dynamic>.from(e as Map);
+              return UserModel.fromJson(<String, dynamic>{
+                'uid': m['uid']?.toString() ?? '',
+                'name': m['name']?.toString() ?? '',
+                'phone': m['phone']?.toString() ?? '',
+                'role': m['role']?.toString() ?? 'worker',
+                'farm_id': m['farm_id'],
+                'farm_ids': m['farm_ids'] is List
+                    ? (m['farm_ids'] as List).map((e2) => e2.toString()).toList()
+                    : const <String>[],
+                'is_active': m['is_active'],
+                'created_at': m['created_at'],
+              });
+            })
+            .toList();
+        users.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        return users;
+      }
+    } catch (_) {
+      // قاعدة قديمة بلا get_farm_users — نعود للمسار القديم أدناه.
+    }
+
     final linkRows = await _api
         .from('user_farms')
         .select(columns: const ['user_id'])

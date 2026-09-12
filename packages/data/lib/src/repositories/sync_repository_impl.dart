@@ -385,6 +385,11 @@ class SyncRepositoryImpl implements SyncRepository {
     try {
       final db = await LocalDatabase.database;
 
+      // 0) مصالحة الحذف المركزي: أية سجلات محلية متزامنة لم تعد حيّة على
+      // الخادم (حذف مباشر من SQL/عرض الجداول لا يولّد tombstone في
+      // sync_changes) تُحذف محلياً كي لا تعود البيانات المحذوفة للظهور.
+      await _reconcileServerDeleted(db, farmId);
+
       // 1) قراءة آخر إصدار مُستلم
       final stateRows = await db.query('sync_state', limit: 1);
       final lastVersion = stateRows.isNotEmpty
@@ -494,9 +499,9 @@ class SyncRepositoryImpl implements SyncRepository {
           } catch (e) {
             debugPrint('pullAndMerge row failed for $tableName/$recordId: $e');
             conflicts++;
-            // ⚠️ لا نتعدى commit-point: أي نسخة أعلى من هذه
-            // ستعاد في السحب التالي (وستُتخطى harmlessly إذا نجحت سابقاً).
-            break;
+            // صف واحد معطوب لا يُجمّد السحب كله: نُكمِل بقية الصفوف،
+            // وعند نجاح صف لاحق يتقدم commit-point تلقائياً متجاوزاً
+            // الصف المعطوب كي تتدفق كل الإصدارات الأحدث.
           }
         }
       });
@@ -520,6 +525,91 @@ class SyncRepositoryImpl implements SyncRepository {
       );
     } catch (e) {
       return PullResult(errorMessage: e.toString());
+    }
+  }
+
+  /// مصالحة الحذف المركزي — تُحذف محلياً أي سجلات بحالة synced لم تعد
+  /// حيّة على الخادم (deleted_at IS NULL)، استناداً إلى RPC sync_live_ids.
+  ///
+  /// مغطاة بمهلة: مرة كل 30 دقيقة كحد أقصى حتى على الأجهزة المفتوحة دوماً.
+  /// أية أخطاء (RPC غير متاح في قاعدة قديمة/انقطاع شبكة) تُتخطّى بصمت
+  /// لأن الاتصال نفسه يُعالج في syncNow.
+  Future<void> _reconcileServerDeleted(Database db, String farmId) async {
+    try {
+      final stateRows = await db.query('sync_state', limit: 1);
+      final lastReconcile = stateRows.isNotEmpty
+          ? DateTime.tryParse(stateRows.first['updated_at']?.toString() ?? '')
+          : null;
+      if (lastReconcile != null &&
+          lastReconcile.isAfter(
+            DateTime.now().subtract(const Duration(minutes: 30)),
+          )) {
+        return;
+      }
+
+      final response = await _supabase.rpc(
+        'sync_live_ids',
+        params: {'p_farm_id': farmId},
+      );
+      if (response is! Map) {
+        return;
+      }
+
+      final live = response as Map<String, dynamic>;
+      for (final entry in live.entries) {
+        final tableName = entry.key;
+        final ids = (entry.value as List? ?? const [])
+            .map((e) => e.toString())
+            .toSet();
+
+        // الجداول المحلية بلا عمود sync_status (مثل opening_balances)
+        // لا تأتي من مسار المزامنة — لا نلمسها.
+        final cols = await db.rawQuery('PRAGMA table_info($tableName)');
+        final hasSyncStatus = cols.any((c) {
+          final name = c['name'];
+          return name != null && name.toString() == 'sync_status';
+        });
+        if (!hasSyncStatus) continue;
+
+        final localRows = await db.query(
+          tableName,
+          columns: ['id'],
+          where: "sync_status = 'synced'",
+        );
+        final stale = localRows
+            .map((r) => r['id']?.toString() ?? '')
+            .where((id) => id.isNotEmpty && !ids.contains(id))
+            .toList();
+        if (stale.isEmpty) continue;
+
+        for (final id in stale) {
+          await db.delete(
+            tableName,
+            where: "id = ? AND sync_status = 'synced'",
+            whereArgs: [id],
+          );
+        }
+        debugPrint(
+          'reconcile: purged ${stale.length} stale rows from $tableName',
+        );
+      }
+
+      // ختم وقت المصالحة — قبل نجاح استدعاء RPC فقط، حتى يُعاد
+      // في الدورة التالية على فشل الشبكة.
+      final now = DateTime.now().toIso8601String();
+      final updated = await db.rawUpdate(
+        "UPDATE sync_state SET updated_at = ? WHERE id = 'local'",
+        [now],
+      );
+      if (updated == 0) {
+        await db.rawInsert(
+          '''INSERT OR REPLACE INTO sync_state (id, last_pulled_version, updated_at)
+             VALUES ('local', 0, ?)''',
+          [now],
+        );
+      }
+    } catch (e) {
+      debugPrint('reconcile server deletes skipped: $e');
     }
   }
 
@@ -576,7 +666,9 @@ class SyncRepositoryImpl implements SyncRepository {
   }
 
   /// يملأ أعمدة housekeeping الإلزامية (NOT NULL بلا default) المفقودة
-  /// في سجلات السحب قبل الإدراج، كي لا يرفض SQLite السجل كاملاً.
+  /// أو الفارغة في سجلات السحب قبل الإدراج، كي لا يرفض SQLite السجل كاملاً.
+  /// (مثال: egg_dispatch.customer_id / worker_id NOT NULL قد تصل null من
+  /// الخادم في تخريج المدير بلا عميل/عامل — نمنحها قيمة آمنة حسب النوع.)
   Future<void> _fillRequiredHousekeeping(
     DatabaseExecutor txn,
     String tableName,
@@ -585,14 +677,34 @@ class SyncRepositoryImpl implements SyncRepository {
     final cols = await txn.rawQuery('PRAGMA table_info($tableName)');
     for (final c in cols) {
       final name = c['name'] as String;
-      if (data.containsKey(name)) continue;
-      final notNull = c['notnull'] == 1;
+      if (c['notnull'] != 1) continue;
+
+      final hasValue = data.containsKey(name) && data[name] != null;
+      if (hasValue) continue;
+
       final hasDefault = c['dflt_value'] != null;
-      if (!notNull || hasDefault) continue;
-      if (name == 'created_at' || name == 'updated_at') {
-        data[name] = DateTime.now().toIso8601String();
-      }
+      if (!data.containsKey(name) && hasDefault) continue;
+
+      data[name] = _defaultForColumn(c['type'] as String?, name);
     }
+  }
+
+  /// قيمة افتراضية آمنة حسب نوع العمود (نص / عدد / تاريخ)
+  dynamic _defaultForColumn(String? type, String name) {
+    if (name == 'created_at' || name == 'updated_at') {
+      return DateTime.now().toIso8601String();
+    }
+    final t = (type ?? '').toUpperCase();
+    if (t.contains('INT') ||
+        t.contains('BOOL') ||
+        t.contains('REAL') ||
+        t.contains('DOUBLE') ||
+        t.contains('FLOAT') ||
+        t.contains('NUM') ||
+        t.contains('DEC')) {
+      return 0;
+    }
+    return '';
   }
 
   /// تحديث سجل من البيانات البعيدة في SQLite
