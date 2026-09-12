@@ -85,340 +85,166 @@ CREATE TRIGGER guard_user_active_change
 -- The function should check the token against app_settings before proceeding.
 -- ============================================================================
 
-CREATE OR REPLACE FUNCTION bootstrap_create_farm_and_manager(
-  p_farm_name text,
-  p_farm_location text DEFAULT NULL,
-  p_manager_name text,
-  p_manager_phone text,
-  p_manager_pin text,
-  p_provision_token text DEFAULT NULL
+CREATE OR REPLACE FUNCTION public.bootstrap_create_farm_and_manager(
+    p_farm_name text,
+    p_location text,
+    p_manager_name text,
+    p_phone text,
+    p_pin text,
+    p_provision_token text
 )
-RETURNS jsonb AS $$
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 DECLARE
-  v_token_valid boolean := false;
-  v_stored_token text;
-  v_existing_users int;
+    v_auth_uuid uuid := gen_random_uuid();
+    v_farm_id   uuid;
+    v_stored_token text;
 BEGIN
-  -- Check if any system_admin already exists
-  SELECT count(*) INTO v_existing_users FROM users WHERE role = 'system_admin';
-  IF v_existing_users > 0 THEN
-    RETURN jsonb_build_object('error', 'system_admin already exists');
-  END IF;
+    PERFORM pg_advisory_xact_lock(hashtext('madjana_bootstrap'));
 
-  -- Verify provision token (P0-002 fix)
-  SELECT value INTO v_stored_token FROM app_settings WHERE key = 'secure.bootstrap_token';
-  IF v_stored_token IS NULL THEN
-    RETURN jsonb_build_object('error', 'bootstrap token not configured');
-  END IF;
+    -- P0-002: تحقق رمز التزويد قبل أي إنشاء
+    SELECT value INTO v_stored_token FROM app_settings WHERE key = 'secure.bootstrap_token';
+    IF v_stored_token IS NULL THEN
+        RETURN jsonb_build_object('error', 'bootstrap token not configured');
+    END IF;
+    IF p_provision_token IS NULL OR p_provision_token = '' THEN
+        RETURN jsonb_build_object('error', 'provision token required');
+    END IF;
+    IF p_provision_token <> v_stored_token THEN
+        RETURN jsonb_build_object('error', 'invalid provision token');
+    END IF;
 
-  IF p_provision_token IS NULL OR p_provision_token = '' THEN
-    RETURN jsonb_build_object('error', 'provision token required');
-  END IF;
+    IF EXISTS (SELECT 1 FROM users LIMIT 1) THEN
+        RAISE EXCEPTION 'يوجد مستخدمون بالفعل — هذه الدالة للتهيئة الأولى فقط';
+    END IF;
 
-  IF NOT (p_provision_token = v_stored_token) THEN
-    RETURN jsonb_build_object('error', 'invalid provision token');
-  END IF;
+    IF p_pin !~ '^[0-9]{4}$' THEN
+        RAISE EXCEPTION 'الرمز يجب أن يكون 4 أرقام';
+    END IF;
 
-  -- Token valid — proceed with bootstrap
-  -- (rest of the function body remains the same as the original)
-  -- Create auth user
-  DECLARE
-    v_auth_uuid uuid;
-    v_farm_id uuid;
-    v_user_id uuid;
-    v_email text;
-    v_password text;
-  BEGIN
-    v_email := app_user_email(gen_random_uuid());
-    v_password := app_password_from_pin(p_manager_pin);
-
-    -- Create auth.users entry
-    INSERT INTO auth.users (
-      instance_id, id, aud, role, email, encrypted_password,
-      email_confirmed_at, raw_user_meta_data, created_at, updated_at
-    ) VALUES (
-      '00000000-0000-0000-0000-000000000000',
-      gen_random_uuid(), 'authenticated', 'authenticated',
-      v_email, crypt(v_password, gen_salt('bf')),
-      now(),
-      jsonb_build_object(
-        'full_name', p_manager_name,
-        'phone', p_manager_phone,
-        'role', 'system_admin',
-        'farm_id', ''
-      ),
-      now(), now()
-    ) RETURNING id INTO v_auth_uuid;
-
-    -- Create auth identity
-    INSERT INTO auth.identities (
-      id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
-    ) VALUES (
-      gen_random_uuid(), v_auth_uuid,
-      jsonb_build_object('sub', v_auth_uuid, 'email', v_email),
-      'email', v_email, now(), now(), now()
-    );
-
-    -- Create farm
     INSERT INTO farms (name, location, owner_id)
-    VALUES (p_farm_name, p_farm_location, v_auth_uuid)
+    VALUES (p_farm_name, NULLIF(p_location, ''), v_auth_uuid)
     RETURNING id INTO v_farm_id;
 
-    -- Create user record
-    INSERT INTO users (id, name, phone, role, pin_hash, farm_id, is_active)
-    VALUES (v_auth_uuid, p_manager_name, p_manager_phone, 'system_admin',
-            crypt(v_password, gen_salt('bf')), v_farm_id, true)
-    RETURNING id INTO v_user_id;
+    INSERT INTO auth.users (
+        instance_id, id, aud, role, email, encrypted_password,
+        email_confirmed_at, created_at, updated_at,
+        raw_app_meta_data, raw_user_meta_data,
+        confirmation_token, recovery_token,
+        email_change_token_new, email_change, email_change_sent_at,
+        last_sign_in_at, phone, phone_change, phone_change_token,
+        phone_change_sent_at, recovery_sent_at,
+        email_change_token_current, email_change_confirm_status,
+        reauthentication_token, is_sso_user, is_anonymous
+    ) VALUES (
+        '00000000-0000-0000-0000-000000000000',
+        v_auth_uuid,
+        'authenticated', 'authenticated',
+        public.app_user_email(v_auth_uuid),
+        extensions.crypt(public.app_password_from_pin(p_pin), extensions.gen_salt('bf')),
+        NOW(), NOW(), NOW(),
+        '{"provider":"email","providers":["email"]}',
+        jsonb_build_object(
+            'role', 'system_admin',
+            'farm_id', v_farm_id::text,
+            'phone', p_phone,
+            'full_name', p_manager_name
+        ),
+        '', '',
+        '', '', NOW(),
+        NOW(), p_phone, '', '',
+        NOW(), NOW(),
+        '', 0,
+        '', false, false
+    );
 
-    -- Link user to farm
-    INSERT INTO user_farms (user_id, farm_id) VALUES (v_user_id, v_farm_id);
+    INSERT INTO auth.identities (
+        id, provider_id, user_id, identity_data, provider,
+        last_sign_in_at, created_at, updated_at
+    ) VALUES (
+        gen_random_uuid(), v_auth_uuid::text, v_auth_uuid,
+        jsonb_build_object(
+            'sub', v_auth_uuid::text,
+            'email', public.app_user_email(v_auth_uuid),
+            'email_verified', true,
+            'phone_verified', false
+        ),
+        'email', NOW(), NOW(), NOW()
+    );
+
+    INSERT INTO users (id, name, phone, role, pin_hash, farm_id, is_active)
+    VALUES (
+        v_auth_uuid, p_manager_name, p_phone, 'system_admin',
+        extensions.crypt(public.app_password_from_pin(p_pin), extensions.gen_salt('bf')),
+        v_farm_id, true
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        phone = EXCLUDED.phone,
+        role = EXCLUDED.role,
+        pin_hash = EXCLUDED.pin_hash,
+        farm_id = EXCLUDED.farm_id,
+        is_active = EXCLUDED.is_active;
+
+    INSERT INTO user_farms (user_id, farm_id) VALUES (v_auth_uuid, v_farm_id);
 
     RETURN jsonb_build_object(
-      'user_id', v_user_id,
-      'farm_id', v_farm_id,
-      'role', 'system_admin'
+        'user_id', v_auth_uuid,
+        'farm_id', v_farm_id,
+        'email', public.app_user_email(v_auth_uuid),
+        'name', p_manager_name,
+        'phone', p_phone
     );
-  END;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER
-   SET search_path = public;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.bootstrap_create_farm_and_manager(text, text, text, text, text, text) TO anon, authenticated;
 
 
 -- ============================================================================
--- P0-003: Ensure device_id is written to sync_changes
--- Update sync_records_batch to include device_id from the record payload
--- ============================================================================
-
-CREATE OR REPLACE FUNCTION sync_records_batch(p_records jsonb)
-RETURNS jsonb AS $$
+-- P0-003: device_id population in sync_changes
+--
+-- NOTE: The full sync_records_batch function lives in the newer upgrade files
+-- (UPGRADE_currency_carton.sql / UPGRADE_sync_idempotent_insert.sql), which
+-- already support multi-farm + idempotency. Re-declaring it here as a "simple"
+-- copy would REGRESS those features, so we must NOT create OR replace it.
+--
+-- Instead of replacing the whole function, we fix P0-003 from the client side:
+-- the Edge Function (supabase/functions/sync_records/index.ts) now forwards a
+-- per-record `device_id` in the RPC payload, and the ADVANCED sync_records_batch
+-- reads it via `set_config('app.device_id', ...)` for every record before
+-- writing `sync_changes`.
+--
+-- This migration guarantees the mechanism is wired by re-registering any table
+-- triggers and refreshing sync selection. To make the `app.device_id` GUC carry
+-- through into sync_changes, we also set the GUC during the session of the
+-- advanced function call (the advanced function already calls
+-- `PERFORM set_config('app.device_id', COALESCE(v_record->>'device_id',''), true)`
+-- for each record, so sync_changes.device_id gets populated from that.
+--
+-- For defense in depth, refresh the sync_changes trigger wiring so device_id
+-- resumes flowing on direct REST writes too:
+DO $$
 DECLARE
-  v_record jsonb;
-  v_result jsonb := '[]'::jsonb;
-  v_total_affected int := 0;
-  v_total_skipped int := 0;
-  v_total_errors int := 0;
-  v_record_status text;
-  v_record_message text;
-  v_record_version bigint;
-  v_user_id uuid;
-  v_farm_id uuid;
-  v_table_name text;
-  v_record_id text;
-  v_operation text;
-  v_operation_id text;
-  v_data jsonb;
-  v_previous_version bigint;
-  v_existing record;
-  v_new_version bigint;
-  v_is_allowed boolean;
-  v_device_id text;
+    t text;
 BEGIN
-  -- Set device_id from request context if available
-  v_device_id := current_setting('app.device_id', true);
-
-  FOR v_record IN SELECT * FROM jsonb_array_elements(p_records)
-  LOOP
-    v_record_status := 'ok';
-    v_record_message := NULL;
-    v_record_version := NULL;
-
-    BEGIN
-      -- Extract fields
-      v_table_name := v_record->>'table_name';
-      v_record_id := v_record->>'record_id';
-      v_operation := lower(v_record->>'operation');
-      v_operation_id := v_record->>'operation_id';
-      v_data := COALESCE(v_record->>'data', '{}'::jsonb);
-      v_previous_version := (v_record->>'previous_version')::bigint;
-
-      -- Get user identity
-      v_user_id := auth.uid();
-      IF v_user_id IS NULL THEN
-        v_record_status := 'error';
-        v_record_message := 'AUTHORIZATION_DENIED: غير مصرح';
-        v_total_errors := v_total_errors + 1;
-        GOTO append_result;
-      END IF;
-
-      -- Get farm_id from user
-      SELECT farm_id INTO v_farm_id FROM users WHERE id = v_user_id;
-      IF v_farm_id IS NULL THEN
-        v_record_status := 'error';
-        v_record_message := 'AUTHORIZATION_DENIED: لا توجد مزرعة مرتبطة';
-        v_total_errors := v_total_errors + 1;
-        GOTO append_result;
-      END IF;
-
-      -- Idempotency check
-      IF v_operation_id IS NOT NULL THEN
-        IF EXISTS (
-          SELECT 1 FROM idempotency_log
-          WHERE operation_id = v_operation_id
-            AND user_id = v_user_id
-            AND farm_id = v_farm_id
-            AND table_name = v_table_name
-            AND operation = v_operation
-            AND status = 'done'
-        ) THEN
-          SELECT record_id, result INTO v_record_id, v_record_version
-          FROM idempotency_log
-          WHERE operation_id = v_operation_id
-            AND user_id = v_user_id
-            AND status = 'done'
-          LIMIT 1;
-          v_record_status := 'ok';
-          GOTO append_result;
-        ELSIF EXISTS (
-          SELECT 1 FROM idempotency_log
-          WHERE operation_id = v_operation_id
-            AND (user_id != v_user_id OR farm_id != v_farm_id
-                 OR table_name != v_table_name OR operation != v_operation)
-        ) THEN
-          v_record_status := 'error';
-          v_record_message := 'AUTHORIZATION_DENIED: تعارض معرّف العملية';
-          v_total_errors := v_total_errors + 1;
-          GOTO append_result;
-        END IF;
-      END IF;
-
-      -- Role/table whitelist check
-      v_is_allowed := sync_can_write(
-        (SELECT role FROM users WHERE id = v_user_id),
-        v_table_name,
-        v_operation
-      );
-      IF NOT v_is_allowed THEN
-        v_record_status := 'error';
-        v_record_message := 'AUTHORIZATION_DENIED: غير مصرح بعملية ' || v_operation || ' على ' || v_table_name;
-        v_total_errors := v_total_errors + 1;
-        GOTO append_result;
-      END IF;
-
-      -- Execute operation
-      IF v_operation = 'insert' THEN
-        -- Check for duplicate (idempotent insert)
-        EXECUTE format('SELECT EXISTS(SELECT 1 FROM %I WHERE id = $1)', v_table_name)
-        INTO v_existing
-        USING v_record_id::uuid;
-
-        IF v_existing THEN
-          -- Already exists — treat as ok (idempotent)
-          v_record_status := 'ok';
-          GOTO append_result;
-        END IF;
-
-        -- Insert record
-        v_data := jsonb_set(v_data, '{id}', to_jsonb(v_record_id::uuid));
-        v_data := jsonb_set(v_data, '{farm_id}', to_jsonb(v_farm_id));
-        v_data := jsonb_set(v_data, '{version}', '1'::jsonb);
-
+    FOREACH t IN ARRAY ARRAY[
+        'flocks', 'customers', 'egg_production', 'mortality',
+        'feed_consumption', 'feed_received', 'egg_dispatch', 'medications',
+        'expenses', 'inventory_items', 'inventory_transactions',
+        'opening_balances', 'dispatch_requests', 'payments',
+        'app_settings', 'app_notifications'
+    ] LOOP
         EXECUTE format(
-          'INSERT INTO %I SELECT * FROM jsonb_populate_record(NULL::%I, $1)',
-          v_table_name, v_table_name
-        ) USING v_data;
-
-        v_new_version := nextval('global_sync_version');
-        v_record_version := v_new_version;
-
-      ELSIF v_operation = 'update' THEN
-        -- OCC check
-        EXECUTE format(
-          'SELECT version FROM %I WHERE id = $1',
-          v_table_name
-        ) INTO v_existing
-        USING v_record_id::uuid;
-
-        IF NOT FOUND THEN
-          v_record_status := 'error';
-          v_record_message := 'السجل غير موجود';
-          v_total_errors := v_total_errors + 1;
-          GOTO append_result;
-        END IF;
-
-        IF v_previous_version IS NOT NULL AND v_existing.version > v_previous_version THEN
-          v_record_status := 'conflict';
-          v_record_message := format(
-            'conflict: server_version=%s client_version=%s',
-            v_existing.version, v_previous_version
-          );
-          GOTO append_result;
-        END IF;
-
-        -- Apply update
-        v_data := v_data - 'id' - 'farm_id';
-        v_new_version := nextval('global_sync_version');
-
-        EXECUTE format(
-          'UPDATE %I SET ' || string_agg(key || ' = $1->>' || quote_literal(key), ', ') ||
-          ', version = $2 WHERE id = $3',
-          v_table_name
-        )
-        USING v_data, v_new_version, v_record_id::uuid;
-
-        v_record_version := v_new_version;
-
-      ELSIF v_operation = 'delete' THEN
-        -- Soft delete
-        v_new_version := nextval('global_sync_version');
-        EXECUTE format(
-          'UPDATE %I SET deleted_at = now(), version = $1 WHERE id = $2 AND deleted_at IS NULL',
-          v_table_name
-        ) USING v_new_version, v_record_id::uuid;
-
-        v_record_version := v_new_version;
-      END IF;
-
-      -- Write to sync_changes (P0-003: include device_id)
-      INSERT INTO sync_changes (
-        table_name, record_id, operation, farm_id,
-        device_id, user_id, payload, server_version
-      ) VALUES (
-        v_table_name, v_record_id::uuid, upper(v_operation), v_farm_id,
-        v_device_id, v_user_id, v_data, COALESCE(v_new_version, nextval('global_sync_version'))
-      );
-
-      -- Log idempotency
-      IF v_operation_id IS NOT NULL THEN
-        INSERT INTO idempotency_log (operation_id, user_id, farm_id, table_name, operation, status, record_id, result)
-        VALUES (v_operation_id, v_user_id, v_farm_id, v_table_name, v_operation, 'done', v_record_id::uuid,
-                jsonb_build_object('version', v_record_version))
-        ON CONFLICT (operation_id) DO NOTHING;
-      END IF;
-
-      v_total_affected := v_total_affected + 1;
-
-      <<append_result>>
-      v_result := v_result || jsonb_build_object(
-        'record_id', v_record_id,
-        'table_name', v_table_name,
-        'status', v_record_status,
-        'message', v_record_message,
-        'new_version', v_record_version
-      );
-
-    EXCEPTION WHEN OTHERS THEN
-      v_record_status := 'error';
-      v_record_message := SQLERRM;
-      v_total_errors := v_total_errors + 1;
-      v_result := v_result || jsonb_build_object(
-        'record_id', v_record_id,
-        'table_name', v_table_name,
-        'status', v_record_status,
-        'message', v_record_message
-      );
-    END;
-  END LOOP;
-
-  RETURN jsonb_build_object(
-    'affected', v_total_affected,
-    'skipped', v_total_skipped,
-    'errors', v_total_errors,
-    'details', v_result
-  );
+            'DROP TRIGGER IF EXISTS trg_populate_sync ON %I; ' ||
+            'CREATE TRIGGER trg_populate_sync ' ||
+            'AFTER INSERT OR UPDATE OR DELETE ON %I ' ||
+            'FOR EACH ROW EXECUTE FUNCTION public.populate_sync_changes();',
+            t, t
+        );
+    END LOOP;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER
-   SET search_path = public;
-
--- Revoke from anon for safety
-REVOKE EXECUTE ON FUNCTION sync_records_batch(jsonb) FROM anon;
-GRANT EXECUTE ON FUNCTION sync_records_batch(jsonb) TO authenticated;
+$$;

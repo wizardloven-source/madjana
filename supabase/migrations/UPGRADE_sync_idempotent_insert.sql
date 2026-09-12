@@ -364,8 +364,9 @@ BEGIN
                         v_sc_payload := jsonb_build_object('id', v_record_id);
                     END IF;
 
-                    INSERT INTO sync_changes (table_name, record_id, operation, farm_id, user_id, payload)
-                    VALUES (v_table_name, v_record_id, upper(v_operation), v_user_farm, auth.uid(), v_sc_payload);
+                    INSERT INTO sync_changes (table_name, record_id, operation, farm_id, user_id, payload, device_id)
+                    VALUES (v_table_name, v_record_id, upper(v_operation), v_user_farm, auth.uid(), v_sc_payload,
+                            NULLIF(current_setting('app.device_id', true), ''));
                 END;
 
                 DECLARE

@@ -24,6 +24,7 @@ type SyncRecord = {
   record_id: string;
   payload: Record<string, unknown> | null;
   previous_version: number | null;
+  device_id?: string | null;
 };
 
 // قائمة المصادر المسموح بها (CORS) — تُضاف هنا الزبائن المعتمدة فقط
@@ -60,6 +61,8 @@ function validateRecord(r: Record<string, unknown>): { ok: true; value: SyncReco
   }
   const pv = r["previous_version"];
   if (pv !== null && pv !== undefined && typeof pv !== "number") return ERR("previous_version غير صالح");
+  const dev = r["device_id"];
+  if (dev !== null && dev !== undefined && typeof dev !== "string") return ERR("device_id غير صالح");
 
   return {
     ok: true,
@@ -70,6 +73,7 @@ function validateRecord(r: Record<string, unknown>): { ok: true; value: SyncReco
       record_id: r["record_id"] as string,
       payload: payload as Record<string, unknown> | null,
       previous_version: (pv as number | null) ?? null,
+      device_id: (dev as string | null) ?? null,
     },
   };
 }
@@ -181,6 +185,7 @@ Deno.serve(async (req) => {
       record_id: r.record_id,
       data: r.payload ?? {},
       previous_version: r.previous_version,
+      device_id: r.device_id,
     }));
 
     // FIX: تمرير المصفوفة كقيمة JSON مباشرة (لا JSON.stringify) —
