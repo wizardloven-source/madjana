@@ -74,40 +74,85 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('إضافة زبون جديد'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'الاسم')),
-              const SizedBox(height: 12),
-              TextField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم الهاتف')),
-              const SizedBox(height: 12),
-              TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'ملاحظات'), maxLines: 2),
+      builder: (ctx) {
+        var saving = false;
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('إضافة زبون جديد'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'الاسم')),
+                  const SizedBox(height: 12),
+                  TextField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم الهاتف')),
+                  const SizedBox(height: 12),
+                  TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'ملاحظات'), maxLines: 2),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(ctx),
+                child: const Text('إلغاء'),
+              ),
+              FilledButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        if (nameCtrl.text.isEmpty || phoneCtrl.text.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('أدخل الاسم ورقم الهاتف')),
+                          );
+                          return;
+                        }
+                        setDialogState(() => saving = true);
+                        try {
+                          final result = await ref
+                              .read(dispatchProvider.notifier)
+                              .addNewCustomer(
+                                farmId: _selectedFarmId ?? '',
+                                name: nameCtrl.text,
+                                phone: phoneCtrl.text,
+                                notes: notesCtrl.text.isEmpty
+                                    ? null
+                                    : notesCtrl.text,
+                              );
+                          if (result != null && ctx.mounted) {
+                            Navigator.pop(ctx);
+                            ref.invalidate(
+                                customersProvider(_selectedFarmId ?? ''));
+                          } else if (ctx.mounted) {
+                            setDialogState(() => saving = false);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('تعذّر إضافة الزبون')),
+                            );
+                          }
+                        } catch (e) {
+                          debugPrint('addNewCustomer failed: $e');
+                          if (ctx.mounted) {
+                            setDialogState(() => saving = false);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('تعذّر إضافة الزبون')),
+                            );
+                          }
+                        }
+                      },
+                child: saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('حفظ'),
+              ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
-          FilledButton(
-            onPressed: () async {
-              if (nameCtrl.text.isEmpty || phoneCtrl.text.isEmpty) return;
-              final result = await ref.read(dispatchProvider.notifier).addNewCustomer(
-                farmId: _selectedFarmId ?? '',
-                name: nameCtrl.text,
-                phone: phoneCtrl.text,
-                notes: notesCtrl.text.isEmpty ? null : notesCtrl.text,
-              );
-              if (result != null && ctx.mounted) {
-                Navigator.pop(ctx);
-                ref.invalidate(customersProvider(_selectedFarmId ?? ''));
-              }
-            },
-            child: const Text('حفظ'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

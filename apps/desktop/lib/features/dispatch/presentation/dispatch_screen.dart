@@ -62,12 +62,18 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       flocks = await flockRepo.getFlocks(_farmId, includeEnded: true);
     } catch (_) {}
 
-    // المخزون الحي = كل الإنتاج - كل التخريج
+    // المخزون الحي = كل الإنتاج - كل التخريج + صافي رصيد القطعان القديمة
     try {
       final produced =
           await eggRepo.getAllRecords(farmId: _farmId);
       var stock = produced.fold<int>(0, (s, e) => s + e.totalEggs) -
           dispatches.fold<int>(0, (s, d) => s + d.totalEggs);
+      // تضمين رصيد القطعان القديمة (opening balances) كما في لوحة التحكم
+      final openingNet = (await ref
+              .read(openingBalanceRepositoryProvider)
+              .getForFarm(_farmId))
+          .fold<int>(0, (s, b) => s + b.eggsProduced - b.eggsDispatched);
+      stock += openingNet;
       if (stock < 0) stock = 0;
       _currentStock = stock;
     } catch (_) {}
@@ -745,19 +751,25 @@ class _DispatchEntryDialogState extends State<_DispatchEntryDialog> {
                 ),
               ),
               const SizedBox(height: 12),
-              if (widget.currentStock > 0)
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.teal.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    'المخزون الحالي: ${Formatters.formatNumber(widget.currentStock)} بيضة',
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
-                    textAlign: TextAlign.center,
-                  ),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: widget.currentStock > 0
+                      ? Colors.teal.withValues(alpha: 0.12)
+                      : Colors.orange.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
                 ),
+                child: Text(
+                  'المخزون الحالي: ${Formatters.formatNumber(widget.currentStock)} بيضة',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: widget.currentStock > 0
+                        ? Colors.teal
+                        : Colors.orange.shade800,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: _customerId,

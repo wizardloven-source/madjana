@@ -131,11 +131,14 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
     }
   }
 
-  /// المخزون الحالي = إجمالي الإنتاج − إجمالي المخّرج (محلياً)
+  /// المخزون الحالي = إجمالي الإنتاج − إجمالي المخّرج + صافي رصيد القطعان القديمة
   Future<int> _currentStock(String farmId) async {
     final produced =
         await ref.read(eggProductionProvider.notifier).getRecords(farmId: farmId);
     final dispatched = await ref.read(dispatchProvider.notifier).getAll(farmId: farmId);
+    final opening = await ref
+        .read(openingBalanceRepositoryProvider)
+        .getForFarm(farmId);
 
     int totalProduced = 0;
     for (final r in produced) {
@@ -151,7 +154,12 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       );
     }
 
-    return totalProduced - totalDispatched;
+    int openingNet = 0;
+    for (final b in opening) {
+      openingNet += b.eggsProduced - b.eggsDispatched;
+    }
+
+    return totalProduced - totalDispatched + openingNet;
   }
 
   /// نافذة تجاوز المخزون: إرسال طلب للمدير أو إلغاء

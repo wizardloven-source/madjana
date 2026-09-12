@@ -625,8 +625,14 @@ class _TodaySummaryCardState extends ConsumerState<_TodaySummaryCard> {
             .fold<double>(0, (s, f) => s + f.quantityKg);
         _loading = false;
       });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      debugPrint('_loadTodaySummary failed: $e');
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تعذّر تحميل ملخص اليوم')),
+        );
+      }
     }
   }
 

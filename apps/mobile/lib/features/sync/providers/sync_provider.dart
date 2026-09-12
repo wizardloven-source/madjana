@@ -119,23 +119,25 @@ class SyncNotifier extends StateNotifier<SyncState> {
     );
   }
 
-  Future<void> _syncOnce() async {
+  Future<FullSyncResult?> _syncOnce() async {
     final fid = _farmId;
-    if (fid == null || _isSyncing) return;
+    if (fid == null || _isSyncing) return null;
     _isSyncing = true;
     state = state.copyWith(isSyncing: true);
     try {
-      await repository.syncNow(fid);
+      final result = await repository.syncNow(fid);
       _consecutiveFailures = 0;
       _backoffMinutes = 0;
       _backoffTimer?.cancel();
       await _refreshCounts();
+      return result;
     } catch (_) {
       _consecutiveFailures++;
       if (_consecutiveFailures >= _maxConsecutiveFailures) {
         _stopPeriodicSync();
         _scheduleBackoffRetry();
       }
+      return null;
     } finally {
       _isSyncing = false;
       state = state.copyWith(isSyncing: false, lastSyncAt: DateTime.now());
@@ -149,9 +151,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
     if (changed) syncNow();
   }
 
-  /// مزامنة يدوية
-  Future<void> syncNow() async {
-    await _syncOnce();
+  /// مزامنة يدوية — تُعيد النتيجة الفعلية (null عند الفشل)
+  Future<FullSyncResult?> syncNow() async {
+    return _syncOnce();
   }
 
   /// جدولة إعادة مزامنة تلقائية بتأخير تصاعدي بعد فشل متكرر

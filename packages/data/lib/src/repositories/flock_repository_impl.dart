@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:uuid/uuid.dart';
 import '../datasources/local/daos/flock_dao.dart';
 import '../datasources/remote/supabase_flock_datasource.dart';
 
@@ -9,6 +10,8 @@ import '../datasources/remote/supabase_flock_datasource.dart';
 class FlockRepositoryImpl implements FlockRepository {
   final FlockDao _localDao;
   final SupabaseFlockDatasource _remoteDatasource;
+
+  static const _uuid = Uuid();
 
   FlockRepositoryImpl({
     required FlockDao localDao,
@@ -36,14 +39,37 @@ class FlockRepositoryImpl implements FlockRepository {
 
   @override
   Future<void> createFlock(FlockModel flock) async {
+    // المعرّفات من واجهة المستخدم (millisecondsSinceEpoch) ليست UUID صالحاً
+    // وتُرفض من قاعدة البيانات، وقد تتضارب عند النقر المزدوج.
+    // نولّد UUID حقيقياً وفريداً في كل استدعاء.
+    final f = _isValidUuid(flock.id) ? flock : _withFreshId(flock);
     // الحفظ محلياً أولاً (offline-first) حتى لا تُفقد البيانات عند انقطاع الشبكة
-    await _localDao.insert(flock);
+    await _localDao.insert(f);
     try {
-      await _remoteDatasource.insert(flock);
+      await _remoteDatasource.insert(f);
     } catch (_) {
       // غير متصل: بقي محلياً وسيُزامَن لاحقاً
     }
   }
+
+  static bool _isValidUuid(String id) {
+    final pattern = RegExp(
+        r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+    return pattern.hasMatch(id);
+  }
+
+  static FlockModel _withFreshId(FlockModel flock) => FlockModel(
+        id: _uuid.v4(),
+        farmId: flock.farmId,
+        breed: flock.breed,
+        startDate: flock.startDate,
+        initialCount: flock.initialCount,
+        currentCount: flock.currentCount,
+        status: flock.status,
+        sectionsCount: flock.sectionsCount,
+        version: flock.version,
+        previousVersion: flock.previousVersion,
+      );
 
   @override
   Future<void> updateFlock(FlockModel flock) async {

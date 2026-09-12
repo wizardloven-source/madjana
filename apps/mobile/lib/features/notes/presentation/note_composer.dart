@@ -111,10 +111,20 @@ class _NoteComposerState extends ConsumerState<NoteComposer> {
     }
 
     setState(() => _saving = true);
-    await ref.read(notesProvider.notifier).add(
-          content: text.isEmpty ? null : text,
-          audioPath: audio,
-        );
+    try {
+      await ref.read(notesProvider.notifier).add(
+            content: text.isEmpty ? null : text,
+            audioPath: audio,
+          );
+    } catch (e) {
+      debugPrint('NoteComposer._save failed: $e');
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّر حفظ الملاحظة، حاول مجدداً')),
+      );
+      return;
+    }
 
     if (mounted) Navigator.pop(context);
   }

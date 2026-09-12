@@ -71,6 +71,12 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       final dispatchedIl =
           dispatches.fold<int>(0, (s, d) => s + d.totalEggs);
 
+      // صافي رصيد القطعان القديمة (opening balances) للإبقاء على اتساق لوحة التحكم
+      final openingNet = (await ref
+              .read(openingBalanceRepositoryProvider)
+              .getForFarm(_farmId))
+          .fold<int>(0, (s, b) => s + b.eggsProduced - b.eggsDispatched);
+
       // مخزون صحون الكرتون: المشترى (ربطات × 100 صحن) - المستهلك (كراتين×12 + أطباق)
       final cartonExpenses = await expenseRepo.getExpenses(farmId: _farmId);
       final purchasedTrays = cartonExpenses
@@ -100,7 +106,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         _bagWeightKg = bagWeight;
         _eggsProduced = producedIl;
         _eggsDispatched = dispatchedIl;
-        _eggStock = producedIl - dispatchedIl;
+        _eggStock = producedIl - dispatchedIl + openingNet;
         _cartonPurchasedTrays = purchasedTrays;
         _cartonConsumedTrays = consumedTrays;
         _cartonStockTrays = purchasedTrays - consumedTrays;

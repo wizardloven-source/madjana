@@ -99,6 +99,15 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     _startPeriodicSync();
   }
 
+  // تبويبات مبنية مرة واحدة (كسل على أول زيارة) — تُحفظ حالتها بعد ذلك
+  final Map<int, Widget> _builtScreens = {};
+
+  void _selectTab(int i) {
+    if (i < 0 || i >= _screens.length) return;
+    _builtScreens[i] ??= _screens[i];
+    ref.read(shellTabProvider.notifier).state = i;
+  }
+
   @override
   void dispose() {
     _syncTimer?.cancel();
@@ -201,9 +210,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                             label: _titles[i],
                             selected: selectedIndex == i,
                             badgeCount: i == 6 ? pendingApprovals : 0,
-                            onTap: () => ref
-                                .read(shellTabProvider.notifier)
-                                .state = i,
+                            onTap: () => _selectTab(i),
                           ),
                       ],
                     ],
@@ -318,11 +325,21 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                     ],
                   ),
                 ),
-                // محتوى الشاشة — يُعاد تركيبها عند تبديل المدجنة لتحميل بياناتها
+                // محتوى الشاشة — يُحفظ لكل تبويب (IndexedStack) ويُعاد تركيبها عند تبديل المدجنة
                 Expanded(
                   child: KeyedSubtree(
                     key: ValueKey('farm-${user?.farmId ?? ''}'),
-                    child: _screens[selectedIndex],
+                    child: Builder(builder: (context) {
+                      // تأكد من بناء التبويب الحالي
+                      _builtScreens[selectedIndex] ??= _screens[selectedIndex];
+                      return IndexedStack(
+                        index: selectedIndex,
+                        children: [
+                          for (var i = 0; i < _screens.length; i++)
+                            _builtScreens[i] ?? const SizedBox.shrink(),
+                        ],
+                      );
+                    }),
                   ),
                 ),
               ],

@@ -17,12 +17,12 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
   bool _isSending = false;
 
   final List<Map<String, dynamic>> _emergencyTypes = [
-    {'icon': Icons.local_fire_department, 'label': 'حريق', 'color': Colors.red},
-    {'icon': Icons.biotech, 'label': 'وباء مرضي', 'color': Colors.orange},
-    {'icon': Icons.electrical_services, 'label': 'انقطاع كهرباء', 'color': Colors.yellow},
-    {'icon': Icons.water_drop, 'label': 'انقطاع مياه', 'color': Colors.blue},
-    {'icon': Icons.thermostat, 'label': 'ارتفاع حرارة', 'color': Colors.deepOrange},
-    {'icon': Icons.warning, 'label': 'أخرى', 'color': Colors.grey},
+    {'icon': Icons.local_fire_department, 'label': 'حريق', 'color': Colors.red, 'fg': Colors.white},
+    {'icon': Icons.biotech, 'label': 'وباء مرضي', 'color': Colors.orange, 'fg': Colors.white},
+    {'icon': Icons.electrical_services, 'label': 'انقطاع كهرباء', 'color': Colors.amber, 'fg': Colors.black87},
+    {'icon': Icons.water_drop, 'label': 'انقطاع مياه', 'color': Colors.blue, 'fg': Colors.white},
+    {'icon': Icons.thermostat, 'label': 'ارتفاع حرارة', 'color': Colors.deepOrange, 'fg': Colors.white},
+    {'icon': Icons.warning, 'label': 'أخرى', 'color': Colors.blueGrey, 'fg': Colors.white},
   ];
 
   @override
@@ -108,7 +108,7 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
                         Icon(
                           type['icon'],
                           size: 40,
-                          color: isSelected ? Colors.white : type['color'],
+                          color: isSelected ? type['fg'] : type['color'],
                         ),
                         const SizedBox(height: 8),
                         Text(
@@ -116,7 +116,7 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: isSelected ? Colors.white : Colors.black,
+                            color: isSelected ? type['fg'] : Colors.black,
                           ),
                         ),
                       ],

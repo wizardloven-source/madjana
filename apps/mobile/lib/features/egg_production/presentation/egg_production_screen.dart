@@ -104,14 +104,20 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
   }
 
   Future<void> _loadTodayRecords() async {
-    final user = ref.read(authProvider).currentUser;
-    final farmId = user?.farmId ?? '';
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
-    final records = await ref
-        .read(eggProductionProvider.notifier)
-        .getRecords(farmId: farmId, fromDate: todayStart, toDate: now);
-    if (mounted) setState(() => _todayRecords = records);
+    try {
+      final user = ref.read(authProvider).currentUser;
+      final farmId = user?.farmId ?? '';
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
+      final records = await ref
+          .read(eggProductionProvider.notifier)
+          .getRecords(farmId: farmId, fromDate: todayStart, toDate: now);
+      if (mounted) setState(() => _todayRecords = records);
+    } catch (e) {
+      debugPrint('_loadTodayRecords failed: $e');
+      if (!mounted) return;
+      AppSnack.error(context, 'تعذّر تحميل سجلات اليوم');
+    }
   }
 
   Future<void> _save() async {

@@ -39,24 +39,36 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final todayStart = DateTime(now.year, now.month, now.day);
     final weekAgo = now.subtract(const Duration(days: 7));
 
-    final results = await Future.wait([
-      ref.read(eggProductionProvider.notifier).getRecords(farmId: farmId, fromDate: todayStart, toDate: now),
-      ref.read(mortalityProvider.notifier).getRecords(farmId: farmId, fromDate: todayStart, toDate: now),
-      ref.read(feedConsumptionProvider.notifier).getAll(farmId: farmId, fromDate: todayStart, toDate: now),
-      ref.read(eggProductionProvider.notifier).getRecords(farmId: farmId, fromDate: weekAgo, toDate: now),
-      ref.read(mortalityProvider.notifier).getRecords(farmId: farmId, fromDate: weekAgo, toDate: now),
-      ref.read(feedConsumptionProvider.notifier).getAll(farmId: farmId, fromDate: weekAgo, toDate: now),
-    ]);
+    try {
+      final results = await Future.wait([
+        ref.read(eggProductionProvider.notifier).getRecords(farmId: farmId, fromDate: todayStart, toDate: now),
+        ref.read(mortalityProvider.notifier).getRecords(farmId: farmId, fromDate: todayStart, toDate: now),
+        ref.read(feedConsumptionProvider.notifier).getAll(farmId: farmId, fromDate: todayStart, toDate: now),
+        ref.read(eggProductionProvider.notifier).getRecords(farmId: farmId, fromDate: weekAgo, toDate: now),
+        ref.read(mortalityProvider.notifier).getRecords(farmId: farmId, fromDate: weekAgo, toDate: now),
+        ref.read(feedConsumptionProvider.notifier).getAll(farmId: farmId, fromDate: weekAgo, toDate: now),
+      ]);
 
-    if (mounted) setState(() {
-      _todayEggs = results[0] as List<EggProductionModel>;
-      _todayMortality = results[1] as List<MortalityModel>;
-      _todayFeed = results[2] as List<FeedConsumptionModel>;
-      _weekEggs = results[3] as List<EggProductionModel>;
-      _weekMortality = results[4] as List<MortalityModel>;
-      _weekFeed = results[5] as List<FeedConsumptionModel>;
-      _loading = false;
-    });
+      if (mounted) {
+        setState(() {
+          _todayEggs = results[0] as List<EggProductionModel>;
+          _todayMortality = results[1] as List<MortalityModel>;
+          _todayFeed = results[2] as List<FeedConsumptionModel>;
+          _weekEggs = results[3] as List<EggProductionModel>;
+          _weekMortality = results[4] as List<MortalityModel>;
+          _weekFeed = results[5] as List<FeedConsumptionModel>;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('ReportsScreen._load failed: $e');
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذّر تحميل التقارير، حاول مجدداً')),
+        );
+      }
+    }
   }
 
   Future<void> _exportCsv() async {
@@ -210,9 +222,11 @@ class _BarChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxVal = data.fold<int>(0, (s, v) => v > s ? v : s);
-    final days = ['س', 'ح', 'ن', 'ث', 'ر', 'خ', 'ج'];
+    // ترتيب أيام الأسبوع وفق DateTime.weekday: الاثنين=1 ... السبت=6 الأحد=7
+    final days = ['', 'ن', 'ث', 'ر', 'خ', 'ج', 'س', 'ح'];
     final now = DateTime.now();
-    final dayLabels = List.generate(7, (i) => days[(now.subtract(Duration(days: 6 - i)).weekday - 1) % 7]);
+    final dayLabels = List.generate(
+        7, (i) => days[now.subtract(Duration(days: 6 - i)).weekday]);
 
     return Container(
       height: 180,

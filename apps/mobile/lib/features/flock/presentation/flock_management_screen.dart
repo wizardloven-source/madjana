@@ -97,52 +97,82 @@ class _FlockManagementScreenState extends ConsumerState<FlockManagementScreen> {
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('إضافة قطيع جديد'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(controller: breedCtrl, decoration: const InputDecoration(labelText: 'السلالة')),
-              const SizedBox(height: 12),
-              TextField(controller: countCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'عدد الطيور')),
-              const SizedBox(height: 12),
-              TextField(controller: sectionsCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'عدد العنابر')),
-              const SizedBox(height: 12),
-              DatePickerField(
-                value: startDate,
-                label: 'تاريخ البداية',
-                onChanged: (d) => startDate = d,
+      builder: (ctx) {
+        var saving = false;
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('إضافة قطيع جديد'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(controller: breedCtrl, decoration: const InputDecoration(labelText: 'السلالة')),
+                  const SizedBox(height: 12),
+                  TextField(controller: countCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'عدد الطيور')),
+                  const SizedBox(height: 12),
+                  TextField(controller: sectionsCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'عدد العنابر')),
+                  const SizedBox(height: 12),
+                  DatePickerField(
+                    value: startDate,
+                    label: 'تاريخ البداية',
+                    onChanged: (d) => startDate = d,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(ctx),
+                child: const Text('إلغاء'),
+              ),
+              FilledButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        setDialogState(() => saving = true);
+                        try {
+                          final farmId = _selectedFarmId ?? '';
+                          final breed = breedCtrl.text;
+                          final count = int.tryParse(countCtrl.text) ?? 0;
+                          final sections = int.tryParse(sectionsCtrl.text) ?? 1;
+                          if (breed.isEmpty || count <= 0) {
+                            setDialogState(() => saving = false);
+                            return;
+                          }
+                          final repo = ref.read(flockRepositoryProvider);
+                          await repo.createFlock(FlockModel(
+                            id: DateTime.now().millisecondsSinceEpoch.toString(),
+                            farmId: farmId,
+                            breed: breed,
+                            startDate: startDate,
+                            initialCount: count,
+                            currentCount: count,
+                            sectionsCount: sections,
+                          ));
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          ref.invalidate(flocksProvider(farmId));
+                        } catch (e) {
+                          debugPrint('createFlock failed: $e');
+                          if (ctx.mounted) {
+                            setDialogState(() => saving = false);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('تعذّر حفظ القطيع')),
+                            );
+                          }
+                        }
+                      },
+                child: saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('حفظ'),
               ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
-          FilledButton(
-            onPressed: () async {
-              final farmId = _selectedFarmId ?? '';
-              final breed = breedCtrl.text;
-              final count = int.tryParse(countCtrl.text) ?? 0;
-              final sections = int.tryParse(sectionsCtrl.text) ?? 1;
-              if (breed.isEmpty || count <= 0) return;
-              final repo = ref.read(flockRepositoryProvider);
-              await repo.createFlock(FlockModel(
-                id: DateTime.now().millisecondsSinceEpoch.toString(),
-                farmId: farmId,
-                breed: breed,
-                startDate: startDate,
-                initialCount: count,
-                currentCount: count,
-                sectionsCount: sections,
-              ));
-              if (ctx.mounted) Navigator.pop(ctx);
-              ref.invalidate(flocksProvider(farmId));
-            },
-            child: const Text('حفظ'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -151,61 +181,115 @@ class _FlockManagementScreenState extends ConsumerState<FlockManagementScreen> {
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('تعديل القطيع'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('سلالة: ${flock.breed}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            TextField(controller: countCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'العدد الحالي')),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
-          FilledButton(
-            onPressed: () async {
-              final count = int.tryParse(countCtrl.text) ?? flock.currentCount;
-              final repo = ref.read(flockRepositoryProvider);
-              await repo.updateFlock(FlockModel(
-                id: flock.id,
-                farmId: flock.farmId,
-                breed: flock.breed,
-                startDate: flock.startDate,
-                initialCount: flock.initialCount,
-                currentCount: count,
-                status: flock.status,
-                sectionsCount: flock.sectionsCount,
-              ));
-              if (ctx.mounted) Navigator.pop(ctx);
-              ref.invalidate(flocksProvider(_selectedFarmId ?? ''));
-            },
-            child: const Text('حفظ'),
+      builder: (ctx) {
+        var saving = false;
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('تعديل القطيع'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('سلالة: ${flock.breed}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                TextField(controller: countCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'العدد الحالي')),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(ctx),
+                child: const Text('إلغاء'),
+              ),
+              FilledButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        setDialogState(() => saving = true);
+                        final count = int.tryParse(countCtrl.text) ?? flock.currentCount;
+                        try {
+                          final repo = ref.read(flockRepositoryProvider);
+                          await repo.updateFlock(FlockModel(
+                            id: flock.id,
+                            farmId: flock.farmId,
+                            breed: flock.breed,
+                            startDate: flock.startDate,
+                            initialCount: flock.initialCount,
+                            currentCount: count,
+                            status: flock.status,
+                            sectionsCount: flock.sectionsCount,
+                          ));
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          ref.invalidate(flocksProvider(_selectedFarmId ?? ''));
+                        } catch (e) {
+                          debugPrint('updateFlock failed: $e');
+                          if (ctx.mounted) {
+                            setDialogState(() => saving = false);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('تعذّر حفظ التعديل')),
+                            );
+                          }
+                        }
+                      },
+                child: saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('حفظ'),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   void _confirmEndFlock(BuildContext context, WidgetRef ref, FlockModel flock) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('إنهاء دورة القطيع'),
-        content: Text('هل تريد إنهاء دورة "${flock.breed}"؟'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
-          FilledButton(
-            onPressed: () async {
-              await ref.read(flockRepositoryProvider).endFlock(flock.id);
-              if (ctx.mounted) Navigator.pop(ctx);
-              ref.invalidate(flocksProvider(_selectedFarmId ?? ''));
-            },
-            style: FilledButton.styleFrom(backgroundColor: Colors.orange),
-            child: const Text('إنهاء'),
+      builder: (ctx) {
+        var saving = false;
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('إنهاء دورة القطيع'),
+            content: Text('هل تريد إنهاء دورة "${flock.breed}"؟'),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(ctx),
+                child: const Text('إلغاء'),
+              ),
+              FilledButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        setDialogState(() => saving = true);
+                        try {
+                          await ref.read(flockRepositoryProvider).endFlock(flock.id);
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          ref.invalidate(flocksProvider(_selectedFarmId ?? ''));
+                        } catch (e) {
+                          debugPrint('endFlock failed: $e');
+                          if (ctx.mounted) {
+                            setDialogState(() => saving = false);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('تعذّر إنهاء الدورة')),
+                            );
+                          }
+                        }
+                      },
+                style: FilledButton.styleFrom(backgroundColor: Colors.orange),
+                child: saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('إنهاء'),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

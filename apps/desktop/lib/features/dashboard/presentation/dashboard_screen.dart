@@ -45,25 +45,26 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    // تحديث صامت عند مزامنة الـ shell الدورية (كل 30 ثانية) أو أي تغيير مزامنة
+    ref.listen(dataRefreshTickProvider, (_, _) {
+      if (mounted) _load(silent: true);
+    });
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool silent = false}) async {
+    if (silent) {
+      _loadFailed = false;
+    } else {
+      setState(() => _loading = true);
+      _loadFailed = false;
+    }
     final farmId = _farmId;
     final eggRepo = ref.read(eggProductionRepositoryProvider);
     final mortalityRepo = ref.read(mortalityRepositoryProvider);
     final feedRepo = ref.read(feedRepositoryProvider);
     final paymentRepo = ref.read(paymentRepositoryProvider);
     final dispatchRepo = ref.read(dispatchRepositoryProvider);
-
-    // مزامنة البيانات أولاً: رفع المعلّق + سحب سجلات الأجهزة الأخرى
-    try {
-      final syncRepo = ref.read(syncRepositoryProvider);
-      final pulled = await syncRepo.syncNow(farmId);
-      if (pulled.uploadedCount > 0 || pulled.downloadedCount > 0 && mounted) {
-        ref.read(dataRefreshTickProvider.notifier).state++;
-      }
-    } catch (_) {}
 
     final today = DateTime.now();
     final monthAgo = today.subtract(const Duration(days: 30));
@@ -159,18 +160,53 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       } catch (_) {
         _pendingApprovals = 0;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('DashboardScreen._load failed: $e');
+      _loadFailed = true;
+    }
 
     if (!mounted) return;
     setState(() => _loading = false);
   }
 
   int _currentEggStock = 0;
+  bool _loadFailed = false;
 
   @override
   Widget build(BuildContext context) {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
+    }
+
+    // شريط فشل تحميل البيانات مع زر إعادة المحاولة
+    if (_loadFailed) {
+      return Column(
+        children: [
+          Container(
+            width: double.infinity,
+            color: Theme.of(context).colorScheme.errorContainer,
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 18),
+                const SizedBox(width: 8),
+                const Text('تعذّر تحميل لوحة التحكم'),
+                const SizedBox(width: 12),
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() => _loadFailed = false);
+                    _load();
+                  },
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text('إعادة المحاولة'),
+                ),
+              ],
+            ),
+          ),
+          const Expanded(child: Center(child: Text('لا توجد بيانات للعرض'))),
+        ],
+      );
     }
 
     final now = DateTime.now();

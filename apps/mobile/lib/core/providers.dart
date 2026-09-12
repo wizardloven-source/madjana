@@ -34,6 +34,7 @@ final syncQueueDaoProvider = Provider<SyncQueueDao>((ref) => SyncQueueDao());
 final notesDaoProvider = Provider<NotesDao>((ref) => NotesDao());
 final paymentDaoProvider = Provider<PaymentDao>((ref) => PaymentDao());
 final userDaoProvider = Provider<UserDao>((ref) => UserDao());
+final openingBalanceDaoProvider = Provider<OpeningBalanceDao>((ref) => OpeningBalanceDao());
 
 
 // ─────────────── المصادر البعيدة ───────────────
@@ -60,6 +61,10 @@ final supabaseFlockDatasourceProvider = Provider<SupabaseFlockDatasource>(
 );
 final supabasePaymentDatasourceProvider = Provider<SupabasePaymentDatasource>(
   (ref) => SupabasePaymentDatasource(ref.watch(supabaseApiProvider)),
+);
+
+final supabaseOpeningBalanceDatasourceProvider = Provider<SupabaseOpeningBalanceDatasource>(
+  (ref) => SupabaseOpeningBalanceDatasource(ref.watch(supabaseApiProvider)),
 );
 
 final supabaseNotificationDatasourceProvider = Provider<SupabaseNotificationDatasource>(
@@ -145,6 +150,13 @@ final farmRepositoryProvider = Provider<FarmRepository>(
   (ref) => FarmRepositoryImpl(
     remoteDatasource: ref.watch(supabaseFarmDatasourceProvider),
     settingsDao: ref.watch(settingsDaoProvider),
+  ),
+);
+
+final openingBalanceRepositoryProvider = Provider<OpeningBalanceRepository>(
+  (ref) => OpeningBalanceRepositoryImpl(
+    localDao: ref.watch(openingBalanceDaoProvider),
+    remoteDatasource: ref.watch(supabaseOpeningBalanceDatasourceProvider),
   ),
 );
 

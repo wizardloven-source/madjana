@@ -135,7 +135,8 @@ class NumberTile extends StatelessWidget {
 }
 
 /// زر الحفظ الرئيسي الموحد
-class PrimaryActionButton extends StatelessWidget {
+/// يدير حالة التحميل داخلياً: يعطَّل أثناء التنفيذ ويمنع النقر المزدوج.
+class PrimaryActionButton extends StatefulWidget {
   final String label;
   final IconData icon;
   final Future<void> Function()? onPressed;
@@ -150,6 +151,24 @@ class PrimaryActionButton extends StatelessWidget {
   });
 
   @override
+  State<PrimaryActionButton> createState() => _PrimaryActionButtonState();
+}
+
+class _PrimaryActionButtonState extends State<PrimaryActionButton> {
+  bool _busy = false;
+
+  Future<void> _handlePressed() async {
+    final callback = widget.onPressed;
+    if (callback == null || _busy) return;
+    setState(() => _busy = true);
+    try {
+      await callback();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
@@ -157,16 +176,24 @@ class PrimaryActionButton extends StatelessWidget {
       width: double.infinity,
       height: 56,
       child: FilledButton.icon(
-        onPressed: onPressed == null ? null : () => onPressed!(),
+        onPressed: widget.onPressed == null || _busy
+            ? null
+            : _handlePressed,
         style: FilledButton.styleFrom(
-          backgroundColor: color ?? theme.colorScheme.primary,
+          backgroundColor: widget.color ?? theme.colorScheme.primary,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
         ),
-        icon: const Icon(Icons.save_outlined, size: 22),
+        icon: _busy
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              )
+            : Icon(widget.icon, size: 22),
         label: Text(
-          label,
+          widget.label,
           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
         ),
       ),

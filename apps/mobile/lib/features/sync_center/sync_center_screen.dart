@@ -275,15 +275,36 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
   }
 
   Future<void> _performSync() async {
-    await ref.read(syncProvider.notifier).syncNow();
+    final result = await ref.read(syncProvider.notifier).syncNow();
     if (!mounted) return;
     ref.invalidate(syncHistoryProvider);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('تمت المزامنة بنجاح'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    final messenger = ScaffoldMessenger.of(context);
+    if (result == null) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('فشل المزامنة، تحقق من الاتصال'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } else if (result.isSuccess) {
+      final hasChanges =
+          result.uploadedCount > 0 || result.downloadedCount > 0;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(hasChanges
+              ? 'تمت المزامنة: رفع ${result.uploadedCount} · سحب ${result.downloadedCount}'
+              : 'تتم المزامنة (لا توجد تغييرات)'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('اكتملت المزامنة مع ${result.failedCount} سجل فاشل'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
   }
 
   String _formatDateTime(DateTime dt) {

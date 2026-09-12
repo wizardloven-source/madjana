@@ -77,13 +77,20 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
   }
 
   Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 70,
-    );
-    if (image != null) {
-      setState(() => _imageFile = File(image.path));
+    try {
+      final picker = ImagePicker();
+      final image = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 70,
+      );
+      if (image != null) {
+        if (!mounted) return;
+        setState(() => _imageFile = File(image.path));
+      }
+    } catch (e) {
+      debugPrint('pickImage failed: $e');
+      if (!mounted) return;
+      _showError('تعذّر التقاط الصورة، تحقق من إذن الكاميرا');
     }
   }
 
