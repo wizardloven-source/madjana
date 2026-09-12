@@ -287,7 +287,7 @@ BEGIN
                     LOOP
                         IF v_col = ANY(v_allowed_cols) AND NOT (v_col = 'worker_id' AND v_user_role <> 'manager') THEN
                             v_cols := array_append(v_cols, v_col);
-                            v_vals := array_append(v_vals, quote(v_data->>v_col));
+                            v_vals := array_append(v_vals, quote_nullable(v_data->>v_col));
                         END IF;
                     END LOOP;
                     IF v_user_role <> 'manager' THEN
@@ -309,16 +309,16 @@ BEGIN
                     FOR v_col IN SELECT jsonb_object_keys(v_data)
                     LOOP
                         IF v_col = ANY(v_allowed_cols) THEN
-                            v_set_parts := array_append(v_set_parts, format('%I = %s', v_col, quote(v_data->>v_col)));
+                            v_set_parts := array_append(v_set_parts, format('%I = %s', v_col, quote_nullable(v_data->>v_col)));
                         END IF;
                     END LOOP;
                     v_sql := format(
                         'UPDATE %I SET %s WHERE id = %s AND farm_id = %s AND version = %s',
                         v_table_name,
                         array_to_string(v_set_parts, ', '),
-                        quote(v_record_id::text),
-                        quote(v_user_farm::text),
-                        quote((v_record->>'previous_version')::text)
+                        quote_nullable(v_record_id::text),
+                        quote_nullable(v_user_farm::text),
+                        quote_nullable((v_record->>'previous_version')::text)
                     );
                     EXECUTE v_sql;
                     GET DIAGNOSTICS v_upd_count = ROW_COUNT;

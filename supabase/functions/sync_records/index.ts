@@ -55,7 +55,7 @@ function validateRecord(r: Record<string, unknown>): { ok: true; value: SyncReco
   const op = r["operation"];
   if (op !== "insert" && op !== "update" && op !== "delete") return ERR("operation غير صالح");
   if (typeof r["record_id"] !== "string" || r["record_id"] === "") return ERR("record_id ناقص");
-  const payload = r["payload"] ?? {};
+  const payload = r["data"] ?? r["payload"] ?? {};
   if (payload !== null && (typeof payload !== "object" || Array.isArray(payload))) {
     return ERR("payload غير صالح");
   }
