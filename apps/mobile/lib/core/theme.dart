@@ -42,12 +42,12 @@ class AppTheme {
 
       cardTheme: CardThemeData(
         elevation: 0,
-        color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+        color: isDark ? AppColors.surface2 : AppColors.surfaceLight,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: AppRadius.radiusLg,
           side: BorderSide(
-            color: scheme.outlineVariant.withValues(alpha: 0.4),
+            color: isDark ? AppColors.hairline : scheme.outlineVariant,
           ),
         ),
       ),
@@ -92,23 +92,23 @@ class AppTheme {
       ),
 
       dividerTheme: DividerThemeData(
-        color: scheme.outlineVariant.withValues(alpha: 0.4),
+        color: isDark ? AppColors.hairline : scheme.outlineVariant,
         thickness: 1,
         space: 1,
       ),
 
       dialogTheme: DialogThemeData(
         shape: RoundedRectangleBorder(borderRadius: AppRadius.radiusXl),
-        backgroundColor:
-            isDark ? const Color(0xFF1C2227) : AppColors.surfaceLight,
+        backgroundColor: isDark ? AppColors.surface2 : AppColors.surfaceLight,
       ),
 
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: isDark ? const Color(0xFF161B20) : Colors.white,
+        backgroundColor: isDark ? AppColors.surface2 : Colors.white,
         surfaceTintColor: Colors.transparent,
         showDragHandle: true,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(AppSpacing.xl - 12)),
+          borderRadius:
+              BorderRadius.vertical(top: Radius.circular(AppSpacing.xl - 12)),
         ),
       ),
 
