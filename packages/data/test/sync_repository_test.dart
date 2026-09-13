@@ -473,11 +473,12 @@ void main() {
       expect(pay, hasLength(1));
       expect(pay.first['amount_paid'], 200);
 
-      final state = await db.query('sync_state', limit: 1);
+      final state =
+          await db.query('sync_state', where: 'id = ?', whereArgs: ['farm-1']);
       expect(state.first['last_pulled_version'], 3);
     });
 
-    test('فشل صف في المنتصف → commit-point لا يتجاوز النسخة الفاشلة', () async {
+    test('جدول غير محلي في المنتصف → يُتخطى ويُدفع commit-point فوقه', () async {
       final client = MockClient((request) async => jsonReply(
           jsonEncode({
             'latest_version': 3,
@@ -499,7 +500,8 @@ void main() {
                 },
               },
               {
-                // جدول غير موجود يُطلق خطأ SQL → break داخل حلقة الدمج
+                // جدول غير محلي (مثل app_notifications) — يُتخطى عمداً
+                // ويُدفع commit-point فوقه كي لا يُعلّق وصول الإصدارات الأحدث
                 'table_name': 'table_bad',
                 'record_id': 'x1',
                 'operation': 'DELETE',
@@ -528,20 +530,21 @@ void main() {
       final result = await repo.pullAndMerge('farm-1');
 
       expect(result.downloadedCount, 3);
-      expect(result.appliedCount, 1);
-      expect(result.conflictCount, 1);
+      expect(result.appliedCount, 2);
+      expect(result.conflictCount, 0);
 
       final db = await LocalDatabase.database;
-      // r1 طُبق، r2 (بعد الفشل) لم يُطبق
+      // r1 و r2 طُبقا (الجدول غير المحلي أُسقط دون اعتباره فشلاً)
       expect(
           await db.query('egg_production', where: 'id = ?', whereArgs: ['r1']),
           hasLength(1));
       expect(
           await db.query('egg_production', where: 'id = ?', whereArgs: ['r2']),
-          isEmpty);
-      // watermark توقف عند النسخة الناجحة قبل الفشل فقط → يعاد سحب r2 لاحقًا
-      final state = await db.query('sync_state', limit: 1);
-      expect(state.first['last_pulled_version'], 1);
+          hasLength(1));
+      // watermark تجاوز الصف المُتخطّى ووصل لآخر نسخة متعاقبة ناجحة
+      final state =
+          await db.query('sync_state', where: 'id = ?', whereArgs: ['farm-1']);
+      expect(state.first['last_pulled_version'], 3);
     });
   });
 

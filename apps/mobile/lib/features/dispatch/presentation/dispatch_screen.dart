@@ -4,6 +4,7 @@ import 'package:core/core.dart';
 import '../../../core/providers.dart';
 import '../../../shared/widgets/custom_numpad.dart';
 import '../../../shared/widgets/date_picker_field.dart';
+import '../../../shared/widgets/farm_selector.dart';
 import '../../../shared/widgets/modern_ui.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../egg_production/providers/egg_production_provider.dart';
@@ -304,6 +305,12 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // مبدّل المدجنة (عند الربط المتعدد)
+            const Align(
+              alignment: Alignment.centerRight,
+              child: FarmSelector(),
+            ),
+            const SizedBox(height: 12),
             // التاريخ
             DatePickerField(
               value: _selectedDate,

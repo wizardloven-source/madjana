@@ -130,19 +130,17 @@ GRANT EXECUTE ON FUNCTION public.get_farm_users(uuid) TO authenticated;
 -- ------------------------------------------------------------
 -- (3) وزن الكيس من إعدادات المدجنة بدلاً من الثابت 24
 -- ------------------------------------------------------------
+-- PostgreSQL لا يسمح بقيد CHECK يستدعي جدولاً آخر (subquery)، لذا
+-- لا نتحقق من مطابقة الكيس مع وزن الكيس على الخادم — الحساب (كيغ =
+-- كيس × وزن الكيس) مسؤولية الجهاز، ونكتفي بضمان القيم الموجبة وتطابق
+-- الكيلو/الطن تماماً.
 ALTER TABLE public.feed_received DROP CONSTRAINT IF EXISTS check_feed_received_mode;
 
 ALTER TABLE public.feed_received
     ADD CONSTRAINT check_feed_received_mode CHECK (
-        (quantity > 0) AND (
-            (entry_mode = 'bags' AND quantity_kg = quantity *
-                COALESCE(
-                    (SELECT feed_bag_weight_kg FROM public.farms
-                     WHERE id = feed_received.farm_id),
-                    24
-                )
-            ) OR
+        (quantity > 0) AND (quantity_kg > 0) AND (
             (entry_mode = 'kg'   AND quantity_kg = quantity) OR
-            (entry_mode = 'ton'  AND quantity_kg = quantity * 1000)
+            (entry_mode = 'ton'  AND quantity_kg = quantity * 1000) OR
+            (entry_mode = 'bags' AND quantity_kg >= quantity)
         )
     );

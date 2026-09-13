@@ -390,8 +390,11 @@ class SyncRepositoryImpl implements SyncRepository {
       // sync_changes) تُحذف محلياً كي لا تعود البيانات المحذوفة للظهور.
       await _reconcileServerDeleted(db, farmId);
 
-      // 1) قراءة آخر إصدار مُستلم
-      final stateRows = await db.query('sync_state', limit: 1);
+      // 1) قراءة آخر إصدار مُستلم لهذه المزرعة (watermark لكل مدجنة
+      // — لا يمكن مشاركة صف واحد بين المداجن وإلا تُحجب نسخ المدجنات
+      // الأقل تقدماً مثل ما حدث مع حكمون/الجرار).
+      final stateRows =
+          await db.query('sync_state', where: 'id = ?', whereArgs: [farmId], limit: 1);
       final lastVersion = stateRows.isNotEmpty
           ? (stateRows.first['last_pulled_version'] as int?) ?? 0
           : 0;
@@ -506,14 +509,14 @@ class SyncRepositoryImpl implements SyncRepository {
         }
       });
 
-      // 4) تحديث آخر إصدار مُستلم — فقط إلى commit-point
+      // 4) تحديث آخر إصدار مُستلم لهذه المزرعة — فقط إلى commit-point
       // (لا نتجاوزه عن فشل، وإلا لن يُسحب السجل الفاشل مرة أخرى).
       final effectiveVersion = commitPointVersion;
       if (effectiveVersion > lastVersion) {
         await db.rawInsert(
           '''INSERT OR REPLACE INTO sync_state (id, last_pulled_version, updated_at)
-             VALUES ('local', ?, ?)''',
-          [effectiveVersion, DateTime.now().toIso8601String()],
+             VALUES (?, ?, ?)''',
+          [farmId, effectiveVersion, DateTime.now().toIso8601String()],
         );
       }
 
@@ -536,7 +539,12 @@ class SyncRepositoryImpl implements SyncRepository {
   /// لأن الاتصال نفسه يُعالج في syncNow.
   Future<void> _reconcileServerDeleted(Database db, String farmId) async {
     try {
-      final stateRows = await db.query('sync_state', limit: 1);
+      final stateRows = await db.query(
+        'sync_state',
+        where: 'id = ?',
+        whereArgs: [farmId],
+        limit: 1,
+      );
       final lastReconcile = stateRows.isNotEmpty
           ? DateTime.tryParse(stateRows.first['updated_at']?.toString() ?? '')
           : null;
@@ -594,18 +602,18 @@ class SyncRepositoryImpl implements SyncRepository {
         );
       }
 
-      // ختم وقت المصالحة — قبل نجاح استدعاء RPC فقط، حتى يُعاد
-      // في الدورة التالية على فشل الشبكة.
+      // ختم وقت المصالحة لهذه المزرعة — قبل نجاح استدعاء RPC فقط، حتى
+      // يُعاد في الدورة التالية على فشل الشبكة.
       final now = DateTime.now().toIso8601String();
       final updated = await db.rawUpdate(
-        "UPDATE sync_state SET updated_at = ? WHERE id = 'local'",
-        [now],
+        'UPDATE sync_state SET updated_at = ? WHERE id = ?',
+        [now, farmId],
       );
       if (updated == 0) {
         await db.rawInsert(
           '''INSERT OR REPLACE INTO sync_state (id, last_pulled_version, updated_at)
-             VALUES ('local', 0, ?)''',
-          [now],
+             VALUES (?, 0, ?)''',
+          [farmId, now],
         );
       }
     } catch (e) {
@@ -753,8 +761,8 @@ class SyncRepositoryImpl implements SyncRepository {
           final db = await LocalDatabase.database;
           await db.rawUpdate(
             '''INSERT OR REPLACE INTO sync_state (id, last_pulled_version, updated_at)
-               VALUES ('local', 0, ?)''',
-            [DateTime.now().toIso8601String()],
+               VALUES (?, 0, ?)''',
+            [farmId, DateTime.now().toIso8601String()],
           );
           // سحب ثانٍ فوري من الإصدار 0
           final retryPull = await pullAndMerge(farmId);
