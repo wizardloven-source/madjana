@@ -358,6 +358,7 @@ class FeedDao {
       invoiceNumber: map['invoice_number'] as String?,
       notes: map['notes'] as String?,
       pricePerKg: (map['price_per_kg'] as num?)?.toDouble(),
+      workerId: map['worker_id'] as String? ?? '',
     );
   }
 }

@@ -32,6 +32,7 @@ class FeedReceivedNotifier extends StateNotifier<bool> {
     String? supplier,
     String? invoiceNumber,
     String? notes,
+    String workerId = '',
   }) async {
     try {
       await _repository.saveReceivedLocal(
@@ -45,6 +46,7 @@ class FeedReceivedNotifier extends StateNotifier<bool> {
           supplier: supplier,
           invoiceNumber: invoiceNumber,
           notes: notes,
+          workerId: workerId,
         ),
       );
       _repository.syncPendingConsumption();

@@ -154,6 +154,39 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
   String _customerName(String? id) =>
       id == null ? '-' : (_customers[id]?.name ?? '-');
 
+  /// حذف تخريج لم يُزامن بعد (سجل محلي فقط لم يصل للقاعدة)
+  Future<void> _deleteLocalDispatch(DispatchModel dispatch) async {
+    if (dispatch.syncStatus == SyncStatus.synced) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف سجل التخريج'),
+        content: Text(
+          'هذا التخريج (${Formatters.formatDate(dispatch.date)}، '
+          '${_customerName(dispatch.customerId)}) لم يصل للقاعدة بعد.\n'
+          'حذفه نهائياً من هذا الجهاز؟',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await ref.read(dispatchRepositoryProvider).deleteLocalOnly(dispatch.id!);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم حذف السجل المحلي بنجاح')),
+    );
+    _load();
+  }
+
   Future<void> _showAddDispatchDialog() async {
     if (_customers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -408,6 +441,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                             DataColumn(label: Text('إجمالي البيض')),
                             DataColumn(label: Text('وزن الصحن')),
                             DataColumn(label: Text('الحالة')),
+                            DataColumn(label: Text('إجراء')),
                           ],
                           rows: [
                             for (final d in filtered)
@@ -438,13 +472,59 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                                           ),
                                   ),
                                   DataCell(
-                                    Text(
-                                      _statusLabel(d.paymentStatus),
-                                      style: TextStyle(
-                                        color: _statusColor(d.paymentStatus),
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          _statusLabel(d.paymentStatus),
+                                          style: TextStyle(
+                                            color: _statusColor(d.paymentStatus),
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        if (d.syncStatus != SyncStatus.synced)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                                left: 6),
+                                            child: Tooltip(
+                                              message: d.syncStatus ==
+                                                      SyncStatus.failed
+                                                  ? 'فشل الرفع للقاعدة - احذفه وأعد إدخاله'
+                                                  : 'بانتظار المزامنة',
+                                              child: Icon(
+                                                d.syncStatus ==
+                                                        SyncStatus.failed
+                                                    ? Icons.error_outline
+                                                    : Icons.sync_problem,
+                                                size: 16,
+                                                color: Colors.orangeAccent,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
                                     ),
+                                  ),
+                                  DataCell(
+                                    d.syncStatus == SyncStatus.synced
+                                        ? const Text('-')
+                                        : Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              if (d.syncStatus != SyncStatus.synced)
+                                                Tooltip(
+                                                  message: 'لم يصل للقاعدة - حذف',
+                                                  child: IconButton(
+                                                    icon: const Icon(
+                                                      Icons.delete_outline,
+                                                      color: Colors.redAccent,
+                                                      size: 20,
+                                                    ),
+                                                    onPressed: () =>
+                                                        _deleteLocalDispatch(d),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
                                   ),
                                 ],
                               ),

@@ -131,6 +131,32 @@ class DispatchDao {
     );
   }
 
+  /// حذف سجل محلي لم يُزامن بعد (pending/failed/processing/conflict).
+  /// يُحذف السجل + كل عمليات الطابور المرتبطة به حتى لا تُرفع للخادم لاحقاً.
+  /// السجلات المصنّفة 'synced' لا تُحذف بهذه الطريقة (تتطلب tombstone).
+  Future<bool> deleteLocalOnly(String id) async {
+    final db = await LocalDatabase.database;
+    final existing = await db.query(
+      _table,
+      columns: ['sync_status'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (existing.isEmpty) return false;
+    final status = existing.first['sync_status'] as String? ?? '';
+    if (status == SyncStatus.synced.name) return false;
+
+    // حذف السجل المحلي + عمليات الطابور المعلّقة/الفاشلة الخاصة به
+    await db.delete(_table, where: 'id = ?', whereArgs: [id]);
+    await db.delete(
+      'sync_queue',
+      where: 'table_name = ? AND record_id = ? AND status != ?',
+      whereArgs: [_table, id, SyncStatus.synced.name],
+    );
+    return true;
+  }
+
   /// استبدال سجل تخريج محلي بالنسخة السحابية (حل التعارض)
   Future<void> replaceWithRemote(DispatchModel model) async {
     final db = await LocalDatabase.database;

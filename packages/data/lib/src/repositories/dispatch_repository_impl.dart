@@ -80,6 +80,9 @@ class DispatchRepositoryImpl implements DispatchRepository {
   }
 
   @override
+  Future<bool> deleteLocalOnly(String id) => _localDao.deleteLocalOnly(id);
+
+  @override
   Future<List<DispatchModel>> getAll({
     String? farmId,
     DateTime? fromDate,

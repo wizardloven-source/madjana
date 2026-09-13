@@ -129,6 +129,7 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
           supplier: _supplierController.text.isEmpty ? null : _supplierController.text,
           invoiceNumber: _invoiceController.text.isEmpty ? null : _invoiceController.text,
           notes: _notesController.text.isEmpty ? null : _notesController.text,
+          workerId: user.uid,
         );
 
     if (result.success) {

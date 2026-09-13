@@ -20,6 +20,9 @@ abstract class DispatchRepository {
   /// حذف زبون (محلياً + البعيد عند الاتصال)
   Future<void> deleteCustomer(String id);
 
+  /// حذف تخريج غير متزامن محلياً (لم يُرفع للخادم بعد) + إلغاء عمليات طابوره
+  Future<bool> deleteLocalOnly(String id);
+
   /// جلب كل التخريج
   Future<List<DispatchModel>> getAll({String? farmId, DateTime? fromDate, DateTime? toDate});
 

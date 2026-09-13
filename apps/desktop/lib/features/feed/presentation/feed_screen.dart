@@ -154,6 +154,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         invoiceNumber: result['invoice_number'] as String?,
         notes: result['notes'] as String?,
         sectionNo: result['section_no'] as int?,
+        workerId: ref.read(authProvider).currentUser?.uid ?? 'manager',
       );
       await ref.read(feedRepositoryProvider).saveReceivedLocal(record);
       if (mounted) {

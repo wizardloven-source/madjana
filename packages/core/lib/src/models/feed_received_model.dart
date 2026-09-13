@@ -14,6 +14,9 @@ class FeedReceivedModel {
   final String? invoiceNumber;
   final String? notes;
 
+  /// العامل الذي سجّل الاستلام — يُرسل مع الـ payload للخادم
+  final String workerId;
+
   /// سعر الكيلوغرام — يُدخله المدير لاحقاً من سطح المكتب
   final double? pricePerKg;
   final int? sectionNo;
@@ -36,6 +39,7 @@ class FeedReceivedModel {
     this.sectionNo,
     this.version = 1,
     this.previousVersion,
+    this.workerId = '',
   });
 
   /// إجمالي قيمة الفاتورة (يُحسب عند التسعير)
@@ -64,6 +68,7 @@ class FeedReceivedModel {
       pricePerKg: (json['price_per_kg'] as num?)?.toDouble(),
       sectionNo: json['section_no'] as int?,
       version: json['version'] as int? ?? 1,
+      workerId: json['worker_id'] as String? ?? '',
     );
   }
 
@@ -79,7 +84,7 @@ class FeedReceivedModel {
         'supplier': supplier,
         'invoice_number': invoiceNumber,
         'notes': notes,
-        'worker_id': '',
+        if (workerId.isNotEmpty) 'worker_id': workerId,
         if (sectionNo != null) 'section_no': sectionNo,
         if (pricePerKg != null) 'price_per_kg': pricePerKg,
         'version': version,
