@@ -17,11 +17,31 @@ class FarmSelector extends ConsumerWidget {
     final user = ref.watch(authProvider).currentUser;
     final farmsAsync = ref.watch(currentUserFarmsProvider);
     final farms = farmsAsync.valueOrNull ?? const <FarmModel>[];
-    if (user == null || farms.isEmpty) return const SizedBox.shrink();
+    if (user == null) return const SizedBox.shrink();
+
+    // fallback: لو لم يصل RPC (دالة غير منشورة/انقطاع) لكن المستخدم لديه
+    // مداجن في بياناته، نعرض على الأقل المدجنة النشطة بمعرّفها
+    final effectiveFarms = farms.isNotEmpty
+        ? farms
+        : (user.farmIds.isNotEmpty
+            ? user.farmIds
+                .map((id) => FarmModel(
+                      id: id,
+                      name: id == user.farmId ? '' : '',
+                    ))
+                .toList()
+            : (user.farmId != null && user.farmId!.isNotEmpty
+                ? [FarmModel(id: user.farmId!, name: '')]
+                : const <FarmModel>[]));
+    if (effectiveFarms.isEmpty) return const SizedBox.shrink();
 
     final currentId = user.farmId ?? '';
-    final matched = farms.where((f) => f.id == currentId).toList();
-    final current = matched.isEmpty ? farms.first : matched.first;
+    final matched = effectiveFarms.where((f) => f.id == currentId).toList();
+    final current = matched.isEmpty ? effectiveFarms.first : matched.first;
+
+    final displayName = current.name.isNotEmpty
+        ? current.name
+        : (current.id == user.farmId ? 'المدجنة النشطة' : 'مدجنة');
 
     return Material(
       color: Colors.white.withValues(alpha: 0.92),
@@ -34,10 +54,10 @@ class FarmSelector extends ConsumerWidget {
             Icon(Icons.apartment_rounded,
                 size: 18, color: theme.colorScheme.primary),
             const SizedBox(width: 8),
-            if (farms.length <= 1)
+            if (effectiveFarms.length <= 1)
               Flexible(
                 child: Text(
-                  current.name,
+                  displayName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -60,11 +80,15 @@ class FarmSelector extends ConsumerWidget {
                     color: theme.colorScheme.onSurface,
                   ),
                   items: [
-                    for (final f in farms)
+                    for (final f in effectiveFarms)
                       DropdownMenuItem(
                         value: f.id,
                         child: Text(
-                          f.name,
+                          f.name.isNotEmpty
+                              ? f.name
+                              : (f.id == user.farmId
+                                  ? 'المدجنة النشطة'
+                                  : 'مدجنة'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),

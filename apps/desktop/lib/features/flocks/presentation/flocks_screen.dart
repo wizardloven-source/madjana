@@ -7,6 +7,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../onboarding/presentation/old_flock_wizard_screen.dart';
 import '../../onboarding/presentation/new_flock_wizard_screen.dart';
 import '../../barn/presentation/barn_record_screen.dart';
+import 'flock_accounting_screen.dart';
 
 /// شاشة إدارة القطعان - للمدير
 class FlocksScreen extends ConsumerStatefulWidget {
@@ -347,6 +348,15 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
                             context,
                             MaterialPageRoute(
                                 builder: (_) => BarnRecordScreen(flock: f)),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'محاسبة الفوج',
+                          icon: const Icon(Icons.account_balance_wallet_outlined),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => FlockAccountingScreen(flock: f)),
                           ),
                         ),
                         if (!ended)

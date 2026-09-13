@@ -21,6 +21,7 @@ import '../../reports/presentation/reports_screen.dart';
 import '../../settings/presentation/settings_screen.dart';
 import '../../users/presentation/users_screen.dart';
 import '../../customers/presentation/customers_screen.dart';
+import '../../sync/presentation/sync_center_screen.dart';
 
 class ManagerShell extends ConsumerStatefulWidget {
   const ManagerShell({super.key});
@@ -45,6 +46,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     MedicinesScreen(),
     CustomersScreen(),
     UsersScreen(),
+    SyncCenterScreen(),
     SettingsScreen(),
   ];
 
@@ -63,6 +65,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     'الأدوية',
     'الزبائن',
     'المستخدمون',
+    'المزامنة',
     'الإعدادات',
   ];
 
@@ -81,6 +84,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     Icons.medical_services_rounded,
     Icons.group_rounded,
     Icons.people_rounded,
+    Icons.sync_rounded,
     Icons.settings_rounded,
   ];
 
@@ -90,13 +94,16 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     ('الإنتاج', [1, 2, 3, 4]),
     ('المبيعات والمالية', [5, 12, 8]),
     ('المخزون والعلاج', [9, 11]),
-    ('المتابعة والإدارة', [6, 7, 10, 13, 14]),
+    ('المتابعة والإدارة', [6, 7, 10, 13, 14, 15]),
   ];
+
+  int _failedSyncCount = 0;
 
   @override
   void initState() {
     super.initState();
     _startPeriodicSync();
+    _refreshFailedCount();
   }
 
   // تبويبات مبنية مرة واحدة (كسل على أول زيارة) — تُحفظ حالتها بعد ذلك
@@ -129,11 +136,21 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
         } catch (_) {}
 
         final pulled = await ref.read(syncRepositoryProvider).syncNow(farmId);
-        if (pulled.uploadedCount > 0 || pulled.downloadedCount > 0 && mounted) {
+        if (pulled.uploadedCount > 0 || (pulled.downloadedCount > 0 && mounted)) {
           ref.read(dataRefreshTickProvider.notifier).state++;
         }
       } catch (_) {}
+      await _refreshFailedCount();
     });
+  }
+
+  Future<void> _refreshFailedCount() async {
+    try {
+      final count = await ref.read(syncRepositoryProvider).getFailedCount();
+      if (mounted && count != _failedSyncCount) {
+        setState(() => _failedSyncCount = count);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -292,6 +309,28 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                         ),
                       ),
                       const Spacer(),
+                      // زر فتح مركز المزامنة (يظهر عند وجود عمليات فاشلة)
+                      if (_failedSyncCount > 0) ...[
+                        Tooltip(
+                          message:
+                              '$_failedSyncCount عملية فاشلة — افتح مركز المزامنة',
+                          child: IconButton(
+                            icon: Badge(
+                              label: Text('$_failedSyncCount'),
+                              child: const Icon(Icons.sync_problem_rounded),
+                            ),
+                            color: theme.colorScheme.error,
+                            onPressed: () => _selectTab(14),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      // دخول سريع لمركز المزامنة (لعرض كل العمليات بوضوح)
+                      IconButton(
+                        tooltip: 'مركز المزامنة',
+                        icon: const Icon(Icons.sync_rounded),
+                        onPressed: () => _selectTab(14),
+                      ),
                       // مبدّل المدجنة النشطة (لمدير/عامل يملك أكثر من مدجنة)
                       const FarmDropdown(),
                       const SizedBox(width: 12),

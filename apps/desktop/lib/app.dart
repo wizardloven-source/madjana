@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import 'core/theme.dart';
+import 'core/theme_provider.dart';
 import 'features/auth/presentation/bootstrap_admin_screen.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/providers/auth_provider.dart';
@@ -16,6 +17,7 @@ class MadjanaDesktopApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
+    final themeMode = ref.watch(themeModeProvider);
 
     final Widget home;
     if (authState.isLoggedIn) {
@@ -27,9 +29,9 @@ class MadjanaDesktopApp extends ConsumerWidget {
     return MaterialApp(
       title: 'نظام إدارة المداجن - سطح المكتب',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme(),
+      theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),
-      themeMode: ThemeMode.dark,
+      themeMode: themeMode,
       locale: const Locale('ar'),
       supportedLocales: const [Locale('ar')],
       localizationsDelegates: const [

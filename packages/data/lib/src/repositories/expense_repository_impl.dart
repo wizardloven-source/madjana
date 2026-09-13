@@ -44,9 +44,12 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
   @override
   Future<void> save(ExpenseModel expense) async {
     if (expense.id == null) {
+      // عيّن معرّفاً موحّداً للعملية محلياً وبعيداً حتى لا يتكرر المصروف:
+      // كان الخادم ينشئ معرّفاً مختلفاً عند الرفع الفوري، ثم يُعيد syncNow رفع
+      // سجل sync_queue بنفس المعرّف المحلي → صف مكرر على الخادم.
       final localId = await _localDao.insert(expense.copyWith(syncStatus: SyncStatus.pending));
       try {
-        final saved = await _remoteDatasource.insert(expense);
+        final saved = await _remoteDatasource.insert(expense.copyWith(id: localId));
         await _localDao.update(localId, ExpenseModel.fromJson(saved).copyWith(syncStatus: SyncStatus.synced));
       } catch (_) {
         // Offline: saved locally with pending status

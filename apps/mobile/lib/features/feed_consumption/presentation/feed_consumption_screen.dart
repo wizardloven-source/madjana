@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import '../../../core/providers.dart';
 import '../../../shared/widgets/custom_numpad.dart';
 import '../../../shared/widgets/date_picker_field.dart';
 import '../../../shared/widgets/farm_selector.dart';
@@ -31,6 +32,10 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
   double _quantityKg = 0;
   double _kgPerBag = AppConstants.kgPerBag;
 
+  // الكمية المتوفرة بالمخزون (مستلم - مستهلك)
+  double _stockKg = 0;
+  bool _stockLoading = true;
+
   // سجلات اليوم
   List<FeedConsumptionModel> _todayRecords = [];
 
@@ -43,8 +48,24 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
       if (user?.farmId != null) {
         setState(() => _selectedFarmId = user!.farmId);
       }
+      _loadStock();
       _loadTodayRecords();
     });
+  }
+
+  Future<void> _loadStock() async {
+    final user = ref.read(authProvider).currentUser;
+    final farmId = user?.farmId ?? '';
+    if (farmId.isEmpty) return;
+    setState(() => _stockLoading = true);
+    try {
+      final stock = await ref.read(feedRepositoryProvider).getCurrentFeedStock(farmId);
+      if (mounted) setState(() => _stockKg = stock);
+    } catch (_) {
+      if (mounted) setState(() => _stockKg = 0);
+    } finally {
+      if (mounted) setState(() => _stockLoading = false);
+    }
   }
 
   Future<void> _loadTodayRecords() async {
@@ -185,7 +206,57 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
                   final fid =
                       ref.read(authProvider).currentUser?.farmId;
                   if (fid != null) setState(() => _selectedFarmId = fid);
+                  _loadStock();
+                  _loadTodayRecords();
                 },
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // الكمية المتوفرة بالمخزون
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(AppConstants.colorWarning).withValues(alpha: 0.15),
+                    const Color(AppConstants.colorWarning).withValues(alpha: 0.05),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(AppConstants.colorWarning).withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.inventory_2_rounded,
+                      color: const Color(AppConstants.colorWarning)),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'الكمية المتوفرة بالمخزون',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  if (_stockLoading)
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    Text(
+                      _stockKg >= 1000
+                          ? '${(_stockKg / 1000).toStringAsFixed(1)} طن'
+                          : '${_stockKg.toStringAsFixed(0)} كغ',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Color(AppConstants.colorWarning),
+                      ),
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: 12),

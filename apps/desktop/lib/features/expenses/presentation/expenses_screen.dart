@@ -85,6 +85,15 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     final descCtrl = TextEditingController(text: expense?.description ?? '');
     final bundlesCtrl = TextEditingController(
         text: expense?.cartonBundles?.toString() ?? '');
+    // عند التعديل نُعاد حساب سعر الربطة من الإجمالي المخزّن
+    final priceCtrl = TextEditingController(
+      text: (expense != null &&
+              expense.category == ExpenseCategory.carton &&
+              expense.cartonBundles != null &&
+              expense.cartonBundles! > 0)
+          ? (expense.amount / expense.cartonBundles!).toStringAsFixed(4)
+          : '',
+    );
     var date = expense?.date ?? DateTime.now();
     var category = expense?.category ?? ExpenseCategory.other;
     final defaultCurrency = expense != null
@@ -99,6 +108,14 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
             ? value / exchangeRate!
             : value;
     String inputSymbol(AppCurrency cu) => cu.symbol;
+
+    // الإجمالي المحسوب ديناميكياً للكرتون: سعر الربطة × عدد الربطات
+    double cartonTotal(String bundlesText, String priceText) {
+      final b = int.tryParse(bundlesText.trim());
+      final p = double.tryParse(priceText.trim());
+      if (b == null || p == null || b <= 0 || p <= 0) return 0;
+      return p * b;
+    }
 
     if (!mounted) return;
     final ok = await showDialog<bool>(
@@ -151,43 +168,67 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                     ),
                     const SizedBox(height: 12),
                   ],
-                  // ─── شراء صحون الكرتون: عدد الربطات + سعر الربطة ───
+                  // ─── شراء صحون الكرتون: عدد الربطات × سعر الربطة = الإجمالي ديناميكياً ───
                   if (category == ExpenseCategory.carton) ...[
                     TextField(
                       controller: bundlesCtrl,
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
                           labelText: 'عدد الربطات (الربطة = 100 صحن)'),
+                      onChanged: (_) => setDialog(() {}),
                     ),
                     const SizedBox(height: 8),
-                    if (double.tryParse(amountCtrl.text) != null &&
-                        double.parse(amountCtrl.text.trim()) > 0 &&
-                        int.tryParse(bundlesCtrl.text) != null &&
-                        (int.tryParse(bundlesCtrl.text) ?? 0) > 0)
-                      Text(
-                        'سعر الربطة الواحدة: ${(double.parse(amountCtrl.text.trim()) /
-                            (int.tryParse(bundlesCtrl.text) ?? 1))
-                            .toStringAsFixed(2)} ${inputSymbol(currency)}',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    TextField(
+                      controller: priceCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true),
+                      decoration: InputDecoration(
+                          labelText: 'سعر الربطة الواحدة (${inputSymbol(currency)})'),
+                      onChanged: (_) => setDialog(() {}),
+                    ),
+                    const SizedBox(height: 8),
+                    if (cartonTotal(bundlesCtrl.text, priceCtrl.text) > 0)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: Colors.green.withValues(alpha: 0.4)),
+                        ),
+                        child: Text(
+                          'الإجمالي: ${Formatters.formatCurrency(cartonTotal(bundlesCtrl.text, priceCtrl.text))} ${inputSymbol(currency)} '
+                          '(${bundlesCtrl.text.trim()} × ${double.parse(priceCtrl.text.trim()).toStringAsFixed(2)})',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              fontSize: 14, fontWeight: FontWeight.w700),
+                        ),
                       ),
                     const SizedBox(height: 8),
+                  ] else ...[
+                    TextField(
+                      controller: amountCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true),
+                      decoration: InputDecoration(
+                          labelText: 'المبلغ (${inputSymbol(currency)})'),
+                      onChanged: (_) => setDialog(() {}),
+                    ),
                   ],
-                  TextField(
-                    controller: amountCtrl,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                        labelText: category == ExpenseCategory.carton
-                            ? 'إجمالي المبلغ (${inputSymbol(currency)})'
-                            : 'المبلغ (${inputSymbol(currency)})'),
-                    onChanged: (_) => setDialog(() {}),
-                  ),
                   if (currency == AppCurrency.lira &&
+                      category == ExpenseCategory.carton &&
+                      cartonTotal(bundlesCtrl.text, priceCtrl.text) > 0)
+                    Text(
+                      'ما يقابلها بالدولار: ${Formatters.formatCurrency(toDollar(cartonTotal(bundlesCtrl.text, priceCtrl.text)))}',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  if (currency == AppCurrency.lira &&
+                      category != ExpenseCategory.carton &&
                       double.tryParse(amountCtrl.text) != null)
                     Text(
                       'ما يقابلها بالدولار: ${Formatters.formatCurrency(toDollar(double.parse(amountCtrl.text.trim())))}',
-                      style:
-                          const TextStyle(fontSize: 12, color: Colors.grey),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                   const SizedBox(height: 12),
                   TextField(
@@ -224,19 +265,21 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                 child: const Text('إلغاء')),
             FilledButton(
               onPressed: () {
-                if (double.tryParse(amountCtrl.text.trim()) == null ||
-                    double.parse(amountCtrl.text.trim()) <= 0) {
+                final isCartonOnSave = category == ExpenseCategory.carton;
+                final rawValue = isCartonOnSave
+                    ? cartonTotal(bundlesCtrl.text, priceCtrl.text)
+                    : double.tryParse(amountCtrl.text.trim());
+                if (rawValue == null || rawValue <= 0 ||
+                    (isCartonOnSave && int.tryParse(bundlesCtrl.text) == null)) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                      content: Text(isCartonOnSave
+                          ? 'أدخل عدد الربطات وسعر الربطة'
+                          : 'أدخل مبلغاً صحيحاً')));
                   return;
                 }
                 if (currency == AppCurrency.lira && (exchangeRate ?? 0) <= 0) {
                   ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
                       content: Text('أدخل سعر صرف صحيحاً لليرة')));
-                  return;
-                }
-                if (category == ExpenseCategory.carton &&
-                    int.tryParse(bundlesCtrl.text) == null) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(
-                      const SnackBar(content: Text('أدخل عدد الربطات')));
                   return;
                 }
                 Navigator.pop(ctx, true);
@@ -250,8 +293,11 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     if (ok != true) return;
 
     try {
-      final amount = double.parse(amountCtrl.text.trim());
-      final cartonBundles = category == ExpenseCategory.carton
+      final isCartonOnSave = category == ExpenseCategory.carton;
+      final amount = isCartonOnSave
+          ? cartonTotal(bundlesCtrl.text, priceCtrl.text)
+          : double.parse(amountCtrl.text.trim());
+      final cartonBundles = isCartonOnSave
           ? int.parse(bundlesCtrl.text.trim())
           : null;
       await ref.read(expenseRepositoryProvider).save(ExpenseModel(
@@ -354,11 +400,31 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
           Wrap(
             spacing: 8,
             children: [
-              Chip(
-                label: Text(
-                    'الإجمالي: ${NumberFormat('#,##0.##').format(_total)} $currency'),
-                backgroundColor: Colors.orange.shade100,
-              ),
+              Builder(builder: (context) {
+                final isDark =
+                    Theme.of(context).brightness == Brightness.dark;
+                // ليلاً: خلفية سوداء داكنة بنص أصفر لامع / نهاراً: أبيض بنص أحمر
+                return Chip(
+                  label: Text(
+                    'الإجمالي: ${NumberFormat('#,##0.##').format(_total)} $currency',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      color: isDark
+                          ? const Color(0xFFFFEB3B)
+                          : Colors.red.shade700,
+                    ),
+                  ),
+                  backgroundColor: isDark
+                      ? Colors.black
+                      : Colors.white,
+                  side: BorderSide(
+                    color: isDark
+                        ? const Color(0xFFFFEB3B)
+                        : Colors.red.shade300,
+                  ),
+                );
+              }),
               Chip(label: Text('عدد السجلات: ${_expenses.length}')),
               ...byCategory.entries.map((e) => Chip(
                     label: Text(
@@ -391,7 +457,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                       DataCell(Text(e.category.label)),
                       DataCell(Text(
                           isCarton
-                              ? '${e.cartonBundles} ربطة × ${e.description ?? ''}'
+                              ? '${e.cartonBundles} ربطة × سعر (${(e.amount / e.cartonBundles!).toStringAsFixed(2)})'
                               : (e.description ?? '-'))),
                       DataCell(Text(
                           '${NumberFormat('#,##0.##').format(e.amount)} $currency')),

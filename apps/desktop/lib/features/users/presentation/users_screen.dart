@@ -23,6 +23,19 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
       ref.read(authProvider).currentUser?.role ?? UserRole.worker;
   bool get _isSystemAdmin => _currentRole == UserRole.system_admin;
 
+  /// هل يحق للمستخدم الحالي إدارة (تعديل/إعادة أو PIN/حذف) هذا الحساب؟
+  /// مدير النظام فقط من يملك التحكم بحسابات مديري النظام.
+  bool _canManage(UserModel u) =>
+      _isSystemAdmin || u.role != UserRole.system_admin;
+
+  /// هل يحق للمستخدم الحالي تعيين الدور [role] لحساب [u]؟
+  /// لا يُسمح لأي مستخدم برفع دوره الحالي (منع ترقية النفس).
+  bool _canSetRole(UserModel u, UserRole role) {
+    if (u.uid == _currentUid) return false;
+    if (role == UserRole.system_admin) return _isSystemAdmin;
+    return true;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -81,6 +94,10 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
 
   /// إنشاء أو تعديل مستخدم
   Future<void> _showUserDialog({UserModel? user}) async {
+    if (user != null && !_canManage(user)) {
+      _error(Exception('لا يمكنك تعديل حساب مدير النظام'));
+      return;
+    }
     final nameCtrl = TextEditingController(text: user?.name ?? '');
     final phoneCtrl = TextEditingController(text: user?.phone ?? '');
     final pinCtrl = TextEditingController();
@@ -89,6 +106,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
     if (!_isSystemAdmin && role == UserRole.system_admin) {
       role = UserRole.worker;
     }
+    final isSelf = user?.uid == _currentUid;
 
     final ok = await showDialog<bool>(
       context: context,
@@ -148,13 +166,19 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
                     const DropdownMenuItem(
                         value: UserRole.manager, child: Text('مدير')),
                     // مدير النظام فقط من يملك صلاحية إنشاء/تعيين مدير نظام
-                    if (_isSystemAdmin)
+                    if (_isSystemAdmin && !isSelf)
                       const DropdownMenuItem(
                           value: UserRole.system_admin,
                           child: Text('مدير النظام')),
                   ],
                   onChanged: (v) {
-                    if (v != null) setDialog(() => role = v);
+                    if (v == null) return;
+                    if (user == null) {
+                      if (v == UserRole.system_admin && !_isSystemAdmin) return;
+                      setDialog(() => role = v);
+                      return;
+                    }
+                    if (_canSetRole(user, v)) setDialog(() => role = v);
                   },
                 ),
               ],
@@ -209,6 +233,10 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
 
   /// إعادة تعيين الرمز السري
   Future<void> _resetPin(UserModel user) async {
+    if (!_canManage(user)) {
+      _error(Exception('لا يمكنك إعادة تعيين رمز مدير النظام'));
+      return;
+    }
     final pinCtrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
@@ -253,6 +281,10 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
   }
 
   Future<void> _deleteUser(UserModel user) async {
+    if (!_canManage(user)) {
+      _error(Exception('لا يمكنك حذف حساب مدير النظام'));
+      return;
+    }
     if (user.uid == _currentUid) {
       _error(Exception('لا يمكنك حذف حسابك الحالي'));
       return;
@@ -312,27 +344,36 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
                   ],
                   rows: _users.map((u) {
                     final isSelf = u.uid == _currentUid;
+                    final canManage = _canManage(u);
                     return DataRow(cells: [
                       DataCell(Text(u.name)),
                       DataCell(Text(u.phone)),
                       DataCell(Chip(label: Text(u.role.label))),
                       DataCell(Row(children: [
-                        IconButton(
-                          tooltip: 'تعديل',
-                          icon: const Icon(Icons.edit_outlined),
-                          onPressed: () => _showUserDialog(user: u),
-                        ),
-                        IconButton(
-                          tooltip: 'إعادة تعيين PIN',
-                          icon: const Icon(Icons.pin_outlined),
-                          onPressed: () => _resetPin(u),
-                        ),
-                        if (!isSelf)
+                        if (canManage)
+                          IconButton(
+                            tooltip: 'تعديل',
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () => _showUserDialog(user: u),
+                          ),
+                        if (canManage)
+                          IconButton(
+                            tooltip: 'إعادة تعيين PIN',
+                            icon: const Icon(Icons.pin_outlined),
+                            onPressed: () => _resetPin(u),
+                          ),
+                        if (!isSelf && canManage)
                           IconButton(
                             tooltip: 'حذف',
                             icon: const Icon(Icons.delete_outline,
                                 color: Colors.red),
                             onPressed: () => _deleteUser(u),
+                          ),
+                        if (!canManage)
+                          const Tooltip(
+                            message: 'يملكها مدير النظام فقط',
+                            child: Icon(Icons.lock_outline,
+                                color: Colors.grey),
                           ),
                       ])),
                     ]);

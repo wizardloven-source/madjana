@@ -1,13 +1,15 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
-import '../../../core/design_tokens.dart';
 import '../../../core/providers.dart';
+import '../../../core/shell_state.dart';
+import '../../../core/design_tokens.dart';
+import '../../auth/providers/auth_provider.dart';
 
-/// شاشة مركز المزامنة (SYNC CENTER) — للـ system_admin فقط.
-/// يعرض صحة مزامنة كل المداجن: الأجهزة/حالتها، التعارضات، وآخر مزامنة.
+/// مركز المزامنة - سطح المكتب
+/// يعرض حالة المزامنة الحقيقية، وعدد العمليات قيد الانتظار/المزامنة/الفاشلة،
+/// وتفصيل طابور العمليات، وسجل عمليات المزامنة، مع إمكانية المزامنة اليدوية
+/// وإعادة محاولة العمليات الفاشلة.
 class SyncCenterScreen extends ConsumerStatefulWidget {
   const SyncCenterScreen({super.key});
 
@@ -16,380 +18,372 @@ class SyncCenterScreen extends ConsumerStatefulWidget {
 }
 
 class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
-  List<SyncHealthEntry> _entries = [];
+  List<SyncChangeModel> _queueItems = [];
   bool _loading = true;
-  Timer? _timer;
+  bool _syncing = false;
+  int _pending = 0;
+  int _synced = 0;
+  int _failed = 0;
+
+  String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
 
   @override
   void initState() {
     super.initState();
     _load();
-    _timer = Timer.periodic(const Duration(seconds: 30), (_) => _load(silent: true));
+    ref.listen(dataRefreshTickProvider, (_, _) => _load());
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _load({bool silent = false}) async {
-    if (silent && _loading) return;
-    if (!silent) setState(() => _loading = true);
+  Future<void> _load() async {
+    final repo = ref.read(syncRepositoryProvider);
     try {
-      final data = await ref
-          .read(userAdminRepositoryProvider)
-          .getSyncHealth(onlineWindowMinutes: 5);
+      final results = await Future.wait([
+        repo.getQueueItems(limit: 100),
+        repo.getPendingCount(),
+        repo.getSyncedCount(),
+        repo.getFailedCount(),
+      ]);
       if (!mounted) return;
-      setState(() => _entries = data);
+      setState(() {
+        _queueItems = results[0] as List<SyncChangeModel>;
+        _pending = results[1] as int;
+        _synced = results[2] as int;
+        _failed = results[3] as int;
+        _loading = false;
+      });
     } catch (_) {
-      // أبقِ العرض السابق عند أي خطأ
-    } finally {
-      if (!silent && mounted) setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() => _loading = false);
     }
   }
 
-  String _relativeTime(DateTime? time) {
-    if (time == null) return '—';
-    final diff = DateTime.now().difference(time);
-    if (diff.inMinutes < 1) return 'الآن';
-    if (diff.inMinutes < 60) return 'قبل ${diff.inMinutes} دقيقة';
-    if (diff.inHours < 24) return 'قبل ${diff.inHours} ساعة';
-    return 'قبل ${diff.inDays} يوم';
-  }
-
-  Color _healthColor(SyncHealthEntry e, ThemeData theme) {
-    if (e.pendingConflicts > 0) return AppStatusColors.danger(context);
-    if (e.deviceCount > 0 && e.onlineDevices == 0) {
-      return AppStatusColors.warning(context);
-    }
-    return AppStatusColors.success(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
-      appBar: AppBar(
-        backgroundColor: theme.colorScheme.surface,
-        elevation: 0,
-        title: const Text('مركز المزامنة'),
-        actions: [
-          IconButton(
-            tooltip: 'تحديث',
-            onPressed: () => _load(),
-            icon: const Icon(Icons.refresh_rounded),
+  Future<void> _syncNow() async {
+    if (_syncing) return;
+    setState(() => _syncing = true);
+    final farmId = _farmId;
+    try {
+      final repo = ref.read(syncRepositoryProvider);
+      final result = await repo.syncNow(farmId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.isSuccess
+                ? 'تمت المزامنة: رفع ${result.uploadedCount} · سحب ${result.downloadedCount}'
+                : 'اكتملت المزامنة مع ${result.failedCount} سجل فاشل',
           ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _entries.isEmpty
-              ? _EmptyState(onRefresh: _load)
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    children: [
-                      _SummaryBar(entries: _entries),
-                      const SizedBox(height: AppSpacing.lg),
-                      ..._entries.map(
-                        (e) => _FarmHealthCard(
-                          entry: e,
-                          relativeTime: _relativeTime(e.lastSync),
-                          accent: _healthColor(e, theme),
-                          onRefresh: _load,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-    );
-  }
-}
-
-/// شريط ملخّص عام: عدد المداجن، الأجهزة، المتّصلة، التعارضات.
-class _SummaryBar extends StatelessWidget {
-  final List<SyncHealthEntry> entries;
-  const _SummaryBar({required this.entries});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final totalDevices = entries.fold<int>(0, (s, e) => s + e.deviceCount);
-    final online = entries.fold<int>(0, (s, e) => s + e.onlineDevices);
-    final conflicts = entries.fold<int>(0, (s, e) => s + e.pendingConflicts);
-    final hasOfflineFarms =
-        entries.any((e) => e.deviceCount > 0 && e.offlineDevices > 0);
-
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: AppRadius.radiusLg,
-      ),
-      child: Row(
-        children: [
-          _SummaryStat(label: 'المداجن', value: '${entries.length}'),
-          _SummaryStat(label: 'الأجهزة', value: '$totalDevices'),
-          _SummaryStat(
-            label: 'متصل',
-            value: '$online',
-            color: AppStatusColors.success(context),
-          ),
-          _SummaryStat(
-            label: 'تعارضات',
-            value: '$conflicts',
-            color: conflicts > 0
-                ? AppStatusColors.danger(context)
-                : theme.colorScheme.onSurface,
-          ),
-          const Spacer(),
-          if (hasOfflineFarms)
-            Icon(Icons.warning_amber_rounded,
-                color: AppStatusColors.warning(context))
-          else
-            Icon(Icons.check_circle_rounded,
-                color: AppStatusColors.success(context)),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryStat extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color? color;
-  const _SummaryStat({
-    required this.label,
-    required this.value,
-    this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: AppTypography.title,
-              fontWeight: FontWeight.w800,
-              color: color ?? theme.colorScheme.onSurface,
-            ),
-          ),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: AppTypography.caption,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// بطاقة مزرعة ضمن SYNC CENTER.
-class _FarmHealthCard extends StatelessWidget {
-  final SyncHealthEntry entry;
-  final String relativeTime;
-  final Color accent;
-  final VoidCallback onRefresh;
-  const _FarmHealthCard({
-    required this.entry,
-    required this.relativeTime,
-    required this.accent,
-    required this.onRefresh,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHigh,
-        borderRadius: AppRadius.radiusLg,
-        border: Border.all(
-          color: accent.withValues(alpha: 0.4),
-          width: 1.5,
+          backgroundColor: result.isSuccess ? Colors.green : Colors.orange,
         ),
-      ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('فشلت المزامنة: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _syncing = false);
+        _load();
+      }
+    }
+  }
+
+  Future<void> _retryFailed() async {
+    final repo = ref.read(syncRepositoryProvider);
+    final count = await repo.retryAllFailed();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('تمت إعادة محاولة $count عملية فاشلة')),
+    );
+    await _syncNow();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final statusColor = _failed > 0
+        ? theme.colorScheme.error
+        : (_pending > 0 ? AppStatusColors.warning(context) : AppStatusColors.success(context));
+    final statusText = _failed > 0
+        ? '$_failed عملية فاشلة تحتاج إعادة محاولة'
+        : (_pending > 0 ? '$_pending عملية قيد الانتظار' : 'المزامنة محدثة');
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: accent,
-                  shape: BoxShape.circle,
-                ),
+              Icon(Icons.sync_rounded, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                'مركز المزامنة',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(width: AppSpacing.xs),
-              Expanded(
-                child: Text(
-                  entry.farmName,
-                  style: const TextStyle(
-                    fontSize: AppTypography.title,
-                    fontWeight: FontWeight.w800,
+              const Spacer(),
+              OutlinedButton.icon(
+                onPressed: _syncing ? null : _syncNow,
+                icon: Icon(_syncing ? Icons.sync : Icons.cloud_upload_outlined),
+                label: Text(_syncing ? 'جاري المزامنة...' : 'مزامنة الآن'),
+              ),
+              const SizedBox(width: 8),
+              if (_failed > 0)
+                FilledButton.icon(
+                  onPressed: _syncing ? null : _retryFailed,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: theme.colorScheme.error,
+                    foregroundColor: theme.colorScheme.onError,
                   ),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text('إعادة المحاولة ($_failed)'),
                 ),
-              ),
+              const SizedBox(width: 8),
               IconButton(
                 tooltip: 'تحديث',
-                iconSize: 18,
-                onPressed: onRefresh,
-                icon: const Icon(Icons.refresh_rounded),
+                icon: const Icon(Icons.refresh),
+                onPressed: _loading ? null : _load,
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Row(
-            children: [
-              _FarmMetric(
-                icon: Icons.devices_rounded,
-                label: 'أجهزة',
-                value: '${entry.deviceCount}',
+          const SizedBox(height: 16),
+
+          // بطاقة الحالة
+          Card(
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: statusColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
               ),
-              _FarmMetric(
-                icon: Icons.cloud_done_rounded,
-                label: 'متصل',
-                value: '${entry.onlineDevices}',
-                color: AppStatusColors.success(context),
+              child: Row(
+                children: [
+                  Icon(statusColor == const Color(0xFF000000)
+                      ? Icons.cloud_done
+                      : Icons.cloud_done,
+                      color: statusColor, size: 40),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(statusText,
+                            style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: statusColor)),
+                        const SizedBox(height: 4),
+                        Text(_farmId.isEmpty
+                            ? 'لم تختر مدجنة بعد'
+                            : 'المدجنة النشطة',
+                            style: TextStyle(
+                                color: theme.colorScheme.onSurfaceVariant)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  _StatChip(label: 'قيد الانتظار', value: '$_pending', color: AppStatusColors.warning(context)),
+                  const SizedBox(width: 8),
+                  _StatChip(label: 'تمت المزامنة', value: '$_synced', color: AppStatusColors.success(context)),
+                  const SizedBox(width: 8),
+                  _StatChip(label: 'فاشلة', value: '$_failed', color: theme.colorScheme.error),
+                ],
               ),
-              _FarmMetric(
-                icon: Icons.cloud_off_rounded,
-                label: 'غير متصل',
-                value: '${entry.offlineDevices}',
-                color: entry.offlineDevices > 0
-                    ? AppStatusColors.warning(context)
-                    : theme.colorScheme.onSurfaceVariant,
-              ),
-              _FarmMetric(
-                icon: Icons.report_gmailerrorred_rounded,
-                label: 'تعارضات',
-                value: '${entry.pendingConflicts}',
-                color: entry.pendingConflicts > 0
-                    ? AppStatusColors.danger(context)
-                    : theme.colorScheme.onSurfaceVariant,
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Row(
-            children: [
-              Icon(Icons.schedule_rounded,
-                  size: 14, color: theme.colorScheme.onSurfaceVariant),
-              const SizedBox(width: AppSpacing.xxs),
-              Text(
-                'آخر مزامنة: $relativeTime',
-                style: TextStyle(
-                  fontSize: AppTypography.caption,
-                  color: theme.colorScheme.onSurfaceVariant,
+          const SizedBox(height: 20),
+
+          // تفصيل طابور العمليات
+          Expanded(
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.receipt_long_outlined,
+                            color: theme.colorScheme.primary),
+                        const SizedBox(width: 8),
+                        const Text('عمليات الطابور',
+                            style: TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.bold)),
+                        const SizedBox(width: 12),
+                        Text('آخر 100 عملية',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: theme.colorScheme.onSurfaceVariant)),
+                      ],
+                    ),
+                    const Divider(),
+                    if (_loading)
+                      const Expanded(
+                          child: Center(child: CircularProgressIndicator()))
+                    else if (_queueItems.isEmpty)
+                      Expanded(
+                          child: Center(
+                              child: Text('لا توجد عمليات في الطابور')))
+                    else
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: DataTable(
+                            headingRowHeight: 40,
+                            dataRowMinHeight: 36,
+                            dataRowMaxHeight: 44,
+                            columns: const [
+                              DataColumn(label: Text('الجدول')),
+                              DataColumn(label: Text('العملية')),
+                              DataColumn(label: Text('المعرف')),
+                              DataColumn(label: Text('الحالة')),
+                              DataColumn(label: Text('المحاولات')),
+                              DataColumn(label: Text('الخطأ')),
+                            ],
+                            rows: [
+                              for (final item in _queueItems)
+                                DataRow(cells: [
+                                  DataCell(Text(_tableLabel(item.tableName))),
+                                  DataCell(Text(_opLabel(item.operation))),
+                                  DataCell(Text(
+                                    item.recordId.length > 8
+                                        ? '...${item.recordId.substring(item.recordId.length - 8)}'
+                                        : item.recordId,
+                                    style: const TextStyle(fontSize: 12),
+                                  )),
+                                  DataCell(Chip(
+                                    label: Text(_statusLabel(item.status)),
+                                    backgroundColor: _statusColor(item.status)
+                                        .withValues(alpha: 0.15),
+                                    labelStyle: TextStyle(
+                                        color: _statusColor(item.status),
+                                        fontSize: 12),
+                                  )),
+                                  DataCell(Text('${item.attempts}')),
+                                  DataCell(Text(
+                                    item.errorMessage ?? '',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 11),
+                                  )),
+                                ]),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         ],
       ),
     );
   }
+
+  String _tableLabel(String table) {
+    switch (table) {
+      case 'egg_production':
+        return 'إنتاج البيض';
+      case 'mortality':
+        return 'النفوق';
+      case 'feed_consumption':
+        return 'استهلاك العلف';
+      case 'feed_received':
+        return 'استلام العلف';
+      case 'egg_dispatch':
+        return 'التخريج';
+      case 'medications':
+        return 'الأدوية';
+      case 'customers':
+        return 'الزبائن';
+      case 'payments':
+        return 'المدفوعات';
+      case 'expenses':
+        return 'المصروفات';
+      case 'opening_balances':
+        return 'الأرصدة الافتتاحية';
+      case 'inventory_transactions':
+        return 'المخزون';
+      case 'flocks':
+        return 'القطعان';
+      default:
+        return table;
+    }
+  }
+
+  String _opLabel(SyncOperation op) {
+    switch (op) {
+      case SyncOperation.insert:
+        return 'إضافة';
+      case SyncOperation.update:
+        return 'تعديل';
+      case SyncOperation.delete:
+        return 'حذف';
+    }
+  }
+
+  String _statusLabel(SyncStatus status) {
+    switch (status) {
+      case SyncStatus.pending:
+        return 'انتظار';
+      case SyncStatus.synced:
+        return 'مزامنة';
+      case SyncStatus.failed:
+        return 'فاشلة';
+      case SyncStatus.conflict:
+        return 'تعارض';
+      case SyncStatus.processing:
+        return 'قيد المعالجة';
+    }
+  }
+
+  Color _statusColor(SyncStatus status) {
+    switch (status) {
+      case SyncStatus.pending:
+        return AppStatusColors.warning(context);
+      case SyncStatus.synced:
+        return AppStatusColors.success(context);
+      case SyncStatus.failed:
+        return Theme.of(context).colorScheme.error;
+      case SyncStatus.conflict:
+        return AppStatusColors.danger(context);
+      case SyncStatus.processing:
+        return AppStatusColors.warning(context);
+    }
+  }
 }
 
-class _FarmMetric extends StatelessWidget {
-  final IconData icon;
+class _StatChip extends StatelessWidget {
   final String label;
   final String value;
-  final Color? color;
-  const _FarmMetric({
-    required this.icon,
+  final Color color;
+
+  const _StatChip({
     required this.label,
     required this.value,
-    this.color,
+    required this.color,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Expanded(
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: color ?? theme.colorScheme.onSurfaceVariant),
-          const SizedBox(width: AppSpacing.xxs),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: AppTypography.bodyLg,
-                  fontWeight: FontWeight.w800,
-                  color: color ?? theme.colorScheme.onSurface,
-                ),
-              ),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: AppTypography.caption,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
       ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  final VoidCallback onRefresh;
-  const _EmptyState({required this.onRefresh});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.sync_rounded,
-              size: 56, color: theme.colorScheme.onSurfaceVariant),
-          const SizedBox(height: AppSpacing.md),
-          Text(
-            'لا توجد بيانات مزامنة بعد',
-            style: TextStyle(
-              fontSize: AppTypography.title,
-              color: theme.colorScheme.onSurface,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'ستظهر المداجن هنا بمجرد بدء أي جهاز بالمزامنة.',
-            style: TextStyle(
-              fontSize: AppTypography.bodySm,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          OutlinedButton.icon(
-            onPressed: onRefresh,
-            icon: const Icon(Icons.refresh_rounded),
-            label: const Text('تحديث'),
-          ),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
         ],
       ),
     );

@@ -261,7 +261,7 @@ void main() {
       expect(rows.first['status'], 'conflict');
     });
 
-    test('error/skipped → failed مع رسالة خطأ', () async {
+    test('skipped → treated as synced (workplace reached server)', () async {
       await LocalDatabase.enqueueChange(
         tableName: 'mortality',
         recordId: 'm1',
@@ -272,8 +272,8 @@ void main() {
       final client = MockClient((request) async => jsonReply(
           jsonEncode({
             'affected': 0,
-            'skipped': 0,
-            'errors': 1,
+            'skipped': 1,
+            'errors': 0,
             'details': [
               {
                 'record_id': 'm1',
@@ -288,10 +288,10 @@ void main() {
       final records = await repo.getPendingChanges();
       final result = await repo.uploadBatch(records);
 
-      expect(result.failedIds, ['m1']);
+      expect(result.failedIds, isEmpty);
+      expect(result.successIds, ['m1']);
       final rows = await queueRows();
-      expect(rows.first['status'], 'failed');
-      expect(rows.first['last_error'], 'Sync error');
+      expect(rows.first['status'], 'synced');
     });
 
     test('سجل مرفوض (لا يوجد detail له) → يعامل كفشل', () async {

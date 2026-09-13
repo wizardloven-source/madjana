@@ -36,8 +36,15 @@ abstract class SyncRepository {
   /// الحصول على عدد السجلات المتضاربة
   Future<int> getConflictCount();
 
+  /// جلب عناصر طابور المزامنة (بمعرفاتها وجداولها) لعرضها في مركز المزامنة.
+  Future<List<SyncChangeModel>> getQueueItems({int limit = 100});
+
   /// مسح جميع السجلات المعلقة (للاستخدام في حالات الطوارئ)
   Future<void> clearAllPending();
+
+  /// إعادة محاولة العمليات الفاشلة: تحويل status = 'failed' إلى 'pending'
+  /// مع تصحيح أي worker_id فارغ في الـ payload ثم إعادة رفعها في الدورة القادمة.
+  Future<int> retryAllFailed();
 
   /// رفع مجموعة سجلات إلى السحابة
   Future<BatchSyncResult> uploadBatch(List<SyncChangeModel> records);

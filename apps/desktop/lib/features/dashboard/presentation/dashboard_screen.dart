@@ -275,6 +275,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _allEggs.fold<int>(0, (s, e) => s + e.brokenEggs + e.dirtyEggs);
     final wasteRate = producedEggs > 0 ? wastedEggs / producedEggs * 100 : 0;
 
+    // الأرصدة الافتتاحية للقطعان القديمة (تُضاف إلى المجاميع التراكمية)
+    final openingProduced = _openingBalances.fold<int>(
+        0, (s, b) => s + b.eggsProduced);
+    final openingDispatched = _openingBalances.fold<int>(
+        0, (s, b) => s + b.eggsDispatched);
+    final openingRevenues = _openingBalances.fold<double>(
+        0, (s, b) => s + b.totalRevenues);
+    final openingPayments = _openingBalances.fold<double>(
+        0, (s, b) => s + b.totalPayments);
+    final totalProducedEggs = producedEggs + openingProduced;
+    final totalDispatchedEggs = dispatchedEggs + openingDispatched;
+
     // تفصيل المال: مبيعات / مقبوض / مصاريف / صافي
     final salesTotal = _payments.fold<double>(0, (s, p) => s + p.totalDue);
     final net30 = _collected - _expenses30;
@@ -714,15 +726,29 @@ child: InkWell(
                         _BreakdownStat(
                           icon: Icons.factory_outlined,
                           label: 'المنتج (تراكمي)',
-                          value: Formatters.formatNumber(producedEggs),
+                          value: Formatters.formatNumber(totalProducedEggs),
                           color: Theme.of(context).colorScheme.primary,
                         ),
+                        if (openingProduced > 0)
+                          _BreakdownStat(
+                            icon: Icons.savings_outlined,
+                            label: 'منها أرصدة التجهيز',
+                            value: Formatters.formatNumber(openingProduced),
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
                         _BreakdownStat(
                           icon: Icons.local_shipping_outlined,
                           label: 'المبيع',
-                          value: Formatters.formatNumber(dispatchedEggs),
+                          value: Formatters.formatNumber(totalDispatchedEggs),
                           color: AppStatusColors.success(context),
                         ),
+                        if (openingDispatched > 0)
+                          _BreakdownStat(
+                            icon: Icons.savings_outlined,
+                            label: 'منها أرصدة التجهيز',
+                            value: Formatters.formatNumber(openingDispatched),
+                            color: AppStatusColors.success(context),
+                          ),
                         _BreakdownStat(
                           icon: Icons.inventory_2_outlined,
                           label: 'المخزون الحالي',
@@ -764,9 +790,23 @@ child: InkWell(
                         _BreakdownStat(
                           icon: Icons.paid_outlined,
                           label: 'المبيعات (تراكمي)',
-                          value: Formatters.formatCurrency(salesTotal),
+                          value: Formatters.formatCurrency(salesTotal + openingRevenues),
                           color: AppStatusColors.info(context),
                         ),
+                        if (openingRevenues > 0)
+                          _BreakdownStat(
+                            icon: Icons.savings_outlined,
+                            label: 'منها إيرادات التجهيز',
+                            value: Formatters.formatCurrency(openingRevenues),
+                            color: AppStatusColors.info(context),
+                          ),
+                        if (openingPayments > 0)
+                          _BreakdownStat(
+                            icon: Icons.savings_outlined,
+                            label: 'مدفوعات التجهيز',
+                            value: Formatters.formatCurrency(openingPayments),
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
                         _BreakdownStat(
                           icon: Icons.payments_outlined,
                           label: 'المقبوض اليوم',

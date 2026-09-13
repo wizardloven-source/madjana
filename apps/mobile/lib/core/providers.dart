@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:core/core.dart';
 import 'package:data/data.dart';
 import 'supabase_client.dart';
+import '../features/auth/providers/auth_provider.dart';
 import '../features/sync/data/connectivity_service.dart';
 
 /// ═══════════════════════════════════════════════
@@ -161,7 +162,12 @@ final openingBalanceRepositoryProvider = Provider<OpeningBalanceRepository>(
 );
 
 /// مداجن المستخدم الحالي بأسمائها (مبدّل المدجنة)
-final currentUserFarmsProvider = FutureProvider<List<FarmModel>>((ref) {
+/// autoDispose: يُعاد تقييمه مع كل تغيّر في المستخدم/الجلسة حتى لا يبقى
+/// محجوباً بقائمة فارغة إذا فُيّم قبل اكتمال تسجيل الدخول.
+final currentUserFarmsProvider =
+    FutureProvider.autoDispose<List<FarmModel>>((ref) async {
+  final uid = ref.watch(authProvider.select((s) => s.currentUser?.uid));
+  if (uid == null || uid.isEmpty) return const <FarmModel>[];
   return ref.read(userAdminRepositoryProvider).getCurrentUserFarms();
 });
 

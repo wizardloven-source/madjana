@@ -20,6 +20,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   List<MortalityModel> _mortality = [];
   List<FeedConsumptionModel> _consumption = [];
   List<PaymentModel> _payments = [];
+  List<OpeningBalanceModel> _openingBalances = [];
   int _birds = 0;
   double _feedStock = 0;
   bool _loading = true;
@@ -64,6 +65,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       ),
       ref.read(flockRepositoryProvider).getFlocks(_farmId, includeEnded: true),
       feedRepo.getCurrentFeedStock(_farmId),
+      ref.read(openingBalanceRepositoryProvider).getForFarm(_farmId),
     ]);
 
     final flocks = results[4] as List<FlockModel>;
@@ -77,6 +79,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           .where((f) => f.status == FlockStatus.active)
           .fold<int>(0, (s, f) => s + f.currentCount);
       _feedStock = results[5] as double;
+      _openingBalances = (results[6] as List<OpeningBalanceModel>? ?? const []);
       _loading = false;
     });
   }
@@ -93,6 +96,17 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final avgPerDay = _eggs.isEmpty
         ? 0.0
         : totalEggs / (_toDate.difference(_fromDate).inDays + 1);
+
+    // الأرصدة الافتتاحية للقطعان القديمة (تُضاف إلى المجاميع)
+    final openingEggs = _openingBalances.fold<int>(0, (s, b) => s + b.eggsProduced);
+    final openingFeed = _openingBalances.fold<double>(0, (s, b) => s + b.feedConsumedKg);
+    final openingMortality = _openingBalances.fold<int>(0, (s, b) => s + b.mortalityCount);
+    final openingRevenues = _openingBalances.fold<double>(0, (s, b) => s + b.totalRevenues);
+    final openingPayments = _openingBalances.fold<double>(0, (s, b) => s + b.totalPayments);
+
+    final grandEggs = totalEggs + openingEggs;
+    final grandMortality = totalMortality + openingMortality;
+    final grandFeed = totalFeed + openingFeed;
 
     // المؤشرات التحليلية
     final days = _toDate.difference(_fromDate).inDays + 1;
@@ -220,7 +234,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           title: 'ملخص الإنتاج',
                           icon: Icons.egg_alt,
                           rows: [
-                            ('إجمالي البيض', '${Formatters.formatNumber(totalEggs)} بيضة', null),
+                            ('إجمالي البيض', '${Formatters.formatNumber(grandEggs)} بيضة', null),
+                            if (openingEggs > 0)
+                              ('منها أرصدة التجهيز', Formatters.formatNumber(openingEggs), Theme.of(context).colorScheme.primary),
                             ('إجمالي الكراتين', Formatters.formatNumber(totalCartons), null),
                             ('المعدل اليومي', '${avgPerDay.toStringAsFixed(0)} بيضة/يوم', null),
                             (
@@ -239,7 +255,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           title: 'ملخص النفوق',
                           icon: Icons.heart_broken,
                           rows: [
-                            ('إجمالي النفوق', Formatters.formatNumber(totalMortality), null),
+                            ('إجمالي النفوق', Formatters.formatNumber(grandMortality), null),
+                            if (openingMortality > 0)
+                              ('منها أرصدة التجهيز', Formatters.formatNumber(openingMortality), Theme.of(context).colorScheme.primary),
                             (
                               'معدل النفوق اليومي',
                               '${mortDailyRate.toStringAsFixed(3)}% / يوم',
@@ -257,7 +275,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           title: 'ملخص العلف',
                           icon: Icons.inventory_2,
                           rows: [
-                            ('إجمالي الاستهلاك', '${Formatters.formatNumber(totalFeed.toInt())} كغ', null),
+                            ('إجمالي الاستهلاك', '${Formatters.formatNumber(grandFeed.toInt())} كغ', null),
+                            if (openingFeed > 0)
+                              ('منها أرصدة التجهيز', '${Formatters.formatNumber(openingFeed.toInt())} كغ', Theme.of(context).colorScheme.primary),
                             ('متوسط الاستهلاك اليومي', '${feedPerDay.toStringAsFixed(0)} كغ/يوم', null),
                             (
                               'المخزون الحالي (${Formatters.formatNumber(_feedStock.toInt())} كغ) يكفي',
@@ -280,6 +300,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           financial: true,
                           rows: [
                             ('إجمالي المبيعات (المستحق)', Formatters.formatCurrency(totalDue), null),
+                            if (openingRevenues > 0)
+                              ('منها إيرادات التجهيز المحصّلة', Formatters.formatCurrency(openingRevenues), Colors.amber),
+                            if (openingPayments > 0)
+                              ('مدفوعات التجهيز المصروفة', Formatters.formatCurrency(openingPayments), Colors.orange),
                             ('المقبوضات', Formatters.formatCurrency(totalCollected), null),
                             ('المبالغ المستحقة', Formatters.formatCurrency(outstanding),
                                 outstanding > 0 ? Colors.deepOrangeAccent : Colors.greenAccent),

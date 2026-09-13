@@ -60,9 +60,32 @@ class SyncRepositoryImpl implements SyncRepository {
   }
 
   @override
+  Future<List<SyncChangeModel>> getQueueItems({int limit = 100}) async {
+    final db = await LocalDatabase.database;
+    final results = await db.rawQuery('''
+      SELECT * FROM sync_queue
+      ORDER BY created_at DESC
+      LIMIT ?
+    ''', [limit]);
+
+    return results.map((map) => SyncChangeModel.fromMap({
+      'operation_id': map['operation_id'],
+      'farm_id': map['farm_id'] ?? '',
+      'table_name': map['table_name'],
+      'record_id': map['record_id'],
+      'operation': (map['action'] as String? ?? 'INSERT').toLowerCase(),
+      'changed_at': map['created_at'] ?? DateTime.now().toIso8601String(),
+      'user_id': map['user_id'],
+      'payload': map['payload'],
+      'status': map['status'] ?? 'pending',
+      'attempts': map['attempts'] ?? 0,
+      'error_message': map['last_error'],
+    })).toList();
+  }
+
+  @override
   Future<void> queueChange(SyncChangeModel change) async {
     final db = await LocalDatabase.database;
-    // هوية فريدة لكل عملية — وليست هوية السجل.
     final operationId =
         (change.operationId == null || change.operationId!.isEmpty)
             ? _newOperationId()
@@ -220,6 +243,56 @@ class SyncRepositoryImpl implements SyncRepository {
   }
 
   @override
+  Future<int> retryAllFailed() async {
+    final db = await LocalDatabase.database;
+
+    // تصحيح الـ payload للسجلات الفاشلة: استبدال worker_id الفارغ بمعرّف
+    // المستخدم الحالي (كان سبب رفض feed_received من كل الأجهزة قبل إصلاح
+    // النموذج). يُنفَّذ فقط للسجلات التي تحمل worker_id فارغاً أو مفقوداً.
+    try {
+      final currentUid = _supabase.auth.currentUser?.id ?? '';
+      final failedRows = await db.query(
+        'sync_queue',
+        columns: ['id', 'table_name', 'payload'],
+        where: "status = 'failed'",
+      );
+      for (final row in failedRows) {
+        final id = row['id'] as String;
+        final tableName = row['table_name'] as String? ?? '';
+        final rawPayload = row['payload'] as String? ?? '{}';
+        if (!['feed_received'].contains(tableName)) continue;
+
+        try {
+          final payload = jsonDecode(rawPayload) as Map<String, dynamic>;
+          final hasInvalidWorkerId = payload['worker_id'] == null ||
+              (payload['worker_id'] is String &&
+                  (payload['worker_id'] as String).isEmpty);
+          if (hasInvalidWorkerId && currentUid.isNotEmpty) {
+            payload['worker_id'] = currentUid;
+            await db.update(
+              'sync_queue',
+              {'payload': jsonEncode(payload)},
+              where: 'id = ?',
+              whereArgs: [id],
+            );
+          }
+        } catch (_) {
+          // payload غير صالح للتحليل: نحاول الرفع كما هو، وسيعيد رفضه الخادم.
+        }
+      }
+    } catch (e) {
+      debugPrint('retryAllFailed normalize failed: $e');
+    }
+
+    final result = await db.rawUpdate(
+      "UPDATE sync_queue SET status = 'pending', attempts = 0, "
+      "last_error = NULL, last_error_code = NULL, next_retry_at = NULL, "
+      "updated_at = datetime('now') WHERE status = 'failed'",
+    );
+    return result;
+  }
+
+  @override
   Future<BatchSyncResult> uploadBatch(List<SyncChangeModel> records) async {
     if (records.isEmpty) {
       return BatchSyncResult(successIds: [], failedIds: []);
@@ -254,6 +327,7 @@ class SyncRepositoryImpl implements SyncRepository {
       if (response.data != null && response.data is Map) {
         final resp = response.data as Map;
         final details = resp['details'] as List<dynamic>? ?? [];
+        final serverSuccess = resp['success'] == true;
 
         final successOps = <String>[];
         final failedOps = <String>[];
@@ -261,6 +335,19 @@ class SyncRepositoryImpl implements SyncRepository {
         final successRecordIds = <String>[];
         final failedRecordIds = <String>[];
         final conflictRecordIds = <String>[];
+
+        // عندما يعيد خادم النشر "نجاح كلي" دون تفاصيل لكل سجل، نعتبر كل
+        // العملية نجحت (الخادم التزم بها ورفعها لقاعدة البيانات).
+        // كانت الحالة السابقة تعلّم كل سجل "failed" فوراً عندما يكون
+        // response.details فارغاً، فيظهر شعار "فاشلة" رغم نجاح الرفع.
+        if (serverSuccess && details.isEmpty) {
+          final allKeys = records.map((r) => r.operationId!).toList();
+          await markAsSynced(allKeys);
+          return BatchSyncResult(
+            successIds: records.map((r) => r.recordId).toList(),
+            failedIds: [],
+          );
+        }
 
         // بناء خريطة(record_id → detail) للمطابقة�AMESAFE.
         // Edge Function قد ترفض سجلات غير صالحة (validateRecord)،
@@ -304,8 +391,18 @@ class SyncRepositoryImpl implements SyncRepository {
               conflictOps.add(queueKey);
               conflictRecordIds.add(r.recordId);
               break;
-            case 'error':
             case 'skipped':
+              // «مُتخطّى»: الخادم لم يجد الصف (/e.g. update أو delete لسجل
+              // غير موجود أو لا ينتمي لهذه المزرعة). ليست فشلاً يعرقل
+              // المزامنة — العملية وصلت للخادم وتُعامَل كناجحة.
+              successOps.add(queueKey);
+              successRecordIds.add(r.recordId);
+              final skippedVersion = detail['new_version'] as int?;
+              if (skippedVersion != null && tableName != null) {
+                await _updateLocalVersion(r.recordId, tableName, skippedVersion);
+              }
+              break;
+            case 'error':
               failedOps.add(queueKey);
               failedRecordIds.add(r.recordId);
               break;

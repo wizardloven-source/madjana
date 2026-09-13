@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:core/core.dart';
 import 'package:data/data.dart';
 import '../../../core/providers.dart';
+import '../../../core/theme_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 
 /// شاشة الإعدادات: بيانات المدجنة + عملة النظام + النسخ الاحتياطي
@@ -595,6 +596,51 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     isNumber: true,
                     suffix: 'صحن',
                   ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // ─── مظهر الواجهة ───
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    const Icon(Icons.palette_outlined),
+                    const SizedBox(width: 8),
+                    Text('مظهر الواجهة',
+                        style: Theme.of(context).textTheme.titleMedium),
+                  ]),
+                  const SizedBox(height: 8),
+                  const Text('اختر المظهر الأغمق للعمل الليلي أو الأفتح للنهار.',
+                      style: TextStyle(color: Colors.grey)),
+                  const SizedBox(height: 16),
+                  Consumer(builder: (ctx, ref, _) {
+                    final mode = ref.watch(themeModeProvider);
+                    final notifier = ref.read(themeModeProvider.notifier);
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('نهاري'),
+                          avatar: const Icon(Icons.light_mode, size: 18),
+                          selected: mode == ThemeMode.light,
+                          onSelected: (_) => notifier.setMode(ThemeMode.light),
+                        ),
+                        ChoiceChip(
+                          label: const Text('ليلي'),
+                          avatar: const Icon(Icons.dark_mode, size: 18),
+                          selected: mode == ThemeMode.dark,
+                          onSelected: (_) => notifier.setMode(ThemeMode.dark),
+                        ),
+                      ],
+                    );
+                  }),
                 ],
               ),
             ),
