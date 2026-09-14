@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import '../../../core/design_tokens.dart';
 import '../../../shared/widgets/custom_numpad.dart';
 import '../../../shared/widgets/date_picker_field.dart';
 import '../../../shared/widgets/modern_ui.dart';
@@ -112,7 +113,7 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
     if (user == null || user.farmId == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: AppColors.danger),
         );
       }
       return;
@@ -191,7 +192,7 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         decoration: BoxDecoration(
                           color: _entryMode == mode
-                              ? Colors.orange
+                              ? AppColors.warning
                               : Colors.transparent,
                           borderRadius: BorderRadius.circular(6),
                         ),
@@ -248,7 +249,7 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: Colors.orange,
+                      color: AppColors.warning,
                     ),
                   ),
                 ],
@@ -309,7 +310,7 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
             PrimaryActionButton(
               label: 'حفظ',
               onPressed: _save,
-              color: Colors.orange,
+              color: AppColors.warning,
             ),
           ],
         ),

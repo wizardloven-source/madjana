@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import '../../../core/design_tokens.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../reference_data/providers/reference_data_provider.dart';
 import '../../sync/providers/sync_provider.dart';
@@ -35,17 +36,17 @@ class SettingsScreen extends ConsumerWidget {
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.15),
+                color: AppColors.warning.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange.withValues(alpha: 0.4)),
+                border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
               ),
               child: Row(
                 children: const [
-                  Icon(Icons.wifi_off, color: Colors.orange, size: 20),
+                  Icon(Icons.wifi_off, color: AppColors.warning, size: 20),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text('غير متصل بالإنترنت — البيانات ستُحفظ محلياً',
-                        style: TextStyle(color: Colors.orange)),
+                        style: TextStyle(color: AppColors.warning)),
                   ),
                 ],
               ),
@@ -170,7 +171,7 @@ class SettingsScreen extends ConsumerWidget {
             margin: const EdgeInsets.symmetric(vertical: 16),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.grey.withValues(alpha: 0.1),
+              color: AppColors.hairline.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(
@@ -244,7 +245,7 @@ class SettingsScreen extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey),
+              border: Border.all(color: AppColors.hairline),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(

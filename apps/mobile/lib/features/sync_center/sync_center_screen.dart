@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import '../../../core/design_tokens.dart';
 import '../../core/providers.dart';
 import '../sync/providers/sync_provider.dart';
 
@@ -62,8 +63,8 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
     final failed = syncState.failedCount > 0;
     final pending = syncState.pendingCount > 0;
     final statusColor = failed
-        ? Colors.orange
-        : (pending ? Colors.blue : Colors.green);
+        ? AppColors.warning
+        : (pending ? AppColors.info : AppColors.success);
     final statusText = failed
         ? 'توجد أخطاء'
         : (pending ? 'قيد الانتظار' : 'محدث');
@@ -160,9 +161,9 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
       crossAxisSpacing: 12,
       childAspectRatio: 1,
       children: [
-        _buildStatItem('قيد الانتظار', syncState.pendingCount, Colors.blue, Icons.pending),
-        _buildStatItem('تم المزامنة', syncState.syncedCount, Colors.green, Icons.check_circle),
-        _buildStatItem('فشل', syncState.failedCount, Colors.red, Icons.error),
+        _buildStatItem('قيد الانتظار', syncState.pendingCount, AppColors.info, Icons.pending),
+        _buildStatItem('تم المزامنة', syncState.syncedCount, AppColors.success, Icons.check_circle),
+        _buildStatItem('فشل', syncState.failedCount, AppColors.danger, Icons.error),
       ],
     );
   }
@@ -235,7 +236,7 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   child: Text(
                     'تعذر تحميل سجل المزامنة',
-                    style: TextStyle(color: Colors.red[400]),
+                    style: TextStyle(color: AppColors.danger),
                   ),
                 ),
               ],
@@ -248,7 +249,7 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
 
   Widget _buildHistoryTile(SyncHistoryEntry entry) {
     final isError = entry.failed > 0 || (entry.errorMessage?.isNotEmpty ?? false);
-    final color = isError ? Colors.orange : Colors.green;
+    final color = isError ? AppColors.warning : AppColors.success;
     final message = isError
         ? (entry.errorMessage ?? 'فشل في ${entry.failed} عملية')
         : 'تمت المزامنة بنجاح';
@@ -283,7 +284,7 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
       messenger.showSnackBar(
         const SnackBar(
           content: Text('فشل المزامنة، تحقق من الاتصال'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.danger,
         ),
       );
     } else if (result.isSuccess) {
@@ -294,14 +295,14 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
           content: Text(hasChanges
               ? 'تمت المزامنة: رفع ${result.uploadedCount} · سحب ${result.downloadedCount}'
               : 'تتم المزامنة (لا توجد تغييرات)'),
-          backgroundColor: Colors.green,
+          backgroundColor: AppColors.success,
         ),
       );
     } else {
       messenger.showSnackBar(
         SnackBar(
           content: Text('اكتملت المزامنة مع ${result.failedCount} سجل فاشل'),
-          backgroundColor: Colors.orange,
+          backgroundColor: AppColors.warning,
         ),
       );
     }

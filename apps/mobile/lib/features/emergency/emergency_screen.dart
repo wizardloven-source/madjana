@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
+import '../../../core/design_tokens.dart';
 
 /// شاشة طوارئ للعامل
 /// تتيح إرسال تنبيه فوري للمدير عند وجود مشكلة حرجة
@@ -17,21 +18,21 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
   bool _isSending = false;
 
   final List<Map<String, dynamic>> _emergencyTypes = [
-    {'icon': Icons.local_fire_department, 'label': 'حريق', 'color': Colors.red, 'fg': Colors.white},
-    {'icon': Icons.biotech, 'label': 'وباء مرضي', 'color': Colors.orange, 'fg': Colors.white},
-    {'icon': Icons.electrical_services, 'label': 'انقطاع كهرباء', 'color': Colors.amber, 'fg': Colors.black87},
-    {'icon': Icons.water_drop, 'label': 'انقطاع مياه', 'color': Colors.blue, 'fg': Colors.white},
-    {'icon': Icons.thermostat, 'label': 'ارتفاع حرارة', 'color': Colors.deepOrange, 'fg': Colors.white},
-    {'icon': Icons.warning, 'label': 'أخرى', 'color': Colors.blueGrey, 'fg': Colors.white},
+    {'icon': Icons.local_fire_department, 'label': 'حريق', 'color': AppColors.danger, 'fg': Colors.white},
+    {'icon': Icons.biotech, 'label': 'وباء مرضي', 'color': AppColors.warning, 'fg': Colors.white},
+    {'icon': Icons.electrical_services, 'label': 'انقطاع كهرباء', 'color': AppColors.warning, 'fg': Colors.black87},
+    {'icon': Icons.water_drop, 'label': 'انقطاع مياه', 'color': AppColors.info, 'fg': Colors.white},
+    {'icon': Icons.thermostat, 'label': 'ارتفاع حرارة', 'color': AppColors.danger, 'fg': Colors.white},
+    {'icon': Icons.warning, 'label': 'أخرى', 'color': AppColors.textTertiary, 'fg': Colors.white},
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.red[50],
+      backgroundColor: AppColors.danger.withOpacity(0.05),
       appBar: AppBar(
         title: const Text('🚨 حالة الطوارئ'),
-        backgroundColor: Colors.red,
+        backgroundColor: AppColors.danger,
         elevation: 0,
       ),
       body: SingleChildScrollView(
@@ -43,13 +44,13 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
+                color: AppColors.danger.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.red),
+                border: Border.all(color: AppColors.danger),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.error, color: Colors.red, size: 40),
+                  Icon(Icons.error, color: AppColors.danger, size: 40),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
@@ -57,11 +58,11 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
                       children: [
                         const Text(
                           'تنبيه طارئ!',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red),
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.danger),
                         ),
                         Text(
                           'سيتم إرسال هذا التنبيه فوراً إلى المدير وجميع المشرفين',
-                          style: TextStyle(color: Colors.red[700]),
+                          style: TextStyle(color: AppColors.danger),
                         ),
                       ],
                     ),
@@ -149,7 +150,7 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
             ElevatedButton(
               onPressed: _selectedEmergencyType == null || _isSending ? null : _sendEmergency,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
+                backgroundColor: AppColors.danger,
                 foregroundColor: Colors.white,
                 minimumSize: const Size(double.infinity, 56),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -206,7 +207,7 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          icon: Icon(Icons.check_circle, color: Colors.green, size: 60),
+          icon: Icon(Icons.check_circle, color: AppColors.success, size: 60),
           title: const Text('تم الإرسال!'),
           content: Text(
               'تم إرسال تنبيه الطوارئ بنجاح إلى المدير بخصوص: $_selectedEmergencyType'),
@@ -227,7 +228,7 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          icon: Icon(Icons.error, color: Colors.red, size: 60),
+          icon: Icon(Icons.error, color: AppColors.danger, size: 60),
           title: const Text('فشل الإرسال'),
           content: Text('تعذّر إرسال التنبيه: $e\n'
               'تأكد من اتصالك بالإنترنت ثم حاول مجدداً.'),

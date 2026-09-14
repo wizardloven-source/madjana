@@ -115,14 +115,3 @@ abstract final class AppStatusColors {
   static Color info(BuildContext context) => AppColors.info;
   static Color error(BuildContext context) => AppColors.error;
 }
-
-/// ألوان الحالة الدلالية قابلة للتمييز في الوضعين الفاتح/الداكن.
-///
-/// بديل موحّد للاستخدام الصارم لـ theme.colorScheme، بحيث تبقى ألوان الحالة
-/// متطابقة عبر كامل التطبيق (وليست مشتّتة كـ Colors.red / Colors.orange ...).
-abstract final class AppStatusColors {
-  static Color success(BuildContext context) => AppColors.success;
-  static Color warning(BuildContext context) => AppColors.warning;
-  static Color danger(BuildContext context) => AppColors.danger;
-  static Color info(BuildContext context) => AppColors.info;
-}

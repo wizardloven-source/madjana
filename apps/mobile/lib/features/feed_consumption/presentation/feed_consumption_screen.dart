@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import '../../../core/design_tokens.dart';
 import '../../../core/providers.dart';
 import '../../../shared/widgets/custom_numpad.dart';
 import '../../../shared/widgets/date_picker_field.dart';
@@ -139,7 +140,7 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
     if (user == null || user.farmId == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: AppColors.danger),
         );
       }
       return;
@@ -400,7 +401,7 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
                 background: Container(
                   alignment: Alignment.centerRight,
                   padding: const EdgeInsets.only(left: 20),
-                  color: Colors.red,
+                  color: AppColors.danger,
                   child: const Icon(Icons.delete, color: Colors.white),
                 ),
                 confirmDismiss: (direction) async {
@@ -414,7 +415,7 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
                         FilledButton(
                           onPressed: () => Navigator.pop(ctx, true),
                           child: const Text('حذف'),
-                          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                          style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
                         ),
                       ],
                     ),
@@ -430,13 +431,13 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
                   padding: const EdgeInsets.all(12),
                   margin: const EdgeInsets.only(bottom: 8),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: 0.05),
+                    color: AppColors.warning.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.orange.withValues(alpha: 0.2)),
+                    border: Border.all(color: AppColors.warning.withValues(alpha: 0.2)),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.grain, color: Colors.orange),
+                       const Icon(Icons.grain, color: AppColors.warning),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(

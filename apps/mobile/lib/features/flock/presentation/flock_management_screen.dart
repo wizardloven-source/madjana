@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import '../../../core/design_tokens.dart';
 import '../../../core/providers.dart';
 import '../../../shared/widgets/date_picker_field.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -58,9 +59,9 @@ class _FlockManagementScreenState extends ConsumerState<FlockManagementScreen> {
                 child: ListTile(
                   leading: CircleAvatar(
                     backgroundColor: isActive
-                        ? Colors.green.withValues(alpha: 0.15)
+                        ? AppColors.success.withValues(alpha: 0.15)
                         : Colors.grey.withValues(alpha: 0.15),
-                    child: Icon(Icons.pets, color: isActive ? Colors.green : Colors.grey),
+                    child: Icon(Icons.pets, color: isActive ? AppColors.success : Colors.grey),
                   ),
                   title: Text(flock.breed, style: const TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: Text(
@@ -277,7 +278,7 @@ class _FlockManagementScreenState extends ConsumerState<FlockManagementScreen> {
                           }
                         }
                       },
-                style: FilledButton.styleFrom(backgroundColor: Colors.orange),
+                style: FilledButton.styleFrom(backgroundColor: AppColors.warning),
                 child: saving
                     ? const SizedBox(
                         width: 18,

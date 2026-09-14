@@ -1,6 +1,7 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import '../../../core/design_tokens.dart';
 import '../../../shared/widgets/date_picker_field.dart';
 import '../../../shared/widgets/modern_ui.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -264,7 +265,7 @@ class _MedicationsScreenState extends ConsumerState<MedicationsScreen> {
             PrimaryActionButton(
               label: 'حفظ',
               onPressed: _save,
-              color: Colors.purple,
+              color: AppColors.info,
             ),
           ],
         ),

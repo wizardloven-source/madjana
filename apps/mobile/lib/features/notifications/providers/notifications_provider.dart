@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import '../../../core/design_tokens.dart';
 import 'package:data/data.dart';
 import '../../../core/providers.dart';
 
@@ -69,7 +70,7 @@ Color noticeColor(BuildContext context, String level) {
     case 'danger':
       return Theme.of(context).colorScheme.error;
     case 'warning':
-      return Colors.orange.shade700;
+      return AppColors.warning;
     default:
       return Theme.of(context).colorScheme.primary;
   }

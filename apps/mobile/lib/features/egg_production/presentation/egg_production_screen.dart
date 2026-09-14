@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import '../../../core/design_tokens.dart';
 import '../../../shared/widgets/custom_numpad.dart';
 import '../../../shared/widgets/date_picker_field.dart';
 import '../../../shared/widgets/farm_selector.dart';
@@ -134,7 +135,7 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
     if (user == null || user.farmId == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: AppColors.danger),
         );
       }
       return;
@@ -186,7 +187,7 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
     if (user == null || user.farmId == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: AppColors.danger),
         );
       }
       return;
@@ -418,7 +419,7 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
                         FilledButton(
                           onPressed: () => Navigator.pop(ctx, true),
                           child: const Text('حذف'),
-                          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                          style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
                         ),
                       ],
                     ),
@@ -434,13 +435,14 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
                   padding: const EdgeInsets.all(12),
                   margin: const EdgeInsets.only(bottom: 8),
                   decoration: BoxDecoration(
-                    color: Colors.blue.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.withValues(alpha: 0.2)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.egg, color: Colors.blue),
+                  color: AppStatusColors.info(context).withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  border: Border.all(
+                      color: AppStatusColors.info(context).withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.egg_alt, color: AppStatusColors.info(context)),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(

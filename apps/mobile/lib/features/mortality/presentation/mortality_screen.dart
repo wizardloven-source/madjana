@@ -158,7 +158,7 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+          icon: Icon(Icons.warning_amber_rounded, color: AppStatusColors.warning(context)),
         title: const Text('تنبيه مهم'),
         content: Text(
           'نسبة النفوق اليوم ${percentage.toStringAsFixed(2)}% أعلى من '
@@ -328,7 +328,7 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
                 height: 200,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey),
+                  border: Border.all(color: AppColors.hairline),
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),

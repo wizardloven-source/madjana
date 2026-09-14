@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import '../../../core/design_tokens.dart';
 import '../../../core/providers.dart';
 import '../../../shared/widgets/custom_numpad.dart';
 import '../../../shared/widgets/date_picker_field.dart';
@@ -242,7 +243,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
     if (user == null || user.farmId == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: AppColors.danger),
         );
       }
       return;
@@ -408,7 +409,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                           '~${(_trayWeight! * 1000 / 30).toStringAsFixed(1)} غم/بيضة',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey.shade600,
+                            color: AppColors.textTertiary,
                           ),
                         ),
                     ],
@@ -439,7 +440,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.grey.withValues(alpha: 0.1),
+                color: AppColors.surface3,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Row(

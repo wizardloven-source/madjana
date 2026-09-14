@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../../core/design_tokens.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../egg_production/providers/egg_production_provider.dart';
 import '../../mortality/providers/mortality_provider.dart';
@@ -146,20 +147,20 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               children: [
                 const Text('اليوم', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
-                _buildReportCard(icon: Icons.egg, title: 'إنتاج اليوم', value: Formatters.formatNumber(todayEggs), subtitle: 'بيضة', color: Colors.blue),
+                _buildReportCard(icon: Icons.egg, title: 'إنتاج اليوم', value: Formatters.formatNumber(todayEggs), subtitle: 'بيضة', color: AppStatusColors.info(context)),
                 const SizedBox(height: 8),
-                _buildReportCard(icon: Icons.pets, title: 'نفوق اليوم', value: Formatters.formatNumber(todayMort), subtitle: 'طائر', color: Colors.red),
+                _buildReportCard(icon: Icons.pets, title: 'نفوق اليوم', value: Formatters.formatNumber(todayMort), subtitle: 'طائر', color: AppStatusColors.danger(context)),
                 const SizedBox(height: 8),
-                _buildReportCard(icon: Icons.grain, title: 'استهلاك العلف', value: Formatters.formatWeight(todayFeed), subtitle: '', color: Colors.orange),
+                _buildReportCard(icon: Icons.grain, title: 'استهلاك العلف', value: Formatters.formatWeight(todayFeed), subtitle: '', color: AppStatusColors.warning(context)),
                 const SizedBox(height: 24),
 
                 const Text('آخر 7 أيام', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
-                _buildReportCard(icon: Icons.egg, title: 'إنتاج الأسبوع', value: Formatters.formatNumber(weekEggs), subtitle: 'بيضة', color: Colors.blue),
+                _buildReportCard(icon: Icons.egg, title: 'إنتاج الأسبوع', value: Formatters.formatNumber(weekEggs), subtitle: 'بيضة', color: AppStatusColors.info(context)),
                 const SizedBox(height: 8),
-                _buildReportCard(icon: Icons.pets, title: 'نفوق الأسبوع', value: Formatters.formatNumber(weekMort), subtitle: 'طائر', color: Colors.red),
+                _buildReportCard(icon: Icons.pets, title: 'نفوق الأسبوع', value: Formatters.formatNumber(weekMort), subtitle: 'طائر', color: AppStatusColors.danger(context)),
                 const SizedBox(height: 8),
-                _buildReportCard(icon: Icons.grain, title: 'علف الأسبوع', value: Formatters.formatWeight(weekFeed), subtitle: '', color: Colors.orange),
+                _buildReportCard(icon: Icons.grain, title: 'علف الأسبوع', value: Formatters.formatWeight(weekFeed), subtitle: '', color: AppStatusColors.warning(context)),
                 const SizedBox(height: 24),
 
                 // Simple bar chart
@@ -170,7 +171,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
                 Text(
                   'تصدير CSV متاح من الزر في الأعلى',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                  style: TextStyle(fontSize: 13, color: AppColors.textTertiary),
                   textAlign: TextAlign.center,
                 ),
               ],
