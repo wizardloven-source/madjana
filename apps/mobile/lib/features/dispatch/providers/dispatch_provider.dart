@@ -91,6 +91,9 @@ class DispatchNotifier extends StateNotifier<bool> {
 final dispatchProvider = StateNotifierProvider<DispatchNotifier, bool>((ref) {
   return DispatchNotifier(
     repository: ref.watch(dispatchRepositoryProvider),
-    saveUseCase: SaveDispatchUseCase(ref.watch(dispatchRepositoryProvider)),
+    saveUseCase: SaveDispatchUseCase(
+      ref.watch(dispatchRepositoryProvider),
+      ref.watch(medicationRepositoryProvider),
+    ),
   );
 });

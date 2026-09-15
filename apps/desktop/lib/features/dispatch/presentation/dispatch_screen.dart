@@ -216,6 +216,35 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
         notes: result['notes'] as String?,
         workerId: workerId,
       );
+      // P0-03: Check withdrawal period before dispatching
+      final medications = await ref.read(medicationRepositoryProvider).getAll(
+        farmId: _farmId,
+      );
+      final now = DateTime.now();
+      for (final med in medications) {
+        if (med.flockId == record.flockId &&
+            med.withdrawalDays != null && med.withdrawalDays! > 0) {
+          final withdrawalEndDate =
+              med.date.add(Duration(days: med.withdrawalDays!));
+          if (now.isBefore(withdrawalEndDate)) {
+            final daysRemaining = withdrawalEndDate.difference(now).inDays;
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'فترة سحب الدواء "${med.medicineName}" لم تنته بعد '
+                    '($daysRemaining يوم متبقي). '
+                    'لا يمكن بيع البيض حتى ${withdrawalEndDate.day}/${withdrawalEndDate.month}/${withdrawalEndDate.year}',
+                  ),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+            return;
+          }
+        }
+      }
       await ref.read(dispatchRepositoryProvider).saveLocal(record);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

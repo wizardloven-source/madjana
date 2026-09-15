@@ -174,6 +174,10 @@ final farmRepositoryProvider = Provider<FarmRepository>(
   ),
 );
 
+final conflictRepositoryProvider = Provider<ConflictRepository>(
+  (ref) => const ConflictRepositoryImpl(),
+);
+
 /// عملة العرض (الدولار هو الأساسي دائماً للعرض)
 final currencyProvider = FutureProvider<String>((ref) async {
   return AppCurrency.dollar.symbol;
