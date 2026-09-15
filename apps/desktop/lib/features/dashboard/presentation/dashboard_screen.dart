@@ -42,14 +42,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
 
+  bool _initLoaded = false;
+
   @override
-  void initState() {
-    super.initState();
-    // تحديث صامت عند مزامنة الـ shell الدورية (كل 30 ثانية) أو أي تغيير مزامنة
+  Widget build(BuildContext context) {
+    if (!_initLoaded) {
+      _initLoaded = true;
+      // خارج build رسمياً لكن ضمن أول استدعاء فقط
+      Future.microtask(() => _load());
+    }
     ref.listen(dataRefreshTickProvider, (_, _) {
       if (mounted) _load(silent: true);
     });
-    _load();
+    return _buildBody(context);
   }
 
   Future<void> _load({bool silent = false}) async {
@@ -172,8 +177,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   int _currentEggStock = 0;
   bool _loadFailed = false;
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildBody(BuildContext context) {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }

@@ -21,6 +21,7 @@ import 'features/settings/presentation/settings_screen.dart';
 import 'features/settings/providers/theme_provider.dart';
 import 'features/emergency/emergency_screen.dart';
 import 'features/sync_center/sync_center_screen.dart';
+import 'features/analytics/presentation/analytics_screen.dart';
 
 /// التطبيق الرئيسي
 class PoultryApp extends ConsumerWidget {
@@ -63,6 +64,7 @@ class PoultryApp extends ConsumerWidget {
         '/customers': (_) => const CustomersScreen(),
         '/emergency': (_) => const EmergencyScreen(),
         '/sync-center': (_) => const SyncCenterScreen(),
+        '/analytics': (_) => const AnalyticsScreen(),
       },
     );
   }

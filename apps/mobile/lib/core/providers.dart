@@ -80,6 +80,12 @@ final supabaseFarmDatasourceProvider = Provider<SupabaseFarmDatasource>(
   (ref) => SupabaseFarmDatasource(ref.watch(supabaseApiProvider)),
 );
 
+final inventoryDaoProvider = Provider<InventoryDao>((ref) => InventoryDao());
+final supabaseInventoryDatasourceProvider =
+    Provider<SupabaseInventoryDatasource>(
+  (ref) => SupabaseInventoryDatasource(ref.watch(supabaseApiProvider)),
+);
+
 // ─────────────── المستودعات ───────────────
 final authRepositoryProvider = Provider<AuthRepository>(
   (ref) => AuthRepositoryImpl(
@@ -151,6 +157,13 @@ final farmRepositoryProvider = Provider<FarmRepository>(
   (ref) => FarmRepositoryImpl(
     remoteDatasource: ref.watch(supabaseFarmDatasourceProvider),
     settingsDao: ref.watch(settingsDaoProvider),
+  ),
+);
+
+final inventoryRepositoryProvider = Provider<InventoryRepository>(
+  (ref) => InventoryRepositoryImpl(
+    localDao: ref.watch(inventoryDaoProvider),
+    remoteDatasource: ref.watch(supabaseInventoryDatasourceProvider),
   ),
 );
 

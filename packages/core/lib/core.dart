@@ -32,6 +32,7 @@ export 'src/models/pro_features_models.dart';
 export 'src/utils/egg_calculator.dart';
 export 'src/utils/formatters.dart';
 export 'src/utils/farm_analytics.dart';
+export 'src/services/phase1_analytics.dart';
 
 // واجهات المستودعات
 export 'src/repositories/auth_repository.dart';

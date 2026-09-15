@@ -268,6 +268,12 @@ class HomeScreen extends ConsumerWidget {
                     onTap: () => Navigator.pushNamed(context, '/reports'),
                   ),
                   _MenuCard(
+                    icon: Icons.analytics_rounded,
+                    label: 'التحليلات',
+                    color: AppColors.accent,
+                    onTap: () => Navigator.pushNamed(context, '/analytics'),
+                  ),
+                  _MenuCard(
                     icon: Icons.pets_rounded,
                     label: 'إدارة القطعان',
                     color: cs.primary,

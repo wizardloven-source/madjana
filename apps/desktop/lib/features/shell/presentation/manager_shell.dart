@@ -8,6 +8,7 @@ import '../../../shared/widgets/farm_dropdown.dart';
 import '../../approvals/presentation/approvals_screen.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../dashboard/presentation/dashboard_screen.dart';
+import '../../analytics/presentation/analytics_hub_screen.dart';
 import '../../dispatch/presentation/dispatch_screen.dart';
 import '../../egg_production/presentation/egg_production_screen.dart';
 import '../../expenses/presentation/expenses_screen.dart';
@@ -33,6 +34,7 @@ class ManagerShell extends ConsumerStatefulWidget {
 class _ManagerShellState extends ConsumerState<ManagerShell> {
   final _screens = const [
     DashboardScreen(),
+    AnalyticsHubScreen(),
     FlocksScreen(),
     EggProductionScreen(),
     MortalityScreen(),
@@ -52,6 +54,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
 
   static const _titles = [
     'لوحة التحكم',
+    'التحليلات',
     'القطعان',
     'إنتاج البيض',
     'النفوق',
@@ -71,6 +74,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
 
   static const _icons = [
     Icons.dashboard_rounded,
+    Icons.analytics_rounded,
     Icons.pets_rounded,
     Icons.egg_alt_rounded,
     Icons.heart_broken_rounded,
