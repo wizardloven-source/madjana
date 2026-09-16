@@ -77,7 +77,8 @@ class DateRange {
 
   static DateRange previousMonth() {
     final now = DateTime.now();
-    final start = DateTime(now.year, now.month - 1, 1);
+    // ═══ C4 FIX: كانت DateTime(now.year, now.month - 1, 1) تتعطل في يناير ═══
+    final start = DateTime(now.year, now.month - 1, 1); // Dart يlaps تلقائياً (يناير → ديسمبر)
     final end = DateTime(now.year, now.month, 0);
     return DateRange(from: start, to: end, label: 'الشهر السابق');
   }

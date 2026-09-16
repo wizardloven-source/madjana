@@ -25,6 +25,7 @@ class MortalityDao {
       'section_no': record.sectionNo,
       'worker_id': record.workerId,
       'sync_status': SyncStatus.pending.name,
+      'version': record.version,
       'created_at': DateTime.now().toIso8601String(),
       'updated_at': DateTime.now().toIso8601String(),
     });
@@ -150,6 +151,8 @@ class MortalityDao {
         'image_url': model.imageUrl,
         'worker_id': model.workerId,
         'sync_status': SyncStatus.synced.name,
+        // ═══ C1 FIX: تخزين إصدار الخادم المحلول ═══
+        'version': model.version,
         'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
@@ -197,6 +200,8 @@ class MortalityDao {
         (e) => e.name == map['sync_status'],
         orElse: () => SyncStatus.pending,
       ),
+      // ═══ C1 FIX: قراءة الإصدار من قاعدة البيانات ═══
+      version: (map['version'] as int?) ?? 1,
     );
   }
 }

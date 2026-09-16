@@ -28,7 +28,8 @@ class QuickPeriodBar extends StatelessWidget {
 
     if (from == today && to == today) return QuickPeriod.today;
     if (from == today.subtract(const Duration(days: 1)) &&
-        to == today.add(const Duration(days: 1))) {
+        // ═══ FIX: أمس = من أمس إلى نهاية أمس (كانت المقارنة add بدل subtract) ═══
+        to == today.subtract(const Duration(days: 1))) {
       return QuickPeriod.yesterday;
     }
     if (to == today &&
@@ -54,7 +55,8 @@ class QuickPeriodBar extends StatelessWidget {
       case QuickPeriod.yesterday:
         onChanged((
           from: today.subtract(const Duration(days: 1)),
-          to: today.add(const Duration(seconds: 86399))
+          // ═══ FIX: إلى نهاية يوم أمس (كانت اليوم + 86399 ثانية) ═══
+          to: today.subtract(const Duration(seconds: 1)),
         ));
       case QuickPeriod.last7:
         onChanged((from: today.subtract(const Duration(days: 6)), to: endOfDay));

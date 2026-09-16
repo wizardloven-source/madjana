@@ -43,6 +43,46 @@ class PaymentModel {
   /// هل المبلغ مسدد بالكامل؟
   bool get isPaid => amountPaid >= totalDue;
 
+  PaymentModel copyWith({
+    String? id,
+    String? farmId,
+    String? dispatchId,
+    String? customerId,
+    DateTime? date,
+    double? pricePerCarton,
+    double? totalDue,
+    double? amountPaid,
+    PaymentMethod? paymentMethod,
+    DateTime? dueDate,
+    String? notes,
+    String? managerId,
+    AppCurrency? currency,
+    double? exchangeRate,
+    SyncStatus? syncStatus,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return PaymentModel(
+      id: id ?? this.id,
+      farmId: farmId ?? this.farmId,
+      dispatchId: dispatchId ?? this.dispatchId,
+      customerId: customerId ?? this.customerId,
+      date: date ?? this.date,
+      pricePerCarton: pricePerCarton ?? this.pricePerCarton,
+      totalDue: totalDue ?? this.totalDue,
+      amountPaid: amountPaid ?? this.amountPaid,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      dueDate: dueDate ?? this.dueDate,
+      notes: notes ?? this.notes,
+      managerId: managerId ?? this.managerId,
+      currency: currency ?? this.currency,
+      exchangeRate: exchangeRate ?? this.exchangeRate,
+      syncStatus: syncStatus ?? this.syncStatus,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
   /// عرض رمز العملة (الدولار هو الأساسي دائماً)
   String get currencySymbol => AppCurrency.dollar.symbol;
 

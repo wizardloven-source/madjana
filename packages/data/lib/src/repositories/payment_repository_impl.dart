@@ -3,6 +3,7 @@ import 'package:domain/domain.dart';
 import '../datasources/local/daos/dispatch_dao.dart';
 import '../datasources/local/daos/payment_dao.dart';
 import '../datasources/remote/supabase_payment_datasource.dart';
+import 'package:uuid/uuid.dart';
 
 /// ═══════════════════════════════════════════════
 /// تنفيذ مستودع القبض/الدفع - للمدير فقط
@@ -11,6 +12,7 @@ class PaymentRepositoryImpl implements PaymentRepository {
   final PaymentDao _paymentDao;
   final DispatchDao _dispatchDao;
   final SupabasePaymentDatasource _remoteDatasource;
+  final _uuid = const Uuid();
 
   PaymentRepositoryImpl({
     required PaymentDao paymentDao,
@@ -22,21 +24,35 @@ class PaymentRepositoryImpl implements PaymentRepository {
 
   @override
   Future<void> save(PaymentModel payment) async {
-    // حفظ محلي أولاً (offline-first)
-    await _paymentDao.insert(payment);
+    // ═══ C2+C3 FIX: توليد ID واحد فقط واستخدامه في كلا الموقعين ═══
+    final localId = payment.id ?? _uuid.v4();
+    final now = DateTime.now();
 
-    try {
-      // مزامنة مع السحابة
-      if (payment.id != null) {
-        await _remoteDatasource.update(payment.id!, payment);
-      } else {
-        await _remoteDatasource.insert(payment);
+    if (payment.id == null) {
+      final localPayment = payment.copyWith(
+        id: localId,
+        createdAt: now,
+        updatedAt: now,
+      );
+      await _paymentDao.insert(localPayment);
+
+      try {
+        // إرسال نفس ID للخادم (يمنع تكرار السجل عند المزامنة)
+        await _remoteDatasource.insert(localPayment);
+      } catch (_) {
+        // Offline: queued for next sync
       }
-    } catch (_) {
-      // غير متصل: تم الحفظ محلياً، ستُزامَن لاحقاً
+    } else {
+      final localPayment = payment.copyWith(updatedAt: now);
+      await _paymentDao.update(payment.id!, localPayment);
+      try {
+        await _remoteDatasource.update(payment.id!, localPayment);
+      } catch (_) {
+        // Offline: queued for next sync
+      }
     }
 
-    // تحديث حالة فاتورة التخريج
+    // Update dispatch payment status
     final dispatchId = payment.dispatchId;
     if (dispatchId != null) {
       await _dispatchDao.updatePaymentStatus(

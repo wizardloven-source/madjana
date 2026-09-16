@@ -24,6 +24,8 @@ class CustomerDao {
       'notes': customer.notes,
       'total_debt': customer.totalDebt,
       'sync_status': SyncStatus.pending.name,
+      // ═══ C1 FIX: كتابة الإصدار ═══
+      'version': customer.version,
       'created_at': now,
       'updated_at': now,
     });
@@ -98,6 +100,8 @@ class CustomerDao {
         'notes': customer.notes,
         'total_debt': customer.totalDebt,
         'sync_status': SyncStatus.synced.name,
+        // ═══ C1 FIX: حفظ إصدار النسخة السحابية ═══
+        'version': customer.version,
         'created_at': DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
       },
@@ -156,6 +160,8 @@ class CustomerDao {
       phone: map['phone'] as String,
       notes: map['notes'] as String?,
       totalDebt: (map['total_debt'] as num?)?.toDouble() ?? 0,
+      // ═══ C1 FIX: قراءة الإصدار من قاعدة البيانات ═══
+      version: (map['version'] as int?) ?? 1,
     );
   }
 }

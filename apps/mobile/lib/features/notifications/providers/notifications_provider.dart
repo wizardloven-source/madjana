@@ -11,6 +11,7 @@ final activeNoticesProvider =
     FutureProvider.autoDispose.family<List<AppNotificationModel>, String>(
         (ref, farmId) async {
   final client = ref.watch(supabaseClientProvider);
+  if (client == null) return const <AppNotificationModel>[];
   try {
     final rows = await client
         .from('app_notifications')

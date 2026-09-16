@@ -201,6 +201,8 @@ class DispatchDao {
         (e) => e.name == map['sync_status'],
         orElse: () => SyncStatus.pending,
       ),
+      // ═══ C1 FIX: قراءة الإصدار من قاعدة البيانات ═══
+      version: (map['version'] as int?) ?? 1,
     );
   }
 }

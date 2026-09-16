@@ -21,17 +21,23 @@ class ConflictModel {
   });
 
   factory ConflictModel.fromJson(Map<String, dynamic> json) {
+    // ═══ C8 FIX: أمان كامل ضد القيم null/الأنواع الخاطئة ═══
+    final clientRaw = json['client_data'];
+    final serverRaw = json['server_data'];
     return ConflictModel(
-      id: json['id'],
-      tableName: json['table_name'],
-      recordId: json['record_id'],
-      clientData: Map<String, dynamic>.from(json['client_data']),
-      serverData: json['server_data'] != null 
-          ? Map<String, dynamic>.from(json['server_data']) 
+      id: json['id']?.toString() ?? '',
+      tableName: json['table_name']?.toString() ?? '',
+      recordId: json['record_id']?.toString() ?? '',
+      clientData: clientRaw is Map
+          ? Map<String, dynamic>.from(clientRaw)
+          : <String, dynamic>{},
+      serverData: serverRaw is Map
+          ? Map<String, dynamic>.from(serverRaw)
           : null,
-      status: json['status'] ?? 'pending',
-      createdAt: DateTime.parse(json['created_at']),
-      suggestedAction: json['suggested_action'] ?? 'manual_review',
+      status: json['status']?.toString() ?? 'pending',
+      createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ??
+          DateTime.now(),
+      suggestedAction: json['suggested_action']?.toString() ?? 'manual_review',
     );
   }
 

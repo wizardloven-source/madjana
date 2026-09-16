@@ -96,33 +96,36 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
 
   void _onNumpadKey(String key) {
     setState(() {
-      num currentValue = _currentValue;
+      // ═══ H-9 FIX: إدخال الكسور العشرية سليماً عبر سلسلة نصية ═══
+      var str = _currentValue.toString();
 
       if (key == 'clear') {
-        currentValue = 0;
+        str = '0';
       } else if (key == 'backspace') {
-        currentValue = (currentValue ~/ 10);
-      } else if (key == '.') {
-        if (_entryMode == FeedEntryMode.kg && !currentValue.toString().contains('.')) {
-          // السماح بالفاصلة العشرية في وضع الكيلو فقط
-          currentValue = currentValue.toDouble();
-        }
-        return;
-      } else {
-        if (_entryMode == FeedEntryMode.bags) {
-          currentValue = currentValue.toInt() * 10 + int.parse(key);
+        if (str.length <= 1) {
+          str = '0';
         } else {
-          // للكيلو: نضيف الرقم بعد الفاصلة
-          final str = currentValue.toString();
-          if (str.contains('.')) {
-            currentValue = double.parse('$str$key');
-          } else {
-            currentValue = currentValue.toInt() * 10 + int.parse(key);
-          }
+          str = str.substring(0, str.length - 1);
+          if (str.endsWith('.') || str == '-0') str = str.substring(0, str.length - 1);
+          if (str.isEmpty || str == '-') str = '0';
+        }
+      } else if (key == '.') {
+        if (_entryMode == FeedEntryMode.kg && !str.contains('.')) {
+          str = '$str.';
+        }
+      } else if (_entryMode == FeedEntryMode.bags) {
+        final digits = str.replaceAll('.', '');
+        str = digits == '0' ? key : '$digits$key';
+      } else {
+        // وضع الكيلو: إذا كانت السلسلة "0" أو "0." ابدأ بدل الرقم الجديد
+        if (str == '0') {
+          str = key;
+        } else {
+          str = '$str$key';
         }
       }
 
-      _currentValue = currentValue;
+      _currentValue = double.tryParse(str) ?? 0;
     });
   }
 

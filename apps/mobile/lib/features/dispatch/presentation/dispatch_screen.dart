@@ -200,7 +200,9 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
     required int stock,
   }) async {
     try {
-      await ref.read(supabaseClientProvider).from('dispatch_requests').insert({
+      final supabase = ref.read(supabaseClientProvider);
+      if (supabase == null) throw Exception('غير متصل بالسحابة');
+      await supabase.from('dispatch_requests').insert({
         'farm_id': farmId,
         'customer_id': _selectedCustomerId,
         'cartons': _cartons,

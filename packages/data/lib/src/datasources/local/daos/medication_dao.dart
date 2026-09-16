@@ -16,6 +16,8 @@ class MedicationDao {
     await db.insert(_table, {
       'id': id,
       'farm_id': record.farmId,
+      // ═══ C7 FIX: حفظ flock_id ═══
+      if (record.flockId != null) 'flock_id': record.flockId,
       'date': record.date.toIso8601String().split('T').first,
       'type': record.type.name,
       'medicine_name': record.medicineName,
@@ -26,6 +28,8 @@ class MedicationDao {
       'notes': record.notes,
       'worker_id': record.workerId,
       'sync_status': SyncStatus.pending.name,
+      // ═══ C1 FIX: كتابة الإصدار ═══
+      'version': record.version,
       'created_at': DateTime.now().toIso8601String(),
       'updated_at': DateTime.now().toIso8601String(),
     });
@@ -35,6 +39,7 @@ class MedicationDao {
       recordId: id,
       action: 'INSERT',
       payload: {
+        if (record.flockId != null) 'flock_id': record.flockId,
         'date': record.date.toIso8601String().split('T').first,
         'type': record.type.name,
         'medicine_name': record.medicineName,
@@ -132,6 +137,8 @@ class MedicationDao {
       _table,
       {
         'farm_id': model.farmId,
+        // ═══ C7 FIX: الحفاظ على flock_id ═══
+        if (model.flockId != null) 'flock_id': model.flockId,
         'date': model.date.toIso8601String().split('T').first,
         'type': model.type.name,
         'medicine_name': model.medicineName,
@@ -142,6 +149,8 @@ class MedicationDao {
         'notes': model.notes,
         'worker_id': model.workerId,
         'sync_status': SyncStatus.synced.name,
+        // ═══ C1 FIX: تخزين إصدار الخادم المحلول ═══
+        'version': model.version,
       },
       where: 'id = ?',
       whereArgs: [model.id],
@@ -201,6 +210,8 @@ class MedicationDao {
     return MedicationModel(
       id: map['id'] as String,
       farmId: map['farm_id'] as String,
+      // ═══ C7 FIX: قراءة flock_id من قاعدة البيانات ═══
+      flockId: map['flock_id'] as String?,
       date: DateTime.parse(map['date'] as String),
       type: MedicationType.values.firstWhere(
         (e) => e.name == map['type'],
@@ -220,6 +231,8 @@ class MedicationDao {
         (e) => e.name == map['sync_status'],
         orElse: () => SyncStatus.pending,
       ),
+      // ═══ C1 FIX: قراءة الإصدار من قاعدة البيانات ═══
+      version: (map['version'] as int?) ?? 1,
     );
   }
 }

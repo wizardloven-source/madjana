@@ -90,6 +90,8 @@ class ExpenseDao {
       'exchange_rate': expense.exchangeRate,
       'carton_bundles': expense.cartonBundles,
       'sync_status': expense.syncStatus.name,
+      // ═══ C1 FIX: كتابة الإصدار ═══
+      'version': expense.version,
       'created_at': (expense.createdAt ?? DateTime.now()).toIso8601String(),
       'updated_at': DateTime.now().toIso8601String(),
     });
@@ -180,6 +182,8 @@ class ExpenseDao {
         'exchange_rate': e.exchangeRate,
         'carton_bundles': e.cartonBundles,
         'sync_status': SyncStatus.synced.name,
+        // ═══ C1 FIX: حفظ الإصدار في saveAll ═══
+        'version': e.version,
         'created_at': (e.createdAt ?? DateTime.now()).toIso8601String(),
       });
     }
@@ -208,6 +212,8 @@ class ExpenseDao {
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)
           : null,
+      // ═══ C1 FIX: قراءة الإصدار من قاعدة البيانات ═══
+      version: (map['version'] as int?) ?? 1,
     );
   }
 }

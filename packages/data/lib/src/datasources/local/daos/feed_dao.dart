@@ -23,6 +23,8 @@ class FeedDao {
       'section_no': record.sectionNo,
       'worker_id': record.workerId,
       'sync_status': SyncStatus.pending.name,
+      // ═══ C1 FIX: كتابة الإصدار ═══
+      'version': record.version,
       'created_at': DateTime.now().toIso8601String(),
       'updated_at': DateTime.now().toIso8601String(),
     });
@@ -135,12 +137,17 @@ class FeedDao {
       'feed_consumption',
       {
         'farm_id': model.farmId,
+        // ═══ C5 FIX: الحفاظ على flock_id و section_no ═══
+        'flock_id': model.flockId,
+        'section_no': model.sectionNo,
         'date': model.date.toIso8601String().split('T').first,
         'quantity_kg': model.quantityKg,
         'bags_count': model.bagsCount,
         'entry_mode': model.entryMode.name,
         'worker_id': model.workerId,
         'sync_status': SyncStatus.synced.name,
+        // ═══ C1 FIX: تخزين إصدار الخادم المحلول ═══
+        'version': model.version,
       },
       where: 'id = ?',
       whereArgs: [model.id],
@@ -165,6 +172,8 @@ class FeedDao {
         'price_per_kg': model.pricePerKg,
         'notes': model.notes,
         'sync_status': SyncStatus.synced.name,
+        // ═══ C1 FIX: تخزين إصدار الخادم المحلول ═══
+        'version': model.version,
       },
       where: 'id = ?',
       whereArgs: [model.id],
@@ -175,6 +184,9 @@ class FeedDao {
     return FeedConsumptionModel(
       id: map['id'] as String,
       farmId: map['farm_id'] as String,
+      // ═══ C5 FIX: قراءة flock_id و section_no من قاعدة البيانات ═══
+      flockId: map['flock_id'] as String?,
+      sectionNo: map['section_no'] as int?,
       date: DateTime.parse(map['date'] as String),
       entryMode: FeedEntryMode.values.firstWhere(
         (e) => e.name == map['entry_mode'],
@@ -187,6 +199,8 @@ class FeedDao {
         (e) => e.name == map['sync_status'],
         orElse: () => SyncStatus.pending,
       ),
+      // ═══ C1 FIX: قراءة الإصدار من قاعدة البيانات ═══
+      version: (map['version'] as int?) ?? 1,
     );
   }
 
@@ -226,6 +240,8 @@ class FeedDao {
       'section_no': data['section_no'],
       'worker_id': data['worker_id'] ?? '',
       'sync_status': SyncStatus.pending.name,
+      // ═══ C1 FIX: كتابة الإصدار ═══
+      'version': data['version'] ?? 1,
       'created_at': DateTime.now().toIso8601String(),
       'updated_at': DateTime.now().toIso8601String(),
     });
@@ -358,7 +374,11 @@ class FeedDao {
       invoiceNumber: map['invoice_number'] as String?,
       notes: map['notes'] as String?,
       pricePerKg: (map['price_per_kg'] as num?)?.toDouble(),
+      // ═══ C6 FIX: قراءة section_no ═══
+      sectionNo: map['section_no'] as int?,
       workerId: map['worker_id'] as String? ?? '',
+      // ═══ C1 FIX: قراءة الإصدار من قاعدة البيانات ═══
+      version: (map['version'] as int?) ?? 1,
     );
   }
 }

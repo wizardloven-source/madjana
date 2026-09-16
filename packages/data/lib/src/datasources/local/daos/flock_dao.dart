@@ -119,6 +119,8 @@ class FlockDao {
         orElse: () => FlockStatus.active,
       ),
       sectionsCount: map['sections_count'] as int? ?? 1,
+      // ═══ C1 FIX: قراءة الإصدار من قاعدة البيانات ═══
+      version: (map['version'] as int?) ?? 1,
     );
   }
 }

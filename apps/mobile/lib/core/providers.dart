@@ -10,14 +10,20 @@ import '../features/sync/data/connectivity_service.dart';
 /// حاوية التبعيات (Dependency Injection)
 /// ═══════════════════════════════════════════════
 
-/// عميل Supabase
-final supabaseClientProvider = Provider<SupabaseClient>(
+/// عميل Supabase — يعيد null عند عدم التهيئة (Offline)
+/// ═══ CR-4 FIX ═══
+final supabaseClientProvider = Provider<SupabaseClient?>(
   (ref) => SupabaseConfig.client,
 );
 
 /// واجهة Supabase المجرّدة (منفصلة عن SupabaseClient لتسهيل الاختبار)
+/// ═══ CR-4 FIX: تعيد adapter فارغة عند غياب الاتصال بدلاً من الرمي ═══
 final supabaseApiProvider = Provider<SupabaseApi>(
-  (ref) => SupabaseClientApiAdapter(ref.watch(supabaseClientProvider)),
+  (ref) {
+    final client = ref.watch(supabaseClientProvider);
+    if (client == null) return SupabaseClientApiAdapter.offline();
+    return SupabaseClientApiAdapter(client);
+  },
 );
 
 // ─────────────── الـ DAOs المحلية ───────────────
@@ -39,8 +45,13 @@ final openingBalanceDaoProvider = Provider<OpeningBalanceDao>((ref) => OpeningBa
 
 
 // ─────────────── المصادر البعيدة ───────────────
-final supabaseAuthDatasourceProvider = Provider<SupabaseAuthDatasource>(
-  (ref) => SupabaseAuthDatasource(ref.watch(supabaseClientProvider)),
+/// ═══ CR-4 FIX: مصادر Supabase تتعامل مع عدم الاتصال ═══
+final supabaseAuthDatasourceProvider = Provider<SupabaseAuthDatasource?>(
+  (ref) {
+    final client = ref.watch(supabaseClientProvider);
+    if (client == null) return null;
+    return SupabaseAuthDatasource(client);
+  },
 );
 final supabaseEggDatasourceProvider = Provider<SupabaseEggDatasource>(
   (ref) => SupabaseEggDatasource(ref.watch(supabaseApiProvider)),
@@ -87,12 +98,16 @@ final supabaseInventoryDatasourceProvider =
 );
 
 // ─────────────── المستودعات ───────────────
+/// ═══ CR-4 FIX: AuthRepository يتعامل مع عدم الاتصال ═══
 final authRepositoryProvider = Provider<AuthRepository>(
-  (ref) => AuthRepositoryImpl(
-    remoteDatasource: ref.watch(supabaseAuthDatasourceProvider),
-    sessionDao: ref.watch(sessionDaoProvider),
-    settingsDao: ref.watch(settingsDaoProvider),
-  ),
+  (ref) {
+    final remoteDatasource = ref.watch(supabaseAuthDatasourceProvider);
+    return AuthRepositoryImpl(
+      remoteDatasource: remoteDatasource,
+      sessionDao: ref.watch(sessionDaoProvider),
+      settingsDao: ref.watch(settingsDaoProvider),
+    );
+  },
 );
 
 final eggProductionRepositoryProvider = Provider<EggProductionRepository>(

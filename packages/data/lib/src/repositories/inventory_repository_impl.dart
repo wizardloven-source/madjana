@@ -35,13 +35,17 @@ class InventoryRepositoryImpl implements InventoryRepository {
 
   @override
   Future<void> saveItem(InventoryItemModel item) async {
-    await _localDao.saveItem(item);
+    // ═══ C2 FIX: توليد ID واحد فقط واستخدامه في كلا الموقعين ═══
+    final localId = item.id ?? _uuid.v4();
+    final normalized = item.id == null ? item.copyWith(id: localId) : item;
+
+    await _localDao.saveItem(normalized);
     try {
-      if (item.id != null) {
-        await _remoteDatasource.updateItem(item);
+      if (normalized.id != null) {
+        await _remoteDatasource.updateItem(normalized);
       } else {
-        final saved = await _remoteDatasource.insertItem(item);
-        await _localDao.saveItem(InventoryItemModel.fromJson(saved));
+        // يرسل نفس الـ ID إلى الخادم لمنع التكرار
+        await _remoteDatasource.insertItem(normalized);
       }
     } catch (_) {
       // Offline: saved locally, will sync later

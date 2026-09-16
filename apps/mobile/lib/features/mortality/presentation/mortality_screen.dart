@@ -219,7 +219,10 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
 
             // اختيار القطيع
             DropdownButtonFormField<String>(
-              initialValue: _selectedFlockId,
+              // ═══ H-10 FIX: لا تمرر قيمة خارج قائمة القطيع (بعد تبديل المزرعة) ═══
+              initialValue: flocks.any((f) => f.id == _selectedFlockId)
+                  ? _selectedFlockId
+                  : null,
               decoration: const InputDecoration(labelText: 'القطيع'),
               items: flocks.map((flock) {
                 return DropdownMenuItem(
@@ -278,7 +281,11 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
 
             // سبب النفوق
             DropdownButtonFormField<MortalityReason>(
-              initialValue: _selectedReason,
+              // ═══ H-10 FIX: تجنّب انهيار عندما تكون القيمة غير موجودة ═══
+              initialValue: MortalityReason.values
+                      .contains(_selectedReason)
+                  ? _selectedReason
+                  : null,
               decoration: const InputDecoration(labelText: 'سبب النفوق'),
               items: MortalityReason.values.map((reason) {
                 return DropdownMenuItem(

@@ -257,7 +257,10 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
 
             // اختيار القطيع
             DropdownButtonFormField<String>(
-              initialValue: _selectedFlockId,
+              // ═══ H-10 FIX: قيمة آمنة بعد تبديل المزرعة ═══
+              initialValue: flocks.any((f) => f.id == _selectedFlockId)
+                  ? _selectedFlockId
+                  : null,
               decoration: const InputDecoration(labelText: 'المدجنة / القطيع'),
               items: flocks.map((flock) {
                 return DropdownMenuItem(

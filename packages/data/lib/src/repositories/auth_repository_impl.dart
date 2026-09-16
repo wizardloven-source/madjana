@@ -9,12 +9,13 @@ import '../datasources/remote/supabase_auth_datasource.dart';
 
 /// تنفيذ مستودع المصادقة
 class AuthRepositoryImpl implements AuthRepository {
-  final SupabaseAuthDatasource _remoteDatasource;
+  final SupabaseAuthDatasource? _remoteDatasource;
   final SessionDao _sessionDao;
   final SettingsDao _settingsDao;
 
+  /// ═══ CR-4 FIX: remoteDatasource أصبح nullable للعمل بدون إنترنت ═══
   AuthRepositoryImpl({
-    required SupabaseAuthDatasource remoteDatasource,
+    required SupabaseAuthDatasource? remoteDatasource,
     required SessionDao sessionDao,
     SettingsDao? settingsDao,
   })  : _remoteDatasource = remoteDatasource,
@@ -27,9 +28,15 @@ class AuthRepositoryImpl implements AuthRepository {
     required String pin,
     bool rememberMe = false,
   }) async {
+    // ═══ CR-4 FIX: بدون اتصال/تهيئة Supabase → دخول محلي فوراً ═══
+    final remote = _remoteDatasource;
+    if (remote == null) {
+      return _tryOfflineLogin(phone, pin);
+    }
+
     // محاولة الدخول عبر الإنترنت
     try {
-      final user = await _remoteDatasource.login(phone: phone, pin: pin);
+      final user = await remote.login(phone: phone, pin: pin);
 
       // حفظ الجلسة محلياً مع بيانات المستخدم (للاسترجاع بدون إنترنت)
       await _sessionDao.save(
@@ -131,7 +138,9 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<bool?> hasSystemAdmin() {
-    return _remoteDatasource.hasSystemAdmin();
+    final remote = _remoteDatasource;
+    if (remote == null) return Future.value(null);
+    return remote.hasSystemAdmin();
   }
 
   @override
@@ -142,8 +151,12 @@ class AuthRepositoryImpl implements AuthRepository {
     required String phone,
     required String pin,
   }) async {
+    final remote = _remoteDatasource;
+    if (remote == null) {
+      return LoginResult.failure('لا يوجد اتصال بالإنترنت — لا يمكن إنشاء الحساب الأول');
+    }
     try {
-      await _remoteDatasource.createFirstAdmin(
+      await remote.createFirstAdmin(
         farmName: farmName,
         location: location,
         managerName: managerName,
@@ -165,7 +178,7 @@ class AuthRepositoryImpl implements AuthRepository {
     // أولوية لجلسة Supabase الحقيقية ثم الجلسة المحفوظة محلياً
     String? uid;
     try {
-      uid = _remoteDatasource.currentUid ?? localSession?['user_id'] as String?;
+      uid = _remoteDatasource?.currentUid ?? localSession?['user_id'] as String?;
     } catch (_) {
       uid = localSession?['user_id'] as String?;
     }
@@ -192,8 +205,10 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<UserModel?> fetchUserById(String uid) async {
+    final remote = _remoteDatasource;
+    if (remote == null) return null;
     try {
-      final response = await _remoteDatasource.getUserById(uid)
+      final response = await remote.getUserById(uid)
           .timeout(const Duration(seconds: 8), onTimeout: () => null);
       if (response == null) return null;
       return UserModel.fromJson(response);
@@ -209,7 +224,9 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<void> setActiveFarm(String farmId) async {
-    final user = await _remoteDatasource.setActiveFarm(farmId);
+    final remote = _remoteDatasource;
+    if (remote == null) return;
+    final user = await remote.setActiveFarm(farmId);
     if (user == null) return;
     try {
       await _sessionDao.saveUserJson(jsonEncode(user.toJson()));
@@ -229,6 +246,6 @@ class AuthRepositoryImpl implements AuthRepository {
       await _settingsDao.set('offline_user_json', '');
       await _settingsDao.set('offline_farm_id', '');
     } catch (_) {}
-    await _remoteDatasource.logout();
+    await _remoteDatasource?.logout();
   }
 }

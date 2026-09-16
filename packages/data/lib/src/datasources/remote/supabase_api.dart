@@ -66,19 +66,38 @@ abstract interface class SupabaseStorageApi {
 
 /// محوّل من SupabaseClient الحقيقي إلى [SupabaseApi].
 class SupabaseClientApiAdapter implements SupabaseApi {
-  final SupabaseClient _client;
+  final SupabaseClient? _client;
 
-  SupabaseClientApiAdapter(this._client);
+  SupabaseClientApiAdapter(SupabaseClient client) : _client = client;
+
+  /// ═══ CR-4 FIX: محوّل فارغ لوضع عدم الاتصال ═══
+  SupabaseClientApiAdapter.offline() : _client = null;
+
+  bool get _isOffline => _client == null;
+
+  void _throwIfOffline() {
+    if (_isOffline) {
+      throw StateError('Offline: Supabase غير مهيئة — عملية محلية فقط');
+    }
+  }
 
   @override
-  RemoteTable from(String table) => _TableAdapter(_client.from(table));
+  RemoteTable from(String table) {
+    _throwIfOffline();
+    return _TableAdapter(_client!.from(table));
+  }
 
   @override
-  Future<dynamic> rpc(String name, {Map<String, dynamic>? params}) =>
-      _client.rpc(name, params: params);
+  Future<dynamic> rpc(String name, {Map<String, dynamic>? params}) {
+    _throwIfOffline();
+    return _client!.rpc(name, params: params);
+  }
 
   @override
-  SupabaseStorageApi get storage => _StorageAdapter(_client.storage);
+  SupabaseStorageApi get storage {
+    _throwIfOffline();
+    return _StorageAdapter(_client!.storage);
+  }
 }
 
 class _TableAdapter implements RemoteTable {

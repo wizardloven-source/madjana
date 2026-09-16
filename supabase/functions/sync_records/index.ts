@@ -33,6 +33,10 @@ const ALLOWED_ORIGINS: string[] = [
   // "https://app.madjana.example",
 ];
 
+// ═══ M-12 FIX: حدود الكمية والحجم لحماية الخادم ═══
+const MAX_BATCH_RECORDS = 200; // أقصى عدد سجلات في الدفعة الواحدة
+const MAX_BODY_BYTES = 1_000_000; // 1 MB كحد أقصى للحمولة الكاملة
+
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get("Origin");
   const headers: Record<string, string> = {
@@ -110,6 +114,18 @@ Deno.serve(async (req) => {
       );
     }
 
+    // ═══ M-12 FIX: رفض الطلبات الأكبر من الحد قبل القراءة الكاملة ═══
+    const contentLengthStr = req.headers.get("Content-Length");
+    if (contentLengthStr) {
+      const contentLength = Number(contentLengthStr);
+      if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+        return new Response(
+          JSON.stringify({ error: "Payload too large (max 1MB)" }),
+          { status: 413, headers: corsHeaders },
+        );
+      }
+    }
+
     // إنشاء client بمفتاح المستخدم (لضمان عمل auth.uid() داخل SQL)
     const supabaseUser = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -124,6 +140,16 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "Invalid records" }),
         { status: 400, headers: corsHeaders },
+      );
+    }
+
+    // ═══ M-12 FIX: رفض الدفعات الضخمة مبكراً ═══
+    if (rawRecords.length > MAX_BATCH_RECORDS) {
+      return new Response(
+        JSON.stringify({
+          error: `Batch too large (${rawRecords.length}), max is ${MAX_BATCH_RECORDS}. اقسم الدفعة إلى أجزاء أصغر`,
+        }),
+        { status: 413, headers: corsHeaders },
       );
     }
 

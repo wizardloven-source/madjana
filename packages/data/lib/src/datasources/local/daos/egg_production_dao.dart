@@ -18,6 +18,17 @@ class EggProductionDao {
 
     // ═══ تعديل سجل موجود — استبدال القيم بالكامل ═══
     if (record.id != null) {
+      final existing = await db.query(
+        _table,
+        columns: ['version'],
+        where: 'id = ?',
+        whereArgs: [record.id],
+        limit: 1,
+      );
+      final oldVer =
+          existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+      final newVer = oldVer + 1;
+
       await db.update(
         _table,
         {
@@ -31,6 +42,7 @@ class EggProductionDao {
           'section_no': record.sectionNo,
           'worker_id': record.workerId,
           'sync_status': SyncStatus.pending.name,
+          'version': newVer,
           'updated_at': now,
         },
         where: 'id = ?',
@@ -41,6 +53,7 @@ class EggProductionDao {
         tableName: _table,
         recordId: record.id!,
         action: 'UPDATE',
+        previousVersion: oldVer,
         payload: {
           'cartons': record.cartons,
           'trays': record.trays,
@@ -75,6 +88,7 @@ class EggProductionDao {
       final oldLoose = (old['loose_eggs'] as int?) ?? 0;
       final oldBroken = (old['broken_eggs'] as int?) ?? 0;
       final oldDirty = (old['dirty_eggs'] as int?) ?? 0;
+      final oldVersion = (old['version'] as int?) ?? 1;
 
       final newCartons = oldCartons + record.cartons;
       final newTrays = oldTrays + record.trays;
@@ -93,6 +107,7 @@ class EggProductionDao {
           'dirty_eggs': newDirty,
           'tray_weight_kg': record.trayWeightKg,
           'sync_status': SyncStatus.pending.name,
+          'version': oldVersion + 1,
           'updated_at': DateTime.now().toIso8601String(),
         },
         where: 'id = ?',
@@ -103,6 +118,7 @@ class EggProductionDao {
         tableName: _table,
         recordId: oldId,
         action: 'UPDATE',
+        previousVersion: oldVersion,
         payload: {
           'cartons': newCartons,
           'trays': newTrays,
@@ -120,7 +136,7 @@ class EggProductionDao {
 
     // إنشاء سجل جديد
     final id = _uuid.v4();
-    final now = DateTime.now().toIso8601String();
+    final nowStr = DateTime.now().toIso8601String();
 
     await db.insert(_table, {
       'id': id,
@@ -137,8 +153,9 @@ class EggProductionDao {
       'section_no': record.sectionNo,
       'worker_id': record.workerId,
       'sync_status': SyncStatus.pending.name,
-      'created_at': now,
-      'updated_at': now,
+      'version': record.version,
+      'created_at': nowStr,
+      'updated_at': nowStr,
     });
 
     await LocalDatabase.enqueueChange(
@@ -235,6 +252,8 @@ class EggProductionDao {
         'section_no': model.sectionNo,
         'worker_id': model.workerId,
         'sync_status': SyncStatus.synced.name,
+        // ═══ C1 FIX: تخزين إصدار الخادم المحلول ═══
+        'version': model.version,
         'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
@@ -323,6 +342,8 @@ class EggProductionDao {
       updatedAt: map['updated_at'] != null
           ? DateTime.tryParse(map['updated_at'] as String)
           : null,
+      // ═══ C1 FIX: قراءة الإصدار من قاعدة البيانات ═══
+      version: (map['version'] as int?) ?? 1,
     );
   }
 }

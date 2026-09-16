@@ -130,6 +130,8 @@ class SyncNotifier extends StateNotifier<SyncState> {
       _backoffMinutes = 0;
       _backoffTimer?.cancel();
       await _refreshCounts();
+      // ═══ H-4 FIX: لا تُحدّث lastSyncAt إلا عند نجاح المزامنة ═══
+      state = state.copyWith(isSyncing: false, lastSyncAt: DateTime.now());
       return result;
     } catch (_) {
       _consecutiveFailures++;
@@ -137,10 +139,10 @@ class SyncNotifier extends StateNotifier<SyncState> {
         _stopPeriodicSync();
         _scheduleBackoffRetry();
       }
+      state = state.copyWith(isSyncing: false);
       return null;
     } finally {
       _isSyncing = false;
-      state = state.copyWith(isSyncing: false, lastSyncAt: DateTime.now());
     }
   }
 

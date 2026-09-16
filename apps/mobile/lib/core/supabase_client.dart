@@ -63,5 +63,13 @@ class SupabaseConfig {
   }
 
   /// الحصول على Client
-  static SupabaseClient get client => Supabase.instance.client;
+  /// ═══ CR-4 FIX: لا يرمي StateError عند غياب التهيئة (وضع Offline) ═══
+  static SupabaseClient? get client {
+    if (!_initialized) return null;
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      return null;
+    }
+  }
 }

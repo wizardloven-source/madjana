@@ -114,6 +114,8 @@ class RevenueDao {
       'reference_id': revenue.referenceId,
       'worker_id': revenue.workerId,
       'sync_status': revenue.syncStatus.name,
+      // ═══ C1 FIX: كتابة الإصدار ═══
+      'version': revenue.version,
       'created_at': (revenue.createdAt ?? DateTime.now()).toIso8601String(),
       'updated_at': DateTime.now().toIso8601String(),
     });
@@ -213,6 +215,8 @@ class RevenueDao {
         'reference_id': r.referenceId,
         'worker_id': r.workerId,
         'sync_status': SyncStatus.synced.name,
+        // ═══ C1 FIX: حفظ الإصدار في saveAll ═══
+        'version': r.version,
         'created_at': (r.createdAt ?? DateTime.now()).toIso8601String(),
       });
     }
@@ -246,6 +250,8 @@ class RevenueDao {
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)
           : null,
+      // ═══ C1 FIX: قراءة الإصدار من قاعدة البيانات ═══
+      version: (map['version'] as int?) ?? 1,
     );
   }
 }

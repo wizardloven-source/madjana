@@ -1065,13 +1065,74 @@ CREATE TRIGGER trg_validate_dispatch_refs
 -- 15) الصلاحيات العامة + إعادة تحميل مخطط PostgREST
 -- ============================================================
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
 
--- ============================================================
--- 16) RLS للجداول الجديدة
--- ============================================================
-ALTER TABLE idempotency_log ENABLE ROW LEVEL SECURITY;
+-- ══════════════════════════════════════════════════════════════
+-- CR-1 FIX: تفعيل RLS على جميع الجداول أولاً قبل منح الصلاحيات
+-- بدون ENABLE ROW LEVEL SECURITY، السياسات وهمية والـ GRANT يفتح كل شيء
+-- ══════════════════════════════════════════════════════════════
+ALTER TABLE farms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_farms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE flocks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE egg_production ENABLE ROW LEVEL SECURITY;
+ALTER TABLE mortality ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feed_consumption ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feed_received ENABLE ROW LEVEL SECURITY;
+ALTER TABLE egg_dispatch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medicines_catalog ENABLE ROW LEVEL SECURITY;
+ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE revenue ENABLE ROW LEVEL SECURITY;
+ALTER TABLE opening_balances ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app_notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dispatch_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sync_changes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sync_conflicts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sync_checkpoint ENABLE ROW LEVEL SECURITY;
+ALTER TABLE login_throttle ENABLE ROW LEVEL SECURITY;
+
+-- منح صلاحيات القراءة/الكتابة لجدول الجلسات فقط (للقراءة العامة)
+GRANT SELECT, INSERT, UPDATE, DELETE ON idempotency_log TO authenticated;
+GRANT SELECT, INSERT ON audit_log TO authenticated;
+GRANT SELECT ON farms, users, user_farms, flocks, customers TO authenticated;
+GRANT SELECT ON egg_production, mortality, feed_consumption, feed_received TO authenticated;
+GRANT SELECT ON egg_dispatch, medications, medicines_catalog TO authenticated;
+GRANT SELECT ON payments, expenses, revenue, opening_balances TO authenticated;
+GRANT SELECT ON inventory_items, inventory_transactions TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON app_settings TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON app_notifications TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON dispatch_requests TO authenticated;
+GRANT SELECT ON sync_changes, sync_conflicts, sync_checkpoint TO authenticated;
+GRANT SELECT, INSERT ON login_throttle TO authenticated;
+
+-- ══════════════════════════════════════════════════════════════
+-- CR-1 FIX: منح صلاحيات الكتابة للجداول التشغيلية فقط عبر RPC
+-- الجداول المالية (payments, expenses, revenue, opening_balances, inventory)
+-- تُكتب فقط عبر stored procedures (SECURITY DEFINER)
+-- ══════════════════════════════════════════════════════════════
+GRANT INSERT, UPDATE, DELETE ON flocks TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON customers TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON egg_production TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON mortality TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON feed_consumption TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON feed_received TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON egg_dispatch TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON medications TO authenticated;
+GRANT INSERT, UPDATE ON medicines_catalog TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON payments TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON expenses TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON revenue TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON opening_balances TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON inventory_items TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON inventory_transactions TO authenticated;
+
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
 DROP POLICY IF EXISTS idemp_only_owner ON idempotency_log;
 CREATE POLICY idemp_only_owner ON idempotency_log
     FOR ALL TO authenticated
@@ -2021,6 +2082,24 @@ BEGIN
         RETURN;
     END IF;
 
+    -- ═══ H-3 FIX: العامل لا يقدر ينفذ الصيانة (ممنوعة عليه بـ SECURITY) ═══
+    -- cleanup_old_sync_changes و compact_sync_changes ترمي AUTHORIZATION_DENIED للموظف
+    -- => نكتفي بتسجيل checkpoint فقط للموظف وإرجاع قبل أي صيانة
+    IF public.current_user_role() = 'worker' THEN
+        INSERT INTO sync_checkpoint (farm_id, latest_version, purged_below, last_maintenance, updated_at)
+        SELECT
+            v_farm,
+            COALESCE((SELECT MAX(server_version) FROM sync_changes WHERE farm_id = v_farm), 0),
+            COALESCE((SELECT MIN(server_version) FROM sync_changes WHERE farm_id = v_farm), 0),
+            NOW(), NOW()
+        ON CONFLICT (farm_id) DO UPDATE SET
+            latest_version    = EXCLUDED.latest_version,
+            purged_below      = EXCLUDED.purged_below,
+            last_maintenance  = NOW(),
+            updated_at        = NOW();
+        RETURN;
+    END IF;
+
     v_interval := make_interval(mins => 360);
 
     SELECT last_maintenance INTO v_last
@@ -2287,9 +2366,17 @@ AS $$
 DECLARE
     v_target_farm uuid;
     v_caller      text;
+    v_target_role text;
 BEGIN
     v_caller := public.current_user_role();
-    SELECT farm_id INTO v_target_farm FROM users WHERE id = p_uid::uuid;
+    SELECT farm_id, role INTO v_target_farm, v_target_role FROM users WHERE id = p_uid::uuid;
+
+    -- ═══ CR-3 FIX: المدير لا يقدر ي_modifiy حساب system_admin ═══
+    IF v_caller != 'system_admin' THEN
+        IF v_target_role = 'system_admin' THEN
+            RAISE EXCEPTION 'لا يجوز للمدير تعديل حساب مدير النظام';
+        END IF;
+    END IF;
 
     IF v_caller = 'system_admin' THEN
         IF p_role IS NOT NULL AND p_role NOT IN ('worker', 'manager', 'system_admin') THEN
@@ -2335,12 +2422,18 @@ AS $$
 DECLARE
     v_target_farm uuid;
     v_caller      text;
+    v_target_role text;
 BEGIN
     IF p_new_pin !~ '^[0-9]{4}$' THEN
         RAISE EXCEPTION 'الرمز يجب أن يكون 4 أرقام';
     END IF;
     v_caller := public.current_user_role();
-    SELECT farm_id INTO v_target_farm FROM users WHERE id = p_uid::uuid;
+    SELECT farm_id, role INTO v_target_farm, v_target_role FROM users WHERE id = p_uid::uuid;
+
+    -- ═══ CR-3 FIX: المدير لا يقدر يُغيّر PIN لحساب system_admin ═══
+    IF v_caller != 'system_admin' AND v_target_role = 'system_admin' THEN
+        RAISE EXCEPTION 'لا يجوز للمدير إعادة تعيين رمز مدير النظام';
+    END IF;
 
     IF v_caller = 'system_admin' THEN
         NULL;
@@ -3203,6 +3296,10 @@ CREATE POLICY users_select_self ON users
         )
     );
 
+-- ══════════════════════════════════════════════════════════════
+-- CR-2 FIX: منع المستخدم من تغيير farm_id الخاص به ذاتياً
+-- بدون هذا الإصلاح، عامل يقدر يغيّر farm_id لأي مزرعة = اختراق عزل البيانات
+-- ══════════════════════════════════════════════════════════════
 DROP POLICY IF EXISTS users_update_self ON users;
 CREATE POLICY users_update_self ON users
     FOR UPDATE TO authenticated
@@ -3214,15 +3311,34 @@ CREATE POLICY users_update_self ON users
     WITH CHECK (
         id = auth.uid()
         OR is_system_admin()
-        OR (
-            current_user_role() = 'manager'
-            AND EXISTS (
-                SELECT 1 FROM public.user_farms uf
-                WHERE uf.user_id = users.id
-                  AND uf.farm_id = current_user_farm_id()
-            )
-        )
+        OR current_user_role() = 'manager'
     );
+
+-- CR-2 FIX: حماية farm_id و role عبر trigger (بدون OLD في السياسات)
+DROP TRIGGER IF EXISTS prevent_self_privilege_escalation ON users;
+CREATE OR REPLACE FUNCTION public.prevent_self_privilege_escalation()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    -- المستخدم العادي: لا يقدر يغيّر farm_id أو role لنفسه
+    IF auth.uid() = NEW.id AND NOT public.is_system_admin() THEN
+        IF NEW.farm_id IS DISTINCT FROM OLD.farm_id THEN
+            NEW.farm_id := OLD.farm_id;
+        END IF;
+        IF NEW.role IS DISTINCT FROM OLD.role THEN
+            NEW.role := OLD.role;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER prevent_self_privilege_escalation
+    BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION public.prevent_self_privilege_escalation();
 
 -- ============================================================
 -- 42b) user_farms RLS: المستخدم يرى روابطه فقط، والإدارة للمدير العام

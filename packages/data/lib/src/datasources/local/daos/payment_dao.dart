@@ -10,7 +10,8 @@ class PaymentDao {
   
   Future<String> insert(PaymentModel payment) async {
     final db = await LocalDatabase.database;
-    final id = _uuid.v4();
+    // ═══ C3 FIX: احترام id المُمرّر (من المُستدعي) بدل توليد UUID جديد ═══
+    final id = payment.id ?? _uuid.v4();
     final now = DateTime.now().toIso8601String();
 
     await db.insert(_table, {

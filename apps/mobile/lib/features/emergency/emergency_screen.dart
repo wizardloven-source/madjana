@@ -177,6 +177,7 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
 
     try {
       final supabase = ref.read(supabaseClientProvider);
+      if (supabase == null) throw Exception('غير متصل بالسحابة');
       final user = supabase.auth.currentUser;
       final farmId = user?.userMetadata?['farm_id']?.toString() ?? '';
 

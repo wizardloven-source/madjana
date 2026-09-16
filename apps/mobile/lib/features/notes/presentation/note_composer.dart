@@ -15,9 +15,17 @@ class NoteComposer extends ConsumerStatefulWidget {
   ConsumerState<NoteComposer> createState() => _NoteComposerState();
 }
 
-class _NoteComposerState extends ConsumerState<NoteComposer> {
+class _NoteComposerState extends ConsumerState<NoteComposer>
+    with SingleTickerProviderStateMixin {
   final _textController = TextEditingController();
   final _recorder = AudioRecorder();
+  // ═══ H-11 FIX: نبض دائم عبر AnimationController ═══
+  late final AnimationController _pulseController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 600),
+    lowerBound: 0.9,
+    upperBound: 1.15,
+  );
 
   bool _isRecording = false;
   int _recordSeconds = 0;
@@ -28,6 +36,7 @@ class _NoteComposerState extends ConsumerState<NoteComposer> {
   @override
   void dispose() {
     _timer?.cancel();
+    _pulseController.dispose();
     _textController.dispose();
     _recorder.dispose();
     super.dispose();
@@ -38,6 +47,7 @@ class _NoteComposerState extends ConsumerState<NoteComposer> {
       // إيقاف التسجيل
       final path = await _recorder.stop();
       _timer?.cancel();
+      _pulseController.stop();
       setState(() {
         _isRecording = false;
         if (path != null) _recordedPath = path;
@@ -75,6 +85,7 @@ class _NoteComposerState extends ConsumerState<NoteComposer> {
         _recordedPath = null;
         _recordSeconds = 0;
       });
+      _pulseController.repeat(reverse: true);
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() => _recordSeconds++);
       });
@@ -217,14 +228,9 @@ class _NoteComposerState extends ConsumerState<NoteComposer> {
                     ? Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          // مؤشر التسجيل النابض
-                          TweenAnimationBuilder<double>(
-                            tween: Tween(begin: 0.9, end: 1.15),
-                            duration: const Duration(milliseconds: 600),
-                            curve: Curves.easeInOut,
-                            builder: (context, scale, child) =>
-                                Transform.scale(
-                                    scale: scale, child: child),
+                          // مؤشر التسجيل النابض (نبض حقيقي متواصل)
+                          ScaleTransition(
+                            scale: _pulseController,
                             child: CircleAvatar(
                               radius: 26,
                               backgroundColor:
@@ -232,8 +238,6 @@ class _NoteComposerState extends ConsumerState<NoteComposer> {
                               child: const Icon(Icons.mic_rounded,
                                   color: Colors.white),
                             ),
-                            onEnd: () =>
-                                setState(() {}), // يعيد تشغيل الأنيميشن
                           ),
                           const SizedBox(width: 12),
                           Text(
