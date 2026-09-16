@@ -6,6 +6,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../reference_data/providers/reference_data_provider.dart';
 import '../../sync/providers/sync_provider.dart';
 import '../providers/auto_sync_provider.dart';
+import '../providers/backup_provider.dart';
 import '../providers/theme_provider.dart';
 
 /// شاشة الإعدادات
@@ -241,6 +242,35 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
 
+          // النسخ الاحتياطي
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              border: Border.all(color: AppColors.hairline),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'النسخ الاحتياطي',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'حفظ نسخة من بيانات هذا الجهاز محلياً (SQLite) مع إمكانية استعادتها.',
+                  style: TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                _buildBackupSection(context, ref),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
           // معلومات التطبيق
           Container(
             padding: const EdgeInsets.all(16),
@@ -284,6 +314,203 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Widget _buildBackupSection(BuildContext context, WidgetRef ref) {
+    final backupState = ref.watch(backupProvider);
+    final screen = this;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (backupState.errorMessage != null)
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.danger.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.error_outline,
+                    color: AppColors.danger, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    backupState.errorMessage!,
+                    style:
+                        const TextStyle(color: AppColors.danger, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        _buildInfoRow(
+          'عدد النسخ',
+          '${backupState.backups.length}',
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: backupState.isBackingUp
+                    ? null
+                    : () => _handleCreateBackup(context, ref),
+                icon: backupState.isBackingUp
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.backup, size: 18),
+                label: Text(backupState.isBackingUp ? 'جاري...' : 'إنشاء نسخة'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: backupState.backups.isEmpty
+                    ? null
+                    : () => _showBackupPicker(context, ref),
+                icon: const Icon(Icons.restore, size: 18),
+                label: const Text('استعادة'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (backupState.lastBackup != null && backupState.lastBackup!.success)
+          Text(
+            'آخر نسخة: ${screen._formatSize(backupState.lastBackup!.metadata!.fileSizeBytes)} '
+            'منذ ${screen._relativeTime(backupState.lastBackup!.metadata!.createdAt)}',
+            style: const TextStyle(fontSize: 12),
+          ),
+        if (backupState.lastRestore != null)
+          Text(
+            backupState.lastRestore!.success
+                ? 'تمت الاستعادة بنجاح — ${backupState.lastRestore!.recordsAffected} سجل'
+                : 'فشلت الاستعادة: ${backupState.lastRestore!.errorMessage}',
+            style: TextStyle(
+              fontSize: 12,
+              color: backupState.lastRestore!.success
+                  ? const Color(AppConstants.colorSuccess)
+                  : AppColors.danger,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _handleCreateBackup(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await ref.read(backupProvider.notifier).createBackup();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          result.success
+              ? 'تم إنشاء النسخة الاحتياطية بنجاح'
+              : 'فشل إنشاء النسخة: ${result.errorMessage}',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _showBackupPicker(BuildContext context, WidgetRef ref) {
+    final backups = ref.read(backupProvider).backups;
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: backups.isEmpty
+            ? const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('لا توجد نسخ احتياطية'),
+              )
+            : ListView(
+                shrinkWrap: true,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'اختر نسخة للاستعادة',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  ...backups.map((b) => ListTile(
+                        leading: const Icon(Icons.history),
+                        title: Text(b.id),
+                        subtitle: Text(
+                            '${_formatSize(b.fileSizeBytes)} — ${_relativeTime(b.createdAt)}'),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _confirmRestore(context, ref, b.id);
+                        },
+                      )),
+                ],
+              ),
+      ),
+    );
+  }
+
+  void _confirmRestore(
+      BuildContext context, WidgetRef ref, String backupId) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('تأكيد الاستعادة'),
+        content: const Text(
+          'سيتم استبدال البيانات الحالية بالنسخة الاحتياطية.\n'
+          'يُنصح بإنشاء نسخة احتياطية قبل الاستعادة.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final messenger = ScaffoldMessenger.of(context);
+              final result =
+                  await ref.read(backupProvider.notifier).restoreBackup(backupId);
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text(
+                    result.success
+                        ? 'تمت الاستعادة بنجاح (${result.recordsAffected} سجل)'
+                        : 'فشلت الاستعادة: ${result.errorMessage}',
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+            ),
+            child: const Text('استعادة'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes < 1024) return '$bytes بايت';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} ك.ب';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} م.ب';
+  }
+
+  String _relativeTime(DateTime time) {
+    final diff = DateTime.now().difference(time);
+    if (diff.inMinutes < 1) return 'الآن';
+    if (diff.inHours < 1) return '${diff.inMinutes} دقيقة';
+    if (diff.inDays < 1) return '${diff.inHours} ساعة';
+    return '${diff.inDays} يوم';
   }
 
   Widget _buildSettingTile(

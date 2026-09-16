@@ -32,6 +32,17 @@ class LocalDatabase {
     return _database!;
   }
 
+  /// ═══ PHASE 2: إعادة تعيين القاعدة المفتوحة (بعد الاستعادة الاحتياطية) ═══
+  /// تُغلق القاعدة الحالية وتُعيد تهيئتها من قرص في المرة القادمة.
+  /// ⚠️ يجب استخدامها فقط بعد عمل نسخة أمان أو ضمن عملية استعادة
+  /// وليست آمنة أثناء وجود عمليات كتابة نشطة.
+  static Future<void> reset() async {
+    if (_database != null) {
+      await _database!.close();
+      _database = null;
+    }
+  }
+
   /// مسار ملف قاعدة البيانات (للنسخ الاحتياطي)
   static Future<String> databasePath() async {
     if (_overridePath != null) return _overridePath!;
