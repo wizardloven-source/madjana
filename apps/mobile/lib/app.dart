@@ -32,7 +32,7 @@ class PoultryApp extends ConsumerWidget {
     final isDarkMode = ref.watch(themeProvider);
 
     return MaterialApp(
-      title: 'نظام إدارة المداجن',
+      title: 'YAseen Farm',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),

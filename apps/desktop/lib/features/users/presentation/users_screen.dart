@@ -311,7 +311,10 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
             spacing: 8,
             alignment: WrapAlignment.spaceBetween,
             children: [
-              Chip(label: Text('عدد المستخدمين: ${_users.length}')),
+              Material(
+                type: MaterialType.transparency,
+                child: Chip(label: Text('عدد المستخدمين: ${_users.length}')),
+              ),
               Row(mainAxisSize: MainAxisSize.min, children: [
                 IconButton(
                   tooltip: 'تحديث',

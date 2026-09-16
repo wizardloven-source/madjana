@@ -113,7 +113,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final prodRate = FarmAnalytics.avgProductionRate(
         totalEggs: totalEggs, birdCount: _birds, days: days);
     final mortDailyRate = FarmAnalytics.dailyMortalityRate(
-        totalDeaths: totalMortality, birdCount: _birds, days: days);
+        totalDeaths: grandMortality, birdCount: _birds, days: days);
     final feedPerDay = totalFeed / days;
     final feedDaysLeft = FarmAnalytics.feedDaysLeft(
       stockKg: _feedStock,
@@ -133,7 +133,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             ['المعدل اليومي', avgPerDay.toStringAsFixed(0)],
             ['معدل الإنتاج %', '${prodRate.toStringAsFixed(2)}%'],
             ['الطيور الحية', '$_birds'],
-            ['إجمالي النفوق', '$totalMortality'],
+            ['إجمالي النفوق', '$grandMortality'],
             ['معدل النفوق اليومي %', '${mortDailyRate.toStringAsFixed(3)}%'],
             ['استهلاك العلف (كغ)', totalFeed.toStringAsFixed(0)],
             ['متوسط استهلاك العلف اليومي (كغ)', feedPerDay.toStringAsFixed(0)],

@@ -8,6 +8,7 @@ import '../models/expense_model.dart';
 import '../models/flock_model.dart';
 import '../models/customer_model.dart';
 import '../models/inventory_model.dart';
+import '../models/opening_balance_model.dart';
 import '../utils/farm_analytics.dart';
 
 
@@ -228,11 +229,16 @@ class MortalityKpi {
     required List<MortalityModel> records,
     required DateRange range,
     required int totalBirds,
+    int openingBalanceMortality = 0,
   }) {
     final inRange = records.where((r) => range.contains(r.date)).toList();
-    if (inRange.isEmpty) return MortalityKpi.empty();
 
-    final totalDeaths = inRange.fold<int>(0, (s, r) => s + r.count);
+    // Include opening balance mortality in total deaths
+    final totalDeaths =
+        inRange.fold<int>(0, (s, r) => s + r.count) + openingBalanceMortality;
+
+    if (totalDeaths == 0) return MortalityKpi.empty();
+
     final rate = FarmAnalytics.dailyMortalityRate(
       totalDeaths: totalDeaths,
       birdCount: totalBirds,
@@ -244,6 +250,10 @@ class MortalityKpi {
     for (final r in inRange) {
       final reason = r.reason.name;
       byReason[reason] = (byReason[reason] ?? 0) + r.count;
+    }
+    if (openingBalanceMortality > 0) {
+      byReason['opening_balance'] =
+          (byReason['opening_balance'] ?? 0) + openingBalanceMortality;
     }
 
     return MortalityKpi(
@@ -463,6 +473,7 @@ class FlockPerformance {
     required List<ExpenseModel> expenses,
     required DateRange range,
     double pricePerEgg = 0,
+    OpeningBalanceModel? openingBalance,
   }) {
     final flockEggs = eggs.where((e) => e.flockId == flock.id).toList();
     final flockMortality =
@@ -487,6 +498,7 @@ class FlockPerformance {
       records: flockMortality,
       range: range,
       totalBirds: flock.currentCount,
+      openingBalanceMortality: openingBalance?.mortalityCount ?? 0,
     );
 
     final feedKpi = FeedKpi.calculate(

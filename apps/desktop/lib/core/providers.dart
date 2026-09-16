@@ -31,6 +31,7 @@ final sessionDaoProvider = Provider<SessionDao>((ref) => SessionDao());
 final syncQueueDaoProvider = Provider<SyncQueueDao>((ref) => SyncQueueDao());
 final paymentDaoProvider = Provider<PaymentDao>((ref) => PaymentDao());
 final expenseDaoProvider = Provider<ExpenseDao>((ref) => ExpenseDao());
+final revenueDaoProvider = Provider<RevenueDao>((ref) => RevenueDao());
 final inventoryDaoProvider = Provider<InventoryDao>((ref) => InventoryDao());
 final settingsDaoProvider = Provider<SettingsDao>((ref) => SettingsDao());
 final openingBalanceDaoProvider = Provider<OpeningBalanceDao>((ref) => OpeningBalanceDao());
@@ -63,6 +64,9 @@ final supabaseUserAdminDatasourceProvider = Provider<SupabaseUserAdminDatasource
 );
 final supabaseExpenseDatasourceProvider = Provider<SupabaseExpenseDatasource>(
   (ref) => SupabaseExpenseDatasource(ref.watch(supabaseApiProvider)),
+);
+final supabaseRevenueDatasourceProvider = Provider<SupabaseRevenueDatasource>(
+  (ref) => SupabaseRevenueDatasource(ref.watch(supabaseApiProvider)),
 );
 final supabaseInventoryDatasourceProvider = Provider<SupabaseInventoryDatasource>(
   (ref) => SupabaseInventoryDatasource(ref.watch(supabaseApiProvider)),
@@ -142,6 +146,7 @@ final flockRepositoryProvider = Provider<FlockRepository>(
 final openingBalanceRepositoryProvider = Provider<OpeningBalanceRepository>(
   (ref) => OpeningBalanceRepositoryImpl(
     localDao: ref.watch(openingBalanceDaoProvider),
+    flockDao: ref.watch(flockDaoProvider),
     remoteDatasource: ref.watch(supabaseOpeningBalanceDatasourceProvider),
   ),
 );
@@ -157,6 +162,13 @@ final expenseRepositoryProvider = Provider<ExpenseRepository>(
   (ref) => ExpenseRepositoryImpl(
     localDao: ref.watch(expenseDaoProvider),
     remoteDatasource: ref.watch(supabaseExpenseDatasourceProvider),
+  ),
+);
+
+final revenueRepositoryProvider = Provider<RevenueRepository>(
+  (ref) => RevenueRepositoryImpl(
+    localDao: ref.watch(revenueDaoProvider),
+    remoteDatasource: ref.watch(supabaseRevenueDatasourceProvider),
   ),
 );
 

@@ -77,36 +77,36 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         .subtract(const Duration(days: 6));
 
     try {
+      // Each query is independent — a failure in one should not block others
+      List<EggProductionModel> eggRecords = [];
+      List<MortalityModel> mortalityRecords = [];
+      List<EggProductionModel> allEggs = [];
+      List<DispatchModel> dispatches = [];
+      double outstanding = 0;
+      double collected = 0;
+      double feedStock = 0;
+      List<FlockModel> flocks = [];
+      List<InventoryItemModel> inventoryItems = [];
+      List<PaymentModel> payments = [];
+      double expensesToday = 0;
+      double expenses30 = 0;
+
       final results = await Future.wait([
-        eggRepo.getAllRecords(farmId: farmId, fromDate: monthAgo, toDate: today),
-        mortalityRepo.getAllRecords(
-            farmId: farmId, fromDate: monthAgo, toDate: today),
-        eggRepo.getAllRecords(farmId: farmId),
-        dispatchRepo.getAll(farmId: farmId),
-        paymentRepo.getTotalOutstanding(farmId: farmId),
-        paymentRepo.getTotalCollected(
-          farmId: farmId,
-          fromDate: monthAgo,
-          toDate: today,
-        ),
-        feedRepo.getCurrentFeedStock(farmId),
-        ref.read(flockRepositoryProvider).getFlocks(farmId, includeEnded: true),
-        ref.read(inventoryRepositoryProvider).getItems(farmId),
-        paymentRepo.getAll(farmId: farmId),
-        ref.read(expenseRepositoryProvider).getTotal(
-          farmId: farmId,
-          fromDate: today,
-          toDate: today,
-        ),
-        ref.read(expenseRepositoryProvider).getTotal(
-          farmId: farmId,
-          fromDate: monthAgo,
-          toDate: today,
-        ),
+        _safe(() => eggRepo.getAllRecords(farmId: farmId, fromDate: monthAgo, toDate: today), <EggProductionModel>[]),
+        _safe(() => mortalityRepo.getAllRecords(farmId: farmId, fromDate: monthAgo, toDate: today), <MortalityModel>[]),
+        _safe(() => eggRepo.getAllRecords(farmId: farmId), <EggProductionModel>[]),
+        _safe(() => dispatchRepo.getAll(farmId: farmId), <DispatchModel>[]),
+        _safe(() => paymentRepo.getTotalOutstanding(farmId: farmId), 0.0),
+        _safe(() => paymentRepo.getTotalCollected(farmId: farmId, fromDate: monthAgo, toDate: today), 0.0),
+        _safe(() => feedRepo.getCurrentFeedStock(farmId), 0.0),
+        _safe(() => ref.read(flockRepositoryProvider).getFlocks(farmId, includeEnded: true), <FlockModel>[]),
+        _safe(() => ref.read(inventoryRepositoryProvider).getItems(farmId), <InventoryItemModel>[]),
+        _safe(() => paymentRepo.getAll(farmId: farmId), <PaymentModel>[]),
+        _safe(() => ref.read(expenseRepositoryProvider).getTotal(farmId: farmId, fromDate: today, toDate: today), 0.0),
+        _safe(() => ref.read(expenseRepositoryProvider).getTotal(farmId: farmId, fromDate: monthAgo, toDate: today), 0.0),
       ]);
 
-      _eggRecords =
-          results[0] as List<EggProductionModel>;
+      _eggRecords = results[0] as List<EggProductionModel>;
       _mortalityRecords = results[1] as List<MortalityModel>;
       _allEggs = results[2] as List<EggProductionModel>;
       _dispatches = results[3] as List<DispatchModel>;
@@ -174,6 +174,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     setState(() => _loading = false);
   }
 
+  /// Helper: runs [fn] and returns [fallback] on any error
+  Future<T> _safe<T>(Future<T> Function() fn, T fallback) async {
+    try {
+      return await fn();
+    } catch (e) {
+      debugPrint('Dashboard._safe error: $e');
+      return fallback;
+    }
+  }
+
   int _currentEggStock = 0;
   bool _loadFailed = false;
 
@@ -223,8 +233,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     final totalEggs =
         _eggRecords.fold<int>(0, (sum, e) => sum + e.totalEggs);
+    // P0: Include opening balance mortality in total
+    final openingMortalityTotal = _openingBalances.fold<int>(
+        0, (s, b) => s + b.mortalityCount);
     final totalMortality =
-        _mortalityRecords.fold<int>(0, (sum, m) => sum + m.count);
+        _mortalityRecords.fold<int>(0, (sum, m) => sum + m.count) +
+            openingMortalityTotal;
 
     final activeFlocks =
         _flocks.where((f) => f.status == FlockStatus.active).toList();
@@ -242,7 +256,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         .fold<int>(0, (s, e) => s + e.totalEggs);
     final deaths7 = _mortalityRecords
         .where((m) => inLast7(m.date))
-        .fold<int>(0, (s, m) => s + m.count);
+        .fold<int>(0, (s, m) => s + m.count) +
+        // Include opening balance mortality if created within last 7 days
+        _openingBalances
+            .where((b) => inLast7(b.createdAt))
+            .fold<int>(0, (s, b) => s + b.mortalityCount);
     final consumed7 = _consumptionWeek.fold<double>(
         0, (s, r) => s + r.quantityKg);
 

@@ -93,6 +93,17 @@ enum MortalityReason {
 /// حالة المزامنة
 enum SyncStatus { pending, synced, failed, processing, conflict }
 
+/// فئات الإيرادات
+enum RevenueCategory {
+  liveChicken('بيع دجاج حي'),
+  building('بيع عمارة/مساحة'),
+  equipment('بيع عدة/تجهيزات'),
+  other('أشياء أخرى');
+
+  final String label;
+  const RevenueCategory(this.label);
+}
+
 /// فئات المصروفات
 enum ExpenseCategory {
   electricity('كهرباء'),

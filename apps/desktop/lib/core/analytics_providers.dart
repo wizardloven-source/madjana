@@ -43,10 +43,17 @@ final mortalityKpiProvider = FutureProvider.autoDispose
       .where((f) => f.status == FlockStatus.active)
       .fold<int>(0, (s, f) => s + f.currentCount);
 
+  // P0: Include opening balance mortality
+  final openingBalances =
+      await ref.read(openingBalanceRepositoryProvider).getForFarm(params.farmId);
+  final openingMortalityTotal =
+      openingBalances.fold<int>(0, (s, b) => s + b.mortalityCount);
+
   return MortalityKpi.calculate(
     records: mortality,
     range: params.range,
     totalBirds: totalBirds,
+    openingBalanceMortality: openingMortalityTotal,
   );
 });
 
@@ -239,6 +246,11 @@ final flockPerformanceProvider = FutureProvider.autoDispose
       .read(expenseRepositoryProvider)
       .getExpenses(farmId: farmId);
 
+  // P0: Fetch opening balance for this flock
+  final openingBalance = await ref
+      .read(openingBalanceRepositoryProvider)
+      .getForFlock(farmId, params.flock.id);
+
   return FlockPerformance.calculate(
     flock: params.flock,
     eggs: eggs,
@@ -250,5 +262,6 @@ final flockPerformanceProvider = FutureProvider.autoDispose
     expenses: expenses,
     range: params.range,
     pricePerEgg: params.pricePerEgg,
+    openingBalance: openingBalance,
   );
 });

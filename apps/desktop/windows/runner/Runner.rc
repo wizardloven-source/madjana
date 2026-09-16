@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.madjana" "\0"
-            VALUE "FileDescription", "madjana_desktop" "\0"
+            VALUE "FileDescription", "YAseen Farm" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "madjana_desktop" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.madjana. All rights reserved." "\0"
-            VALUE "OriginalFilename", "madjana_desktop.exe" "\0"
-            VALUE "ProductName", "madjana_desktop" "\0"
+            VALUE "InternalName", "yaseen_farm" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 YAseen Farm. All rights reserved." "\0"
+            VALUE "OriginalFilename", "yaseen_farm.exe" "\0"
+            VALUE "ProductName", "YAseen Farm" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -16,6 +16,7 @@ BEGIN;
 
 -- payments: replace mgr_all with farm-scoped policy
 DROP POLICY IF EXISTS mgr_all ON payments;
+DROP POLICY IF EXISTS payments_manager_farm_scoped ON payments;
 CREATE POLICY payments_manager_farm_scoped ON payments
   FOR ALL
   USING (
@@ -25,6 +26,7 @@ CREATE POLICY payments_manager_farm_scoped ON payments
 
 -- expenses: replace mgr_all with farm-scoped policy
 DROP POLICY IF EXISTS mgr_all ON expenses;
+DROP POLICY IF EXISTS expenses_manager_farm_scoped ON expenses;
 CREATE POLICY expenses_manager_farm_scoped ON expenses
   FOR ALL
   USING (
@@ -34,6 +36,7 @@ CREATE POLICY expenses_manager_farm_scoped ON expenses
 
 -- opening_balances: replace mgr_all with farm-scoped policy
 DROP POLICY IF EXISTS mgr_all ON opening_balances;
+DROP POLICY IF EXISTS opening_balances_manager_farm_scoped ON opening_balances;
 CREATE POLICY opening_balances_manager_farm_scoped ON opening_balances
   FOR ALL
   USING (
@@ -43,6 +46,7 @@ CREATE POLICY opening_balances_manager_farm_scoped ON opening_balances
 
 -- inventory_items: replace mgr_all with farm-scoped policy
 DROP POLICY IF EXISTS mgr_all ON inventory_items;
+DROP POLICY IF EXISTS inventory_items_manager_farm_scoped ON inventory_items;
 CREATE POLICY inventory_items_manager_farm_scoped ON inventory_items
   FOR ALL
   USING (
@@ -102,12 +106,14 @@ CREATE INDEX IF NOT EXISTS idx_flock_movements_type ON flock_movements(type);
 -- RLS
 ALTER TABLE flock_movements ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS flock_movements_select ON flock_movements;
 CREATE POLICY flock_movements_select ON flock_movements
   FOR SELECT USING (
     is_system_admin() OR
     farm_id = current_user_farm_id()
   );
 
+DROP POLICY IF EXISTS flock_movements_insert ON flock_movements;
 CREATE POLICY flock_movements_insert ON flock_movements
   FOR INSERT WITH CHECK (
     is_system_admin() OR
@@ -115,12 +121,14 @@ CREATE POLICY flock_movements_insert ON flock_movements
      (current_user_role() IN ('manager', 'worker')))
   );
 
+DROP POLICY IF EXISTS flock_movements_update ON flock_movements;
 CREATE POLICY flock_movements_update ON flock_movements
   FOR UPDATE USING (
     is_system_admin() OR
     (farm_id = current_user_farm_id() AND current_user_role() = 'manager')
   );
 
+DROP POLICY IF EXISTS flock_movements_delete ON flock_movements;
 CREATE POLICY flock_movements_delete ON flock_movements
   FOR DELETE USING (
     is_system_admin() OR
@@ -128,19 +136,23 @@ CREATE POLICY flock_movements_delete ON flock_movements
   );
 
 -- Sync triggers
+DROP TRIGGER IF EXISTS flock_movements_sync_insert ON flock_movements;
 CREATE TRIGGER flock_movements_sync_insert
   AFTER INSERT ON flock_movements
   FOR EACH ROW EXECUTE FUNCTION populate_sync_changes();
 
+DROP TRIGGER IF EXISTS flock_movements_sync_update ON flock_movements;
 CREATE TRIGGER flock_movements_sync_update
   AFTER UPDATE ON flock_movements
   FOR EACH ROW EXECUTE FUNCTION populate_sync_changes();
 
+DROP TRIGGER IF EXISTS flock_movements_tombstone ON flock_movements;
 CREATE TRIGGER flock_movements_tombstone
   AFTER DELETE ON flock_movements
   FOR EACH ROW EXECUTE FUNCTION sync_tombstone_after_delete();
 
 -- updated_at trigger
+DROP TRIGGER IF EXISTS flock_movements_updated_at ON flock_movements;
 CREATE TRIGGER flock_movements_updated_at
   BEFORE UPDATE ON flock_movements
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -193,11 +205,20 @@ BEGIN
     AND type = 'destruction'
     AND deleted_at IS NULL;
 
-  -- Calculate mortality (existing)
+  -- Calculate mortality from mortality records
   SELECT COALESCE(SUM(count), 0) INTO v_mortality
   FROM mortality
   WHERE flock_id = v_target_flock_id
     AND deleted_at IS NULL;
+
+  -- Include opening balance mortality
+  v_mortality := v_mortality + COALESCE(
+    (SELECT ob.mortality_count
+     FROM opening_balances ob
+     WHERE ob.flock_id = v_target_flock_id
+     LIMIT 1),
+    0
+  );
 
   -- Update flock count
   UPDATE flocks
@@ -212,13 +233,21 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS trg_update_flock_count ON mortality;
 
 -- Create trigger on flock_movements
+DROP TRIGGER IF EXISTS trg_update_flock_count_movements ON flock_movements;
 CREATE TRIGGER trg_update_flock_count_movements
   AFTER INSERT OR UPDATE OR DELETE ON flock_movements
   FOR EACH ROW EXECUTE FUNCTION update_flock_count_from_movements();
 
 -- Also trigger on mortality (existing behavior preserved)
+DROP TRIGGER IF EXISTS trg_update_flock_count_mortality ON mortality;
 CREATE TRIGGER trg_update_flock_count_mortality
   AFTER INSERT OR UPDATE OR DELETE ON mortality
+  FOR EACH ROW EXECUTE FUNCTION update_flock_count_from_movements();
+
+-- Also trigger on opening_balances (to recalculate when opening balance mortality changes)
+DROP TRIGGER IF EXISTS trg_update_flock_count_opening_balance ON opening_balances;
+CREATE TRIGGER trg_update_flock_count_opening_balance
+  AFTER INSERT OR UPDATE OR DELETE ON opening_balances
   FOR EACH ROW EXECUTE FUNCTION update_flock_count_from_movements();
 
 -- ─────────────────────────────────────────────

@@ -14,7 +14,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 21;
+  static const int _dbVersion = 22;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -498,6 +498,29 @@ class LocalDatabase {
       )
     ''');
 
+    // جدول الإيرادات (للمدير فقط)
+    await db.execute('''
+      CREATE TABLE revenue (
+        id TEXT PRIMARY KEY,
+        farm_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        category TEXT NOT NULL,
+        description TEXT,
+        amount REAL NOT NULL DEFAULT 0,
+        currency TEXT DEFAULT 'dollar',
+        exchange_rate REAL,
+        quantity REAL,
+        unit TEXT,
+        reference_id TEXT,
+        worker_id TEXT,
+        sync_status TEXT DEFAULT 'synced',
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+
     // فهارس للأداء
     await db.execute(
         'CREATE INDEX idx_egg_production_sync ON egg_production(sync_status)');
@@ -537,6 +560,8 @@ class LocalDatabase {
         'CREATE INDEX idx_payments_customer ON payments(customer_id)');
     await db.execute(
         'CREATE INDEX idx_expenses_farm_date ON expenses(farm_id, date)');
+    await db.execute(
+        'CREATE INDEX idx_revenue_farm_date ON revenue(farm_id, date)');
     await db.execute(
         'CREATE INDEX idx_inventory_items_farm ON inventory_items(farm_id)');
     await db.execute(
@@ -914,6 +939,34 @@ class LocalDatabase {
             await db.execute('ALTER TABLE expenses ADD COLUMN carton_bundles INTEGER');
           }
         }
+
+        // v22: جدول الإيرادات
+        if (oldVersion < 22) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS revenue (
+              id TEXT PRIMARY KEY,
+              farm_id TEXT NOT NULL,
+              date TEXT NOT NULL,
+              category TEXT NOT NULL,
+              description TEXT,
+              amount REAL NOT NULL DEFAULT 0,
+              currency TEXT DEFAULT 'dollar',
+              exchange_rate REAL,
+              quantity REAL,
+              unit TEXT,
+              reference_id TEXT,
+              worker_id TEXT,
+              sync_status TEXT DEFAULT 'synced',
+              version INTEGER DEFAULT 1,
+              deleted_at TEXT,
+              created_at TEXT,
+              updated_at TEXT
+            )
+          ''');
+          try {
+            await db.execute('CREATE INDEX IF NOT EXISTS idx_revenue_farm_date ON revenue(farm_id, date)');
+          } catch (_) {}
+        }
   }
 
   /// يتحقق من وجود عمود في جدول (بدلاً من إخفاء أخطاء migration عبر catch عام)
@@ -938,6 +991,7 @@ class LocalDatabase {
       'users',
       'payments',
       'expenses',
+      'revenue',
       'inventory_items',
       'inventory_transactions',
       'app_settings',

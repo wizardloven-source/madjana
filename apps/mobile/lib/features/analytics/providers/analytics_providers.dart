@@ -41,10 +41,17 @@ final mortalityKpiProvider = FutureProvider.autoDispose
       .where((f) => f.status == FlockStatus.active)
       .fold<int>(0, (s, f) => s + f.currentCount);
 
+  // P0: Include opening balance mortality
+  final openingBalances =
+      await ref.read(openingBalanceRepositoryProvider).getForFarm(params.farmId);
+  final openingMortalityTotal =
+      openingBalances.fold<int>(0, (s, b) => s + b.mortalityCount);
+
   return MortalityKpi.calculate(
     records: mortality,
     range: params.range,
     totalBirds: totalBirds,
+    openingBalanceMortality: openingMortalityTotal,
   );
 });
 

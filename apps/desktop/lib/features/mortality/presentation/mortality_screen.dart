@@ -103,6 +103,61 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
     }
   }
 
+  Future<void> _showEditDialog(MortalityModel record) async {
+    if (_flocks.isEmpty) return;
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _MortalityDialog(flocks: _flocks, farmId: _farmId, existing: record),
+    );
+    if (result != null && mounted) {
+      final updated = record.copyWith(
+        flockId: result['flock_id'] as String,
+        date: result['date'] as DateTime,
+        count: result['count'] as int,
+        reason: result['reason'] as MortalityReason,
+        reasonOther: result['reason_other'] as String?,
+        notes: result['notes'] as String?,
+        sectionNo: result['section_no'] as int?,
+      );
+      await ref.read(mortalityRepositoryProvider).saveLocal(updated);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم تعديل السجل بنجاح')),
+        );
+        _load();
+      }
+    }
+  }
+
+  Future<void> _deleteRecord(MortalityModel record) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف سجل النفوق'),
+        content: Text('هل تريد حذف سجل ${Formatters.formatDate(record.date)}؟'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true && mounted) {
+      if (record.id != null) {
+        await ref.read(mortalityRepositoryProvider).deleteRecord(record.id!);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حذف السجل')),
+        );
+        _load();
+      }
+    }
+  }
+
   Future<void> _exportCsv() async {
     try {
       final filtered = _filtered;
@@ -250,6 +305,7 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
                             DataColumn(label: Text('العدد')),
                             DataColumn(label: Text('السبب')),
                             DataColumn(label: Text('ملاحظات')),
+                            DataColumn(label: Text('إجراءات')),
                           ],
                           rows: [
                             for (final r in filtered)
@@ -267,6 +323,23 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
                                   ),
                                   DataCell(Text(_reasonLabel(r))),
                                   DataCell(Text(r.notes ?? '-')),
+                                  DataCell(
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.edit, size: 18),
+                                          tooltip: 'تعديل',
+                                          onPressed: () => _showEditDialog(r),
+                                        ),
+                                        IconButton(
+                                          icon: Icon(Icons.delete, size: 18, color: Theme.of(context).colorScheme.error),
+                                          tooltip: 'حذف',
+                                          onPressed: () => _deleteRecord(r),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                               ),
                           ],
@@ -283,7 +356,8 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
 class _MortalityDialog extends StatefulWidget {
   final List<FlockModel> flocks;
   final String farmId;
-  const _MortalityDialog({required this.flocks, required this.farmId});
+  final MortalityModel? existing;
+  const _MortalityDialog({required this.flocks, required this.farmId, this.existing});
   @override
   State<_MortalityDialog> createState() => _MortalityDialogState();
 }
@@ -296,6 +370,21 @@ class _MortalityDialogState extends State<_MortalityDialog> {
   final _otherCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
   int? _sectionNo;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.existing != null) {
+      final e = widget.existing!;
+      _flockId = e.flockId;
+      _date = e.date;
+      _countCtrl.text = '${e.count}';
+      _reason = e.reason;
+      _otherCtrl.text = e.reasonOther ?? '';
+      _notesCtrl.text = e.notes ?? '';
+      _sectionNo = e.sectionNo;
+    }
+  }
 
   FlockModel? get _selectedFlock =>
       _flockId == null
@@ -316,7 +405,7 @@ class _MortalityDialogState extends State<_MortalityDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('إضافة سجل نفوق'),
+      title: Text(widget.existing != null ? 'تعديل سجل نفوق' : 'إضافة سجل نفوق'),
       content: SizedBox(
         width: 420,
         child: SingleChildScrollView(

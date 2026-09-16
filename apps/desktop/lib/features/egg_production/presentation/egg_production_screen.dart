@@ -135,6 +135,70 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
     }
   }
 
+  Future<void> _showEditDialog(EggProductionModel record) async {
+    if (_flocks.isEmpty) return;
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _EggProductionDialog(
+        flocks: _flocks,
+        farmId: _farmId,
+        existing: record,
+      ),
+    );
+    if (result != null && mounted) {
+      final updated = EggProductionModel(
+        id: record.id,
+        farmId: _farmId,
+        flockId: result['flock_id'] as String,
+        date: result['date'] as DateTime,
+        cartons: result['cartons'] as int,
+        trays: result['trays'] as int,
+        looseEggs: result['loose'] as int,
+        brokenEggs: result['broken'] as int,
+        dirtyEggs: result['dirty'] as int,
+        sectionNo: result['section'] as int?,
+        workerId: record.workerId,
+        syncStatus: SyncStatus.pending,
+      );
+      await ref.read(eggProductionRepositoryProvider).saveLocal(updated);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم تعديل السجل بنجاح')),
+        );
+        _load();
+      }
+    }
+  }
+
+  Future<void> _deleteRecord(EggProductionModel record) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف سجل الإنتاج'),
+        content: Text('هل تريد حذف سجل ${Formatters.formatDate(record.date)}؟'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true && mounted) {
+      if (record.id != null) {
+        await ref.read(eggProductionRepositoryProvider).deleteRecord(record.id!);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حذف السجل')),
+        );
+        _load();
+      }
+    }
+  }
+
   Future<void> _exportCsv() async {
     try {
       final path = await CsvExporter.saveCsv(
@@ -308,6 +372,7 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
                             DataColumn(label: Text('الإجمالي')),
                             DataColumn(label: Text('مكسور')),
                             DataColumn(label: Text('أرضي')),
+                            DataColumn(label: Text('إجراءات')),
                           ],
                           rows: [
                             for (final r in filtered)
@@ -329,6 +394,23 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
                                   ),
                                   DataCell(Text('${r.brokenEggs}')),
                                   DataCell(Text('${r.dirtyEggs}')),
+                                  DataCell(
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.edit, size: 18),
+                                          tooltip: 'تعديل',
+                                          onPressed: () => _showEditDialog(r),
+                                        ),
+                                        IconButton(
+                                          icon: Icon(Icons.delete, size: 18, color: Theme.of(context).colorScheme.error),
+                                          tooltip: 'حذف',
+                                          onPressed: () => _deleteRecord(r),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                               ),
                           ],
@@ -345,7 +427,8 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
 class _EggProductionDialog extends StatefulWidget {
   final List<FlockModel> flocks;
   final String farmId;
-  const _EggProductionDialog({required this.flocks, required this.farmId});
+  final EggProductionModel? existing;
+  const _EggProductionDialog({required this.flocks, required this.farmId, this.existing});
   @override
   State<_EggProductionDialog> createState() => _EggProductionDialogState();
 }
@@ -359,6 +442,22 @@ class _EggProductionDialogState extends State<_EggProductionDialog> {
   final _brokenCtrl = TextEditingController(text: '0');
   final _dirtyCtrl = TextEditingController(text: '0');
   int? _sectionNo;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.existing != null) {
+      final e = widget.existing!;
+      _flockId = e.flockId;
+      _date = e.date;
+      _cartonsCtrl.text = '${e.cartons}';
+      _traysCtrl.text = '${e.trays}';
+      _looseCtrl.text = '${e.looseEggs}';
+      _brokenCtrl.text = '${e.brokenEggs}';
+      _dirtyCtrl.text = '${e.dirtyEggs}';
+      _sectionNo = e.sectionNo;
+    }
+  }
 
   @override
   void dispose() {
@@ -388,7 +487,7 @@ class _EggProductionDialogState extends State<_EggProductionDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('إضافة إنتاج بيض'),
+      title: Text(widget.existing != null ? 'تعديل إنتاج بيض' : 'إضافة إنتاج بيض'),
       content: SizedBox(
         width: 440,
         child: SingleChildScrollView(

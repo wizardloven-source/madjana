@@ -1,17 +1,61 @@
-# poultry_mobile
+# Madjana Mobile — تطبيق الموبايل
 
-A new Flutter project.
+تطبيق Flutter لل-android يُستخدم mainly من قِبَل العمال والمديرين في المزرعة.
 
-## Getting Started
+## الميزات
 
-This project is a starting point for a Flutter application.
+### تسجيل البيانات اليومية
+- **إنتاج البيض:** كراتين / أطباق / بيض Fortress + مكسور + متسخ — حساب تلقائي
+- **النفوق:** عدد + سبب (6 أسباب) + صورة كاميرا + تحذير عند الارتفاع
+- **استهلاك العلف:** كيس/كغ مع عرض المخزون الحالي
+- **استلام العلف:** كيس/كغ/تون + نوع العلف + المورد
+- **تخريج البيض:** اختيار الزبون + كراتين/أطباق + التحقق من المخزون
+- **الأدوية:** نوع (دواء/لقاح/فيتامين) + جرعة + طريقة الإعطاء + فترة سحب
 
-A few resources to get you started if this is your first Flutter project:
+### الإدارة
+- **العملاء:** إضافة/تعديل
+- **المدفوعات:** سعر الكرتون + المبلغ المدفوع + USD/Lira
+- **القطعان:** إنشاء/تعديل/نهاية دورة
+- **الملاحظات:** نص + تسجيل صوتي (محلي فقط)
+- **الإشعارات:** إعلانات المدير + تذكيرات محلية
+- **الطوارئ:** 6 أنواع طوارئ → تُرسل للمدير فوراً
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+### التقارير
+- ملخص اليوم (بيض/نفوق/علف)
+- تقارير 7 أيام مع رسم بياني
+- تصدير CSV
+- تحليلات: إنتاج + نفوق + علف + تنبيهات مخزون
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### الإعدادات
+- Dark Mode
+- مزامنة تلقائية (قابلة للإيقاف)
+- حالة المزامنة
+- تسجيل الخروج
+
+## التقنيات
+
+| المكوّن | التقنية |
+|---------|---------|
+| State Management | Riverpod |
+| قاعدة البيانات | SQLite (sqflite) |
+| المزامنة | Sync Queue → Supabase |
+| الكاميرا | image_picker |
+| الصوت | record + audioplayers |
+| التصميم | Material 3 + Custom Design Tokens |
+| الخط | Cairo (Google Fonts) |
+| اللغة | Arabic RTL |
+
+## التشغيل
+
+```bash
+cd apps/mobile
+flutter pub get
+flutter run
+```
+
+## بناء APK
+
+```bash
+flutter build apk --debug
+# الناتج: build/app/outputs/flutter-apk/app-debug.apk
+```

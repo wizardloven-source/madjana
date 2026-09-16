@@ -19,6 +19,7 @@ export 'src/models/payment_model.dart';
 export 'src/models/medicine_model.dart';
 export 'src/models/medication_model.dart';
 export 'src/models/expense_model.dart';
+export 'src/models/revenue_model.dart';
 export 'src/models/inventory_model.dart';
 export 'src/models/notification_models.dart';
 export 'src/models/opening_balance_model.dart';

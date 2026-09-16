@@ -12,6 +12,7 @@ import '../../analytics/presentation/analytics_hub_screen.dart';
 import '../../dispatch/presentation/dispatch_screen.dart';
 import '../../egg_production/presentation/egg_production_screen.dart';
 import '../../expenses/presentation/expenses_screen.dart';
+import '../../revenue/presentation/revenue_screen.dart';
 import '../../feed/presentation/feed_screen.dart';
 import '../../flocks/presentation/flocks_screen.dart';
 import '../../inventory/presentation/inventory_screen.dart';
@@ -50,6 +51,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     UsersScreen(),
     SyncCenterScreen(),
     SettingsScreen(),
+    RevenueScreen(),
   ];
 
   static const _titles = [
@@ -70,6 +72,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     'المستخدمون',
     'المزامنة',
     'الإعدادات',
+    'الإيرادات',
   ];
 
   static const _icons = [
@@ -90,15 +93,17 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     Icons.people_rounded,
     Icons.sync_rounded,
     Icons.settings_rounded,
+    Icons.attach_money_rounded,
   ];
 
   // Command Center: تنقّل مجمّع حسب المجالات
   static const _navGroups = <(String, List<int>)>[
     ('الرئيسية', [0]),
     ('الإنتاج', [1, 2, 3, 4]),
-    ('المبيعات والمالية', [5, 12, 8]),
+    ('المبيعات والمالية', [5, 12, 8, 17]),
     ('المخزون والعلاج', [9, 11]),
     ('المتابعة والإدارة', [6, 7, 10, 13, 14, 15]),
+    ('النظام', [16]),
   ];
 
   int _failedSyncCount = 0;
@@ -137,6 +142,9 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
         // رفع المصروفات المحفوظة محلياً أثناء الانقطاع (المدير فقط)
         try {
           await ref.read(expenseRepositoryProvider).syncPendingRecords();
+        } catch (_) {}
+        try {
+          await ref.read(revenueRepositoryProvider).syncPendingRecords();
         } catch (_) {}
 
         final pulled = await ref.read(syncRepositoryProvider).syncNow(farmId);
@@ -375,12 +383,15 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                     child: Builder(builder: (context) {
                       // تأكد من بناء التبويب الحالي
                       _builtScreens[selectedIndex] ??= _screens[selectedIndex];
-                      return IndexedStack(
-                        index: selectedIndex,
-                        children: [
-                          for (var i = 0; i < _screens.length; i++)
-                            _builtScreens[i] ?? const SizedBox.shrink(),
-                        ],
+                      return Material(
+                        type: MaterialType.transparency,
+                        child: IndexedStack(
+                          index: selectedIndex,
+                          children: [
+                            for (var i = 0; i < _screens.length; i++)
+                              _builtScreens[i] ?? const SizedBox.shrink(),
+                          ],
+                        ),
                       );
                     }),
                   ),

@@ -124,6 +124,86 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     }
   }
 
+  Future<void> _showEditConsumptionDialog(FeedConsumptionModel record) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _FeedConsumptionDialog(
+        flocks: _flocks,
+        farmName: _farmName,
+        feedBagWeightKg: _bagWeightKg,
+        existing: record,
+      ),
+    );
+    if (result != null && mounted) {
+      final mode = result['mode'] as FeedEntryMode;
+      FeedConsumptionModel updated;
+      final sectionNo = result['section_no'] as int?;
+      if (mode == FeedEntryMode.bags) {
+        final bags = result['bags'] as int;
+        updated = FeedConsumptionModel(
+          id: record.id,
+          farmId: _farmId,
+          flockId: result['flock_id'] as String?,
+          date: result['date'] as DateTime,
+          entryMode: FeedEntryMode.bags,
+          bagsCount: bags,
+          quantityKg: bags * _bagWeightKg,
+          workerId: record.workerId,
+          sectionNo: sectionNo,
+          syncStatus: SyncStatus.pending,
+        );
+      } else {
+        updated = FeedConsumptionModel(
+          id: record.id,
+          farmId: _farmId,
+          flockId: result['flock_id'] as String?,
+          date: result['date'] as DateTime,
+          entryMode: FeedEntryMode.kg,
+          quantityKg: result['quantity_kg'] as double,
+          workerId: record.workerId,
+          sectionNo: sectionNo,
+          syncStatus: SyncStatus.pending,
+        );
+      }
+      await ref.read(feedRepositoryProvider).saveConsumptionLocal(updated);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم تعديل الاستهلاك بنجاح')),
+        );
+        _load();
+      }
+    }
+  }
+
+  Future<void> _deleteConsumptionRecord(FeedConsumptionModel record) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف سجل الاستهلاك'),
+        content: Text('هل تريد حذف سجل ${Formatters.formatDate(record.date)}؟'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true && mounted) {
+      if (record.id != null) {
+        await ref.read(feedRepositoryProvider).deleteConsumptionRecord(record.id!);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حذف السجل')),
+        );
+        _load();
+      }
+    }
+  }
+
   Future<void> _showAddReceivedDialog() async {
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -306,6 +386,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
           DataColumn(label: Text('التاريخ')),
           DataColumn(label: Text('الكمية (كغ)')),
           DataColumn(label: Text('أكياس')),
+          DataColumn(label: Text('إجراءات')),
         ],
         rows: [
           for (final r in _consumption)
@@ -319,6 +400,23 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                   ),
                 ),
                 DataCell(Text(r.bagsCount == 0 ? '-' : '${r.bagsCount}')),
+                DataCell(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit, size: 18),
+                        tooltip: 'تعديل',
+                        onPressed: () => _showEditConsumptionDialog(r),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.delete, size: 18, color: Theme.of(context).colorScheme.error),
+                        tooltip: 'حذف',
+                        onPressed: () => _deleteConsumptionRecord(r),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
         ],
@@ -680,10 +778,12 @@ class _FeedConsumptionDialog extends StatefulWidget {
   final List<FlockModel> flocks;
   final String farmName;
   final double feedBagWeightKg;
+  final FeedConsumptionModel? existing;
   const _FeedConsumptionDialog({
     required this.flocks,
     required this.farmName,
     required this.feedBagWeightKg,
+    this.existing,
   });
   @override
   State<_FeedConsumptionDialog> createState() => _FeedConsumptionDialogState();
@@ -696,6 +796,20 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
   final _bagsCtrl = TextEditingController();
   final _kgCtrl = TextEditingController();
   int? _sectionNo;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.existing != null) {
+      final e = widget.existing!;
+      _mode = e.entryMode;
+      _date = e.date;
+      _flockId = e.flockId;
+      _bagsCtrl.text = e.bagsCount > 0 ? '${e.bagsCount}' : '';
+      _kgCtrl.text = '${e.quantityKg}';
+      _sectionNo = e.sectionNo;
+    }
+  }
 
   bool get _hasMultipleSections =>
       widget.flocks.any((f) => f.sectionsCount > 1);
@@ -719,7 +833,7 @@ class _FeedConsumptionDialogState extends State<_FeedConsumptionDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('إضافة استهلاك علف'),
+      title: Text(widget.existing != null ? 'تعديل استهلاك علف' : 'إضافة استهلاك علف'),
       content: SizedBox(
         width: 380,
         child: SingleChildScrollView(

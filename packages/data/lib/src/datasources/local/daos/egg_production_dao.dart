@@ -8,9 +8,117 @@ class EggProductionDao {
   static const String _table = 'egg_production';
   static const _uuid = Uuid();
 
-  /// حفظ سجل جديد (مع توليد ID محلي)
+  /// حفظ سجل: 
+  /// - إذا كان (id) معروفاً => تعديل: استبدال القيم بالكامل (لا دمج)
+  /// - إذا كان id == null => إدخال جديد: يدمج مع سجل نفس (مدجنة+تاريخ+عنبر) إن وجد
   Future<String> insert(EggProductionModel record) async {
     final db = await LocalDatabase.database;
+    final dateStr = record.date.toIso8601String().split('T').first;
+    final now = DateTime.now().toIso8601String();
+
+    // ═══ تعديل سجل موجود — استبدال القيم بالكامل ═══
+    if (record.id != null) {
+      await db.update(
+        _table,
+        {
+          'cartons': record.cartons,
+          'trays': record.trays,
+          'loose_eggs': record.looseEggs,
+          'total_eggs': record.totalEggs,
+          'broken_eggs': record.brokenEggs,
+          'dirty_eggs': record.dirtyEggs,
+          'tray_weight_kg': record.trayWeightKg,
+          'section_no': record.sectionNo,
+          'worker_id': record.workerId,
+          'sync_status': SyncStatus.pending.name,
+          'updated_at': now,
+        },
+        where: 'id = ?',
+        whereArgs: [record.id],
+      );
+
+      await LocalDatabase.enqueueChange(
+        tableName: _table,
+        recordId: record.id!,
+        action: 'UPDATE',
+        payload: {
+          'cartons': record.cartons,
+          'trays': record.trays,
+          'loose_eggs': record.looseEggs,
+          'broken_eggs': record.brokenEggs,
+          'dirty_eggs': record.dirtyEggs,
+          'tray_weight_kg': record.trayWeightKg,
+          'section_no': record.sectionNo,
+          'worker_id': record.workerId,
+        },
+      );
+
+      return record.id!;
+    }
+
+    // ═══ إدخال جديد — التحقق من وجود سجل بنفس (مدجنة+تاريخ+عنبر) ═══
+    final existing = await db.query(
+      _table,
+      where: 'flock_id = ? AND date = ? AND ${record.sectionNo != null ? 'section_no = ?' : 'section_no IS NULL'}',
+      whereArgs: record.sectionNo != null
+          ? [record.flockId, dateStr, record.sectionNo]
+          : [record.flockId, dateStr],
+      limit: 1,
+    );
+
+    if (existing.isNotEmpty) {
+      // تحديث السجل الموجود: دمج الإنتاج الجديد مع القديم
+      final old = existing.first;
+      final oldId = old['id'] as String;
+      final oldCartons = (old['cartons'] as int?) ?? 0;
+      final oldTrays = (old['trays'] as int?) ?? 0;
+      final oldLoose = (old['loose_eggs'] as int?) ?? 0;
+      final oldBroken = (old['broken_eggs'] as int?) ?? 0;
+      final oldDirty = (old['dirty_eggs'] as int?) ?? 0;
+
+      final newCartons = oldCartons + record.cartons;
+      final newTrays = oldTrays + record.trays;
+      final newLoose = oldLoose + record.looseEggs;
+      final newBroken = oldBroken + record.brokenEggs;
+      final newDirty = oldDirty + record.dirtyEggs;
+
+      await db.update(
+        _table,
+        {
+          'cartons': newCartons,
+          'trays': newTrays,
+          'loose_eggs': newLoose,
+          'total_eggs': newCartons * 360 + newTrays * 30 + newLoose,
+          'broken_eggs': newBroken,
+          'dirty_eggs': newDirty,
+          'tray_weight_kg': record.trayWeightKg,
+          'sync_status': SyncStatus.pending.name,
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [oldId],
+      );
+
+      await LocalDatabase.enqueueChange(
+        tableName: _table,
+        recordId: oldId,
+        action: 'UPDATE',
+        payload: {
+          'cartons': newCartons,
+          'trays': newTrays,
+          'loose_eggs': newLoose,
+          'broken_eggs': newBroken,
+          'dirty_eggs': newDirty,
+          'tray_weight_kg': record.trayWeightKg,
+          'section_no': record.sectionNo,
+          'worker_id': record.workerId,
+        },
+      );
+
+      return oldId;
+    }
+
+    // إنشاء سجل جديد
     final id = _uuid.v4();
     final now = DateTime.now().toIso8601String();
 

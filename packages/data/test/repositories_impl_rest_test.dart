@@ -5,6 +5,7 @@ import 'package:data/src/datasources/local/daos/customer_dao.dart';
 import 'package:data/src/datasources/local/daos/dispatch_dao.dart';
 import 'package:data/src/datasources/local/daos/expense_dao.dart';
 import 'package:data/src/datasources/local/daos/feed_dao.dart';
+import 'package:data/src/datasources/local/daos/flock_dao.dart';
 import 'package:data/src/datasources/local/daos/inventory_dao.dart';
 import 'package:data/src/datasources/local/daos/medication_dao.dart';
 import 'package:data/src/datasources/local/daos/mortality_dao.dart';
@@ -409,6 +410,7 @@ void main() {
   group('OpeningBalanceRepositoryImpl - الأرصدة الافتتاحية', () {
     OpeningBalanceRepositoryImpl repo() => OpeningBalanceRepositoryImpl(
           localDao: OpeningBalanceDao(),
+          flockDao: FlockDao(),
           remoteDatasource: SupabaseOpeningBalanceDatasource(fake),
         );
 

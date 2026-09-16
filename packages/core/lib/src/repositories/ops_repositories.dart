@@ -1,5 +1,6 @@
 import '../models/expense_model.dart';
 import '../models/inventory_model.dart';
+import '../models/revenue_model.dart';
 
 /// مستودع المصروفات - للمدير فقط
 abstract class ExpenseRepository {
@@ -41,4 +42,25 @@ abstract class InventoryRepository {
   });
 
   Future<List<InventoryTransactionModel>> getTransactions(String itemId);
+}
+
+/// مستودع الإيرادات - للمدير فقط
+abstract class RevenueRepository {
+  Future<List<RevenueModel>> getRevenues({
+    required String farmId,
+    DateTime? fromDate,
+    DateTime? toDate,
+  });
+
+  Future<void> save(RevenueModel revenue);
+
+  Future<void> delete(String id);
+
+  Future<void> syncPendingRecords();
+
+  Future<double> getTotal({
+    required String farmId,
+    DateTime? fromDate,
+    DateTime? toDate,
+  });
 }

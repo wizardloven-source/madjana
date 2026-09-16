@@ -35,7 +35,19 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
   }
 
   Future<void> _load() async {
-    final repo = ref.read(syncRepositoryProvider);
+    final SyncRepository repo;
+    try {
+      repo = ref.read(syncRepositoryProvider);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _pending = 0;
+        _synced = 0;
+        _failed = 0;
+      });
+      return;
+    }
     try {
       final results = await Future.wait([
         repo.getQueueItems(limit: 100),

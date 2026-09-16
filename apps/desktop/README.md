@@ -1,17 +1,75 @@
-# madjana_desktop
+# Madjana Desktop — تطبيق سطح المكتب
 
-A new Flutter project.
+تطبيق Flutter/Windows يُستخدم من قِبَل المديرين و system_admin لإدارة المزرعة بالكامل.
 
-## Getting Started
+## الميزات
 
-This project is a starting point for a Flutter application.
+### لوحة التحكم (Dashboard)
+- إنتاج اليوم / إجمالي / نسبة الإنتاج / مقارنة بالأمس
+- إحصائيات 30 يوم: إنتاج + نفوق + علف + مبيعات + مدفوعات + مصروفات
+- أرصدة المخزون مع تنبيهات النقص
+- رصيد العلف بالأيام المتبقية
+- الذمم المدينة للمديرين
 
-A few resources to get you started if this is your first Flutter project:
+### شاشات التشغيل
+| الشاشة | الميزات |
+|--------|---------|
+| **إنتاج البيض** | تسجيل + تعديل + حذف + تصدير CSV |
+| **النفوق** | تسجيل مع صورة + تحذيرات |
+| **العلف** | استلام + استهلاك + أسعار |
+| **التخريج** | بيع + زبائن + موافقة.Manager |
+| **الأدوية** | كتالوج + تسجيل + تحذير فترة سحب |
+| **القطعان** | إنشاء/تعديل/نهاية + فتح أرصدة افتتاحية |
+| **العملاء** | CRUD + كشف حساب |
+| **المدفوعات** | تحصيل + USD/Lira + سعر صرف |
+| **المصاريف** | تسجيل + تصنيف + تصدير |
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+### إدارة النظام
+| الشاشة | الميزات |
+|--------|---------|
+| **المستخدمون** | إضافة/تعديل/حذف + تعيين مزارع + إعادة تعيين PIN |
+| **المزارع** | إعدادات (وزن الكيس، بيض/كرتون، معدل النفوق) |
+| **المزامنة** | حالة + يدوي + سجل + إعادة المحاولة |
+| **تعارضات المزامنة** | عرض + حل (server_wins / client_wins / ignore) |
+| **المصادقة** | تسجيل الدخول + تبديل المزرعة |
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### التحليلات (8 تبويبات)
+| التبويب | المحتوى |
+|---------|---------|
+| **الإنتاج** | KPIs + مقارنة مع الفترة السابقة |
+| **النفوق** | معدل + تصنيف (طبيعي/تحذير/خطر) |
+| **العلف** | مخزون + أيام متبقية + استهلاك يومي |
+| **القطعان** | أداء كل قطيع |
+| **العملاء** | 360 درجة: مبيعات + محصل + معلق |
+| **الموردون** | شحنات + متوسط سعر |
+| **التكلفة** | تكلفة/بيضة |
+| **الربحية** | إيراد/تكلفة/هامش لكل قطيع |
+
+## التقنيات
+
+| المكوّن | التقنية |
+|---------|---------|
+| State Management | Riverpod |
+| قاعدة البيانات | SQLite (sqflite) |
+| المزامنة | Sync Queue → Supabase |
+| التصميم | Material 3 + Design Tokens |
+| الخط | Cairo (Google Fonts) |
+| اللغة | Arabic RTL |
+
+## التشغيل
+
+```bash
+cd apps/desktop
+flutter pub get
+flutter run -d windows
+```
+
+### المتطلبات
+- Visual Studio مع "Desktop development with C++"
+
+## بناء EXE
+
+```bash
+flutter build windows --debug
+# الناتج: build/windows/x64/runner/Debug/manjana_desktop.exe
+```

@@ -27,7 +27,7 @@ class MadjanaDesktopApp extends ConsumerWidget {
     }
 
     return MaterialApp(
-      title: 'نظام إدارة المداجن - سطح المكتب',
+      title: 'YAseen Farm',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),

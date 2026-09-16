@@ -170,6 +170,7 @@ final inventoryRepositoryProvider = Provider<InventoryRepository>(
 final openingBalanceRepositoryProvider = Provider<OpeningBalanceRepository>(
   (ref) => OpeningBalanceRepositoryImpl(
     localDao: ref.watch(openingBalanceDaoProvider),
+    flockDao: ref.watch(flockDaoProvider),
     remoteDatasource: ref.watch(supabaseOpeningBalanceDatasourceProvider),
   ),
 );

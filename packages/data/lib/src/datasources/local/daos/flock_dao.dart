@@ -23,6 +23,13 @@ class FlockDao {
     return maps.map(_fromMap).toList();
   }
 
+  Future<FlockModel?> getById(String id) async {
+    final db = await LocalDatabase.database;
+    final maps = await db.query(_table, where: 'id = ?', whereArgs: [id], limit: 1);
+    if (maps.isEmpty) return null;
+    return _fromMap(maps.first);
+  }
+
   Future<void> saveAll(List<FlockModel> flocks) async {
     final db = await LocalDatabase.database;
     await db.transaction((txn) async {

@@ -27,7 +27,7 @@ DROP TABLE IF EXISTS sync_queue, app_notifications, dispatch_requests,
     audit_log, medicines_catalog, medications, payments, egg_dispatch,
     customers, feed_received, feed_consumption, mortality, egg_production,
     flocks, opening_balances, inventory_transactions, inventory_items,
-    expenses, users, farms, sync_changes, sync_checkpoint,
+    expenses, revenue, users, farms, sync_changes, sync_checkpoint,
     idempotency_log, app_settings CASCADE;
 
 DROP FUNCTION IF EXISTS public.find_user_by_phone(text);
@@ -367,6 +367,31 @@ CREATE TABLE expenses (
 );
 CREATE INDEX idx_expenses_farm_date ON expenses(farm_id, date);
 CREATE INDEX idx_expenses_category ON expenses(category);
+
+CREATE TABLE revenue (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    farm_id     UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    date        DATE NOT NULL DEFAULT CURRENT_DATE,
+    category    TEXT NOT NULL CHECK (category IN (
+        'liveChicken', 'building', 'equipment', 'other'
+    )),
+    description TEXT,
+    amount      NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+    currency    TEXT NOT NULL DEFAULT 'dollar' CHECK (currency IN ('dollar', 'lira')),
+    exchange_rate NUMERIC(12,4),
+    quantity    NUMERIC(12,2),
+    unit        TEXT,
+    reference_id UUID,
+    worker_id   TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW(),
+    deleted_at  TIMESTAMPTZ,
+    sync_status TEXT DEFAULT 'synced'
+                    CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
+    version     BIGINT NOT NULL DEFAULT 1
+);
+CREATE INDEX idx_revenue_farm_date ON revenue(farm_id, date);
+CREATE INDEX idx_revenue_category ON revenue(category);
 
 CREATE TABLE opening_balances (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -3023,6 +3048,7 @@ $$;
 
 SELECT public.ensure_manager_policies('payments');
 SELECT public.ensure_manager_policies('expenses');
+SELECT public.ensure_manager_policies('revenue');
 SELECT public.ensure_manager_policies('opening_balances');
 SELECT public.ensure_manager_policies('inventory_items');
 
