@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/providers.dart';
+import '../../sync/providers/sync_provider.dart';
 
 /// حالة المصادقة
 class AuthState {
@@ -36,9 +37,10 @@ class AuthState {
 /// Provider للمصادقة
 class AuthNotifier extends StateNotifier<AuthState> {
   final AuthRepository _repository;
+  final Ref _ref;
   bool _sessionRestored = false;
 
-  AuthNotifier(this._repository)
+  AuthNotifier(this._repository, this._ref)
       : super(const AuthState(isLoading: true)) {
     _restoreSession();
   }
@@ -121,6 +123,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await _repository.logout();
     } catch (_) {}
     _sessionRestored = false;
+    // أوقف المزامنة التلقائية ونظّف حالة المزامنة قبل إفراغ الجلسة
+    _ref.read(syncProvider.notifier).handleLoggedOut();
     if (mounted) {
       state = const AuthState();
     }
@@ -128,5 +132,5 @@ class AuthNotifier extends StateNotifier<AuthState> {
 }
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>(
-  (ref) => AuthNotifier(ref.watch(authRepositoryProvider)),
+  (ref) => AuthNotifier(ref.watch(authRepositoryProvider), ref),
 );

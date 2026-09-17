@@ -160,13 +160,18 @@ class ProductionKpi {
     required List<EggProductionModel> records,
     required DateRange range,
     required int totalBirds,
+    int openingBalanceEggs = 0,
   }) {
     final inRange = records.where((r) => range.contains(r.date)).toList();
-    if (inRange.isEmpty || totalBirds <= 0) return ProductionKpi.empty();
+    if (inRange.isEmpty && openingBalanceEggs <= 0) {
+      return ProductionKpi.empty();
+    }
+    if (totalBirds <= 0) return ProductionKpi.empty();
 
-    final total = inRange.fold<int>(0, (s, r) => s + r.totalEggs);
+    final dailyTotal = inRange.fold<int>(0, (s, r) => s + r.totalEggs);
     final broken = inRange.fold<int>(0, (s, r) => s + r.brokenEggs);
     final dirty = inRange.fold<int>(0, (s, r) => s + r.dirtyEggs);
+    final total = dailyTotal + openingBalanceEggs;
 
     return ProductionKpi(
       totalEggs: total,
@@ -174,7 +179,10 @@ class ProductionKpi {
       dirtyEggs: dirty,
       sellableEggs: total - broken - dirty,
       productionRate: FarmAnalytics.avgProductionRate(
-        totalEggs: total,
+        // نسبة الإنتاج تُحسب من البيض اليومي فقط: رصيد الافتتاح مبلغ
+        // لمرةٍ واحدة بلا يومِ إنتاجٍ يقابله، فدخوله في البسط يرفع
+        // النسبة فوق 100% (مثل 110.5%) دون أن يضيف للمقام.
+        totalEggs: dailyTotal,
         birdCount: totalBirds,
         days: range.days,
       ),
@@ -493,6 +501,7 @@ class FlockPerformance {
       records: flockEggs,
       range: range,
       totalBirds: flock.currentCount,
+      openingBalanceEggs: openingBalance?.eggsProduced ?? 0,
     );
 
     final mortalityKpi = MortalityKpi.calculate(

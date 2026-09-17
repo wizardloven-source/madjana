@@ -36,20 +36,27 @@ class _MortalityScreenState extends ConsumerState<MortalityScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      _flocks = await ref.read(flockRepositoryProvider).getFlocks(_farmId, includeEnded: true);
-    } catch (_) {
-      _flocks = [];
+      _flocks = await ref
+          .read(flockRepositoryProvider)
+          .getFlocks(_farmId, includeEnded: true);
+
+      final records = await ref.read(mortalityRepositoryProvider).getAllRecords(
+            farmId: _farmId,
+            fromDate: _fromDate,
+            toDate: _toDate,
+          );
+      if (!mounted) return;
+      setState(() {
+        _records = records;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذّر تحميل البيانات: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    final records = await ref.read(mortalityRepositoryProvider).getAllRecords(
-          farmId: _farmId,
-          fromDate: _fromDate,
-          toDate: _toDate,
-        );
-    if (!mounted) return;
-    setState(() {
-      _records = records;
-      _loading = false;
-    });
   }
 
   String _reasonLabel(MortalityModel m) =>

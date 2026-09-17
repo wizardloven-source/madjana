@@ -42,51 +42,59 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final dispatchRepo = ref.read(dispatchRepositoryProvider);
-    final paymentRepo = ref.read(paymentRepositoryProvider);
-    final eggRepo = ref.read(eggProductionRepositoryProvider);
-    final farmRepo = ref.read(farmRepositoryProvider);
-    final flockRepo = ref.read(flockRepositoryProvider);
-
-    final dispatches = await dispatchRepo.getAll(farmId: _farmId);
-    final customers = await dispatchRepo.getCustomers(_farmId);
-    final payments = await paymentRepo.getAll(farmId: _farmId);
-    String farmName = '';
     try {
-      final farm = await farmRepo.getFarm(_farmId);
-      farmName = farm.name;
-    } catch (_) {}
+      final dispatchRepo = ref.read(dispatchRepositoryProvider);
+      final paymentRepo = ref.read(paymentRepositoryProvider);
+      final eggRepo = ref.read(eggProductionRepositoryProvider);
+      final farmRepo = ref.read(farmRepositoryProvider);
+      final flockRepo = ref.read(flockRepositoryProvider);
 
-    List<FlockModel> flocks = [];
-    try {
-      flocks = await flockRepo.getFlocks(_farmId, includeEnded: true);
-    } catch (_) {}
+      final dispatches = await dispatchRepo.getAll(farmId: _farmId);
+      final customers = await dispatchRepo.getCustomers(_farmId);
+      final payments = await paymentRepo.getAll(farmId: _farmId);
+      String farmName = '';
+      try {
+        final farm = await farmRepo.getFarm(_farmId);
+        farmName = farm.name;
+      } catch (_) {}
 
-    // المخزون الحي = كل الإنتاج - كل التخريج + صافي رصيد القطعان القديمة
-    try {
-      final produced =
-          await eggRepo.getAllRecords(farmId: _farmId);
-      var stock = produced.fold<int>(0, (s, e) => s + e.totalEggs) -
-          dispatches.fold<int>(0, (s, d) => s + d.totalEggs);
-      // تضمين رصيد القطعان القديمة (opening balances) كما في لوحة التحكم
-      final openingNet = (await ref
-              .read(openingBalanceRepositoryProvider)
-              .getForFarm(_farmId))
-          .fold<int>(0, (s, b) => s + b.eggsProduced - b.eggsDispatched);
-      stock += openingNet;
-      if (stock < 0) stock = 0;
-      _currentStock = stock;
-    } catch (_) {}
+      List<FlockModel> flocks = [];
+      try {
+        flocks = await flockRepo.getFlocks(_farmId, includeEnded: true);
+      } catch (_) {}
 
-    if (!mounted) return;
-    setState(() {
-      _dispatches = dispatches;
-      _flocks = flocks;
-      _customers = {for (final c in customers) c.id! : c};
-      _payments = payments;
-      _farmName = farmName;
-      _loading = false;
-    });
+      // المخزون الحي = كل الإنتاج - كل التخريج + صافي رصيد القطعان القديمة
+      try {
+        final produced =
+            await eggRepo.getAllRecords(farmId: _farmId);
+        var stock = produced.fold<int>(0, (s, e) => s + e.totalEggs) -
+            dispatches.fold<int>(0, (s, d) => s + d.totalEggs);
+        // تضمين رصيد القطعان القديمة (opening balances) كما في لوحة التحكم
+        final openingNet = (await ref
+                .read(openingBalanceRepositoryProvider)
+                .getForFarm(_farmId))
+            .fold<int>(0, (s, b) => s + b.eggsProduced - b.eggsDispatched);
+        stock += openingNet;
+        if (stock < 0) stock = 0;
+        _currentStock = stock;
+      } catch (_) {}
+
+      if (!mounted) return;
+      setState(() {
+        _dispatches = dispatches;
+        _flocks = flocks;
+        _customers = {for (final c in customers) c.id! : c};
+        _payments = payments;
+        _farmName = farmName;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذّر تحميل البيانات: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   /// الفواتير بعد فلاتر الفترة والبحث

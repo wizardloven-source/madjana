@@ -161,8 +161,11 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: 'رفع البيانات تلقائياً عند توفر الإنترنت',
             trailing: Switch(
               value: autoSync,
-              onChanged: (v) =>
-                  ref.read(autoSyncProvider.notifier).toggle(v),
+              onChanged: (v) {
+                ref.read(autoSyncProvider.notifier).toggle(v);
+                // ربط الإعداد بمحرك المزامنة الفعلي (إيقاف/تشغيل المؤقت الدوري)
+                ref.read(syncProvider.notifier).setAutoSync(v);
+              },
             ),
           ),
           const Divider(),

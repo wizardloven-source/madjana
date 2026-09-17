@@ -3,8 +3,10 @@ import 'package:core/src/models/sync_change_model.dart';
 /// واجهة مستودع المزامنة المحسّنة (المرحلة 2)
 /// تدعم الحقول الجديدة: status, operation, server_version
 abstract class SyncRepository {
-  /// جلب سجلات المزامنة المعلقة محلياً
-  Future<List<SyncChangeModel>> getPendingChanges({int limit = 50});
+  /// جلب سجلات المزامنة المعلقة محلياً.
+  /// عند تمرير [farmId] تُقتصر النتائج على عمليات هذه المزرعة (مع بقاء
+  /// السجلات القديمة ذات farm_id فارغ لرفعها على أي حال، توافقاً مع الوراء).
+  Future<List<SyncChangeModel>> getPendingChanges({int limit = 50, String? farmId});
 
   /// حفظ تغيير جديد في طابور المزامنة المحلية
   Future<void> queueChange(SyncChangeModel change);

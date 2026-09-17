@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:core/core.dart';
+import '../datasources/local/daos/settings_dao.dart';
 import '../datasources/local/daos/user_dao.dart';
 import '../datasources/remote/supabase_user_admin_datasource.dart';
 
@@ -117,8 +120,42 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
 
   @override
   Future<List<FarmModel>> getCurrentUserFarms() async {
+    // نُحمِّل من الخادم مع كاشٍ محلي للقائمة الأخيرة المعروفة. إذا عادت
+    // RPC فارغة (انقطاع أو إعادة مزامنة user_farms) نلجأ للكاش كي لا
+    // تختفي قائمة مبدّل المدجنة فجأةً على المستخدم.
     try {
-      return await _remoteDatasource.getCurrentUserFarms();
+      final farms = await _remoteDatasource.getCurrentUserFarms();
+      if (farms.isNotEmpty) {
+        await _cacheFarms(farms);
+        return farms;
+      }
+      return await _cachedFarmsOrEmpty();
+    } catch (_) {
+      return await _cachedFarmsOrEmpty();
+    }
+  }
+
+  Future<void> _cacheFarms(List<FarmModel> farms) async {
+    try {
+      final dao = SettingsDao();
+      await dao.set('cached_farms', jsonEncode(farms.map((f) {
+            return {'id': f.id, 'name': f.name};
+          }).toList()));
+    } catch (_) {}
+  }
+
+  Future<List<FarmModel>> _cachedFarmsOrEmpty() async {
+    try {
+      final dao = SettingsDao();
+      final raw = await dao.get('cached_farms');
+      if (raw == null || raw.isEmpty) return [];
+      final list = jsonDecode(raw) as List;
+      return list
+          .map((e) => FarmModel(
+                id: (e as Map)['id']?.toString() ?? '',
+                name: (e)['name']?.toString() ?? '',
+              ))
+          .toList();
     } catch (_) {
       return [];
     }

@@ -32,6 +32,21 @@ class FlockModel {
   double get productionRate =>
       currentCount == 0 ? 0 : (1 / currentCount) * 100;
 
+  /// العدد "الفعلي" المعروض: يصلح الحالات التي يكون فيها
+  /// currentCount المخزن أقدم/فاسداً (أكبر من السقف المنطقي).
+  ///
+  /// السقف = العدد الأولي − النفوق الكلي (الافتتاحي + اليومي) مع تجاهل
+  /// الصفر. نأخذ الأصغر بين المخزَّن والسقف كي لا نعرض رقماً يتجاوز
+  /// الواقع، مع الإبقاء على الخصومات الشرعية (كبيع الطيور الحية).
+  int effectiveCurrentCount({
+    required int openingMortality,
+    required int dailyMortality,
+  }) {
+    final derived = initialCount - openingMortality - dailyMortality;
+    final bound = derived < 0 ? 0 : derived;
+    return currentCount < bound ? currentCount : bound;
+  }
+
   /// عمر القطيع بالأيام من تاريخ البدء
   int get ageInDays => DateTime.now().difference(startDate).inDays;
 

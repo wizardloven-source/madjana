@@ -18,10 +18,17 @@ final productionKpiProvider = FutureProvider.autoDispose
       .where((f) => f.status == FlockStatus.active)
       .fold<int>(0, (s, f) => s + f.currentCount);
 
+  // الأرصدة الافتتاحية (قطيعة قديمة قبل النظام) — بيض مُنتَج في الماضي
+  final openingBalances =
+      await ref.read(openingBalanceRepositoryProvider).getForFarm(params.farmId);
+  final openingEggsTotal =
+      openingBalances.fold<int>(0, (s, b) => s + b.eggsProduced);
+
   return ProductionKpi.calculate(
     records: eggs,
     range: params.range,
     totalBirds: totalBirds,
+    openingBalanceEggs: openingEggsTotal,
   );
 });
 

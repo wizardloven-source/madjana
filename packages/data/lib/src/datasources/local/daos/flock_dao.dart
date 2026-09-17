@@ -70,6 +70,7 @@ class FlockDao {
         'breed': flock.breed,
         'start_date': flock.startDate.toIso8601String().split('T').first,
         'initial_count': flock.initialCount,
+        'current_count': flock.currentCount,
         'status': flock.status.name,
         'sections_count': flock.sectionsCount,
       },

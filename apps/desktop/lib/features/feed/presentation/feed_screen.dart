@@ -39,42 +39,50 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final feedRepo = ref.read(feedRepositoryProvider);
-    final flockRepo = ref.read(flockRepositoryProvider);
-    final farmRepo = ref.read(farmRepositoryProvider);
-    final consumption = await feedRepo.getAllConsumption(
-      farmId: _farmId,
-      fromDate: _fromDate,
-      toDate: _toDate,
-    );
-    final received = await feedRepo.getAllReceived(
-      farmId: _farmId,
-      fromDate: _fromDate,
-      toDate: _toDate,
-    );
-    final stock = await feedRepo.getCurrentFeedStock(_farmId);
-    List<FlockModel> flocks = [];
     try {
-      flocks = await flockRepo.getFlocks(_farmId, includeEnded: true);
-    } catch (_) {}
-    String farmName = '';
-    double bagWeightKg = AppConstants.kgPerBag;
-    try {
-      final farm = await farmRepo.getFarm(_farmId);
-      farmName = farm.name;
-      bagWeightKg = farm.feedBagWeightKg;
-    } catch (_) {}
+      final feedRepo = ref.read(feedRepositoryProvider);
+      final flockRepo = ref.read(flockRepositoryProvider);
+      final farmRepo = ref.read(farmRepositoryProvider);
+      final consumption = await feedRepo.getAllConsumption(
+        farmId: _farmId,
+        fromDate: _fromDate,
+        toDate: _toDate,
+      );
+      final received = await feedRepo.getAllReceived(
+        farmId: _farmId,
+        fromDate: _fromDate,
+        toDate: _toDate,
+      );
+      final stock = await feedRepo.getCurrentFeedStock(_farmId);
+      List<FlockModel> flocks = [];
+      try {
+        flocks = await flockRepo.getFlocks(_farmId, includeEnded: true);
+      } catch (_) {}
+      String farmName = '';
+      double bagWeightKg = AppConstants.kgPerBag;
+      try {
+        final farm = await farmRepo.getFarm(_farmId);
+        farmName = farm.name;
+        bagWeightKg = farm.feedBagWeightKg;
+      } catch (_) {}
 
-    if (!mounted) return;
-    setState(() {
-      _consumption = consumption;
-      _received = received;
-      _flocks = flocks;
-      _stock = stock;
-      _farmName = farmName;
-      _bagWeightKg = bagWeightKg;
-      _loading = false;
-    });
+      if (!mounted) return;
+      setState(() {
+        _consumption = consumption;
+        _received = received;
+        _flocks = flocks;
+        _stock = stock;
+        _farmName = farmName;
+        _bagWeightKg = bagWeightKg;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذّر تحميل البيانات: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _showAddConsumptionDialog() async {

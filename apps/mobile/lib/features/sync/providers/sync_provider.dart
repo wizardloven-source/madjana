@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:core/core.dart';
 import '../../../core/providers.dart';
 import '../data/connectivity_service.dart';
@@ -67,6 +68,28 @@ class SyncNotifier extends StateNotifier<SyncState> {
   Future<void> _init() async {
     await _refreshCounts();
     _watchConnectivity();
+    await _loadAutoSyncPref();
+  }
+
+  /// قراءة إعداد المزامنة التلقائية المحفوظ (المفتاح الذي يكتبه المحول
+  /// في شاشة الإعدادات) — وإلا فالمفتاح لا أثر له على المحرك الفعلي.
+  Future<void> _loadAutoSyncPref() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      autoSyncEnabled = prefs.getBool('auto_sync_enabled') ?? true;
+    } catch (_) {}
+  }
+
+  /// يُستدعى عند تسجيل الخروج: يوقف المؤقتات الدورية (رفع كل 30 ثانية)
+  /// وينظّف العدادات كي لا يستمر المحرك بالرفع لمدجنة سابقة تحت جلسة
+  /// منتهية، ولا يظهر شعار أخطاء قديم على شاشة الدخول.
+  void handleLoggedOut() {
+    _stopPeriodicSync();
+    _backoffTimer?.cancel();
+    _farmId = null;
+    _consecutiveFailures = 0;
+    _backoffMinutes = 0;
+    state = const SyncState();
   }
 
   void setAutoSync(bool enabled) {

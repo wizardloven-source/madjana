@@ -14,7 +14,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 22;
+  static const int _dbVersion = 23;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -390,6 +390,7 @@ class LocalDatabase {
       CREATE TABLE sync_queue (
         id TEXT PRIMARY KEY,
         operation_id TEXT,
+        farm_id TEXT,
         table_name TEXT NOT NULL,
         record_id TEXT NOT NULL,
         action TEXT NOT NULL,
@@ -978,6 +979,14 @@ class LocalDatabase {
             await db.execute('CREATE INDEX IF NOT EXISTS idx_revenue_farm_date ON revenue(farm_id, date)');
           } catch (_) {}
         }
+
+        // v23: عمود farm_id لطابور المزامنة — يمنع رفع سجلات مدجنة أخرى
+        // أثناء جلسة مزرعة مختلفة (تلوث متقاطع بين المداجن على نفس الجهاز).
+        if (oldVersion < 23) {
+          if (!await _columnExists(db, 'sync_queue', 'farm_id')) {
+            await db.execute('ALTER TABLE sync_queue ADD COLUMN farm_id TEXT');
+          }
+        }
   }
 
   /// يتحقق من وجود عمود في جدول (بدلاً من إخفاء أخطاء migration عبر catch عام)
@@ -1110,6 +1119,20 @@ class LocalDatabase {
   // الجسر: كتابات DAOs → sync_queue
   // ═══════════════════════════════════════════════════════════════
 
+  /// معرّف المزرعة النشطة من جدول الجلسة — يُربط طابور المزامنة بالمزرعة
+  /// كي لا تُرفع سجلات مزرعة أثناء جلسة مزرعة أخرى.
+  static Future<String> getActiveFarmId() async {
+    try {
+      final db = await database;
+      final session = await db.query('session', where: 'id = 1', limit: 1);
+      if (session.isNotEmpty) {
+        final farmId = session.first['farm_id']?.toString() ?? '';
+        if (farmId.isNotEmpty) return farmId;
+      }
+    } catch (_) {}
+    return '';
+  }
+
   /// إدخال تغيير في طابور المزامنة بعد كل عملية كتابة محلية.
   /// تقرأ user_id/farm_id من جدول الجلسة، وتولّد operation_id فريداً.
   /// تstrip الأعمدة النظامية (sync_status, deleted_at) من الـ payload.
@@ -1126,6 +1149,7 @@ class LocalDatabase {
       // قراءة الجلسة الحالية
       final session = await db.query('session', where: 'id = 1', limit: 1);
       final userId = session.isNotEmpty ? (session.first['user_id'] ?? '') : '';
+      final farmId = session.isNotEmpty ? (session.first['farm_id'] ?? '') : '';
 
       // توليد operation_id فريد
       final operationId = _generateUniqueId();
@@ -1146,7 +1170,7 @@ class LocalDatabase {
         cleanPayload['previous_version'] = previousVersion;
       }
 
-      await db.insert('sync_queue', {
+      final queueRow = <String, dynamic>{
         'id': operationId,
         'operation_id': operationId,
         'table_name': tableName,
@@ -1157,11 +1181,15 @@ class LocalDatabase {
         'status': 'pending',
         'created_at': DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
-      });
+      };
+      if (farmId.toString().trim().isNotEmpty) {
+        queueRow['farm_id'] = farmId;
+      }
+      await db.insert('sync_queue', queueRow);
     } catch (e) {
-      // فشل إدخال في الطابور غير حرج لعملية الحفظ المحلية نفسها،
-      // لكنه يمنع رفع السجل. نسجّله ولا نُخفيه.
-      print('enqueueChange($tableName/$recordId) failed: $e');
+      // لا نبتلع فشل إدراج الطابور: الحفظ المحلي نجح لكن السجل لن يُرفع
+      // للخادم أبداً. نعيد رمي الخطأ حتى يظهر للمستخدم بدل فقدان صامت.
+      rethrow;
     }
   }
 

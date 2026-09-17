@@ -35,13 +35,16 @@ class InventoryRepositoryImpl implements InventoryRepository {
 
   @override
   Future<void> saveItem(InventoryItemModel item) async {
-    // ═══ C2 FIX: توليد ID واحد فقط واستخدامه في كلا الموقعين ═══
     final localId = item.id ?? _uuid.v4();
     final normalized = item.id == null ? item.copyWith(id: localId) : item;
 
+    // تحديد insert/update حسب وجود العنصر محلياً (وليس حسب وجود id،
+    // لأن العنصر الجديد المولَّد id يجب أن يُدرَج لا يُحدَّث).
+    final exists = await _localDao.getById(normalized.id!) != null;
+
     await _localDao.saveItem(normalized);
     try {
-      if (normalized.id != null) {
+      if (exists) {
         await _remoteDatasource.updateItem(normalized);
       } else {
         // يرسل نفس الـ ID إلى الخادم لمنع التكرار

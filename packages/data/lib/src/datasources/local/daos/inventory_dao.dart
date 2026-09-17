@@ -41,6 +41,7 @@ class InventoryDao {
         payload: {
           'name': item.name,
           'unit': item.unit.name,
+          'quantity': item.quantity,
           'low_stock_threshold': item.lowStockThreshold,
           'notes': item.notes,
         },
@@ -65,6 +66,7 @@ class InventoryDao {
         payload: {
           'name': item.name,
           'unit': item.unit.name,
+          'quantity': item.quantity,
           'low_stock_threshold': item.lowStockThreshold,
           'notes': item.notes,
         },

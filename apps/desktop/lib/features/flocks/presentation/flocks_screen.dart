@@ -39,16 +39,25 @@ class _FlockData {
 
   int get effectiveMortality =>
       mortalityCount + (opening?.mortalityCount ?? 0);
-  int get effectiveInitial =>
-      flock.initialCount + (opening?.initialBirds ?? 0);
+
+  /// العدد الأولي هو ما خُزِّن في القطيع فقط؛ `opening.initialBirds` يحمل
+  /// نفس القيمة (في المعالج القديم) ولا يُضاف حتى لا يُحتسب مزدوجاً.
+  int get effectiveInitial => flock.initialCount;
+
+  /// العدد الفعلي المعروض بعد تلافي القيم القديمة/الفاسدة المخزنة.
+  int get effectiveCurrent => flock.effectiveCurrentCount(
+        openingMortality: opening?.mortalityCount ?? 0,
+        dailyMortality: mortalityCount,
+      );
+
   double get mortalityRate =>
       effectiveInitial == 0 ? 0 : (effectiveMortality / effectiveInitial * 100);
 
   double get eggProductionRate {
-    if (flock.currentCount <= 0 || totalEggs <= 0 || flock.ageInDays <= 0) {
+    if (effectiveCurrent <= 0 || totalEggs <= 0 || flock.ageInDays <= 0) {
       return 0;
     }
-    return totalEggs / (flock.currentCount * flock.ageInDays) * 100;
+    return totalEggs / (effectiveCurrent * flock.ageInDays) * 100;
   }
 
   double get feedConversionRatio {
@@ -696,8 +705,8 @@ class _EnhancedFlockCard extends StatelessWidget {
                 ),
                 _FlockInfoChip(
                   label: 'الحالي',
-                  value: '${flock.currentCount}',
-                  color: flock.currentCount > data.effectiveInitial * 0.85
+                  value: '${data.effectiveCurrent}',
+                  color: data.effectiveCurrent > data.effectiveInitial * 0.85
                       ? Colors.green
                       : Colors.red,
                 ),
@@ -756,10 +765,10 @@ class _EnhancedFlockCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: LinearProgressIndicator(
-                    value: (flock.currentCount / data.effectiveInitial)
+                    value: (data.effectiveCurrent / data.effectiveInitial)
                         .clamp(0.0, 1.0),
                     backgroundColor: Colors.grey.shade200,
-                    color: flock.currentCount > data.effectiveInitial * 0.85
+                    color: data.effectiveCurrent > data.effectiveInitial * 0.85
                         ? Colors.green
                         : Colors.red,
                     minHeight: 6,
@@ -768,7 +777,7 @@ class _EnhancedFlockCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  '${((flock.currentCount / data.effectiveInitial) * 100).toStringAsFixed(0)}%',
+                  '${((data.effectiveCurrent / data.effectiveInitial) * 100).toStringAsFixed(0)}%',
                   style: TextStyle(
                     fontSize: 11,
                     color: Colors.grey.shade600,

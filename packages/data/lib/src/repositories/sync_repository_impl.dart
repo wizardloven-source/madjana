@@ -10,6 +10,10 @@ import '../datasources/local/local_database.dart';
 class SyncRepositoryImpl implements SyncRepository {
   final SupabaseClient _supabase;
 
+  /// حارس منع المزامنة المتوازية (زر يدوي + مزامنة تلقائية معاً).
+  /// المزامنة المزدوجة تعيد رفع الطابور نفسه مرتين وتولّد صراعات OCC.
+  bool _syncInProgress = false;
+
   SyncRepositoryImpl({
     required dynamic eggDao,
     required dynamic mortalityDao,
@@ -30,23 +34,28 @@ class SyncRepositoryImpl implements SyncRepository {
   }) : _supabase = supabaseClient ?? Supabase.instance.client;
 
   @override
-  Future<List<SyncChangeModel>> getPendingChanges({int limit = 50}) async {
+  Future<List<SyncChangeModel>> getPendingChanges({
+    int limit = 50,
+    String? farmId,
+  }) async {
     final db = await LocalDatabase.database;
     final now = DateTime.now().toIso8601String();
+    final filterByFarm = farmId != null && farmId.trim().isNotEmpty;
     final results = await db.rawQuery('''
       SELECT * FROM sync_queue
       WHERE status = 'pending'
         AND (next_retry_at IS NULL OR next_retry_at <= ?)
+        ${filterByFarm ? "AND (farm_id IS NULL OR farm_id = ?)" : ""}
       ORDER BY created_at ASC
       LIMIT ?
-    ''', [now, limit]);
+    ''', filterByFarm ? [now, farmId, limit] : [now, limit]);
 
     final currentUser = _supabase.auth.currentUser;
-    final farmId = currentUser?.userMetadata?['farm_id']?.toString() ?? '';
+    final userFarmId = currentUser?.userMetadata?['farm_id']?.toString() ?? '';
 
     return results.map((map) => SyncChangeModel.fromMap({
       'operation_id': map['operation_id'],
-      'farm_id': farmId.isNotEmpty ? farmId : (map['farm_id'] ?? ''),
+      'farm_id': userFarmId.isNotEmpty ? userFarmId : (map['farm_id'] ?? ''),
       'table_name': map['table_name'],
       'record_id': map['record_id'],
       'operation': (map['action'] as String? ?? 'INSERT').toLowerCase(),
@@ -90,7 +99,10 @@ class SyncRepositoryImpl implements SyncRepository {
         (change.operationId == null || change.operationId!.isEmpty)
             ? _newOperationId()
             : change.operationId;
-    await db.insert('sync_queue', {
+    final farmId = change.farmId.trim().isNotEmpty
+        ? change.farmId
+        : await LocalDatabase.getActiveFarmId();
+    final row = <String, dynamic>{
       'id': operationId,
       'operation_id': operationId,
       'table_name': change.tableName,
@@ -102,7 +114,11 @@ class SyncRepositoryImpl implements SyncRepository {
       'status': change.status.name,
       'created_at': change.changedAt.toIso8601String(),
       'updated_at': DateTime.now().toIso8601String(),
-    });
+    };
+    if (farmId.toString().trim().isNotEmpty) {
+      row['farm_id'] = farmId;
+    }
+    await db.insert('sync_queue', row);
   }
 
   /// يولّد معرّف عملية فريد (UUID v4) مستقل عن السجل.
@@ -126,9 +142,9 @@ class SyncRepositoryImpl implements SyncRepository {
     for (var id in ids) {
       await db.rawUpdate('''
         UPDATE sync_queue
-        SET status = 'synced', updated_at = datetime('now')
+        SET status = 'synced', updated_at = ?
         WHERE id = ?
-      ''', [id]);
+      ''', [DateTime.now().toIso8601String(), id]);
     }
   }
 
@@ -141,9 +157,9 @@ class SyncRepositoryImpl implements SyncRepository {
           last_error = ?,
           last_error_code = NULL,
           attempts = COALESCE(?, attempts),
-          updated_at = datetime('now')
+          updated_at = ?
       WHERE id = ?
-    ''', [errorMessage, attempts, id]);
+    ''', [errorMessage, attempts, DateTime.now().toIso8601String(), id]);
   }
 
   @override
@@ -151,9 +167,9 @@ class SyncRepositoryImpl implements SyncRepository {
     final db = await LocalDatabase.database;
     await db.rawUpdate('''
       UPDATE sync_queue
-      SET status = 'conflict', last_error = 'conflict', updated_at = datetime('now')
+      SET status = 'conflict', last_error = 'conflict', updated_at = ?
       WHERE id = ?
-    ''', [id]);
+    ''', [DateTime.now().toIso8601String(), id]);
   }
 
   @override
@@ -163,8 +179,10 @@ class SyncRepositoryImpl implements SyncRepository {
       await db.rawUpdate('''
         DELETE FROM sync_queue
         WHERE status = 'synced'
-        AND updated_at < datetime('now', '-$daysToKeep days')
-      ''');
+        AND updated_at < ?
+      ''', [DateTime.now()
+            .subtract(Duration(days: daysToKeep))
+            .toIso8601String()]);
     } catch (e) {
       // تنظيف قديم: غير حرج لدورة المزامنة، لكن لا نخفيه — نسجّله.
       debugPrint('cleanupOldSyncedRecords failed: $e');
@@ -287,9 +305,35 @@ class SyncRepositoryImpl implements SyncRepository {
     final result = await db.rawUpdate(
       "UPDATE sync_queue SET status = 'pending', attempts = 0, "
       "last_error = NULL, last_error_code = NULL, next_retry_at = NULL, "
-      "updated_at = datetime('now') WHERE status = 'failed'",
+      "updated_at = ? WHERE status = 'failed'",
+      [DateTime.now().toIso8601String()],
     );
     return result;
+  }
+
+  /// إعادة إنزال عمليات الطابور الفاشلة تلقائياً عند فتح الاتصال، دون
+  /// استهلاك ميزانية المحاولات غير الضرورية على السجلات المؤجَّلة.
+  ///
+  /// الفرق عن [retryAllFailed]: هنا نتجاوز السجلات التي أنهت ميزانيتها
+  /// (`attempts >= maxRetryAttempts`) كي لا نغرق الخادم بسجلاتٍ لا يمكن
+  /// إصلاحها آلياً (صراع دائم أو payload مرفوض)، ونعيد فقط ما يصلح
+  /// للرفع مجدداً. تُستدعى قبل كل `syncNow` أو تزامن دوري، فلا تُعلَّق
+  /// الشارة الحمراء لعمليةٍ فشلت مرةً واحدة ونجحت لاحقاً.
+  Future<void> _requeueRetryableFailed() async {
+    try {
+      final db = await LocalDatabase.database;
+      await db.rawUpdate('''
+        UPDATE sync_queue SET
+          status = 'pending',
+          last_error = NULL,
+          last_error_code = NULL,
+          next_retry_at = NULL,
+          updated_at = ?
+        WHERE status = 'failed' AND attempts < ?
+      ''', [DateTime.now().toIso8601String(), _maxRetryAttempts]);
+    } catch (e) {
+      debugPrint('_requeueRetryableFailed failed: $e');
+    }
   }
 
   @override
@@ -353,11 +397,19 @@ class SyncRepositoryImpl implements SyncRepository {
         // Edge Function قد ترفض سجلات غير صالحة (validateRecord)،
         // في缩减 normalized قبل إرسالها للـ SQL. لذلك details أقصر من
         // records — لا يمكن المطابقة بالفهرس.
-        final detailByRecordId = <String, Map<String, dynamic>>{};
+        // قائمة details محفوظة الترتيب لكل record_id: نفس السجل قد يحمل
+        // عمليات متعددة في نفس الدفعة (insert ثم update)، فمطابقة record_id
+        // وحده مبهمة. الترتيب مُعتمد لأن الخادم يعيد details بنفس ترتيب
+        // العمليات التي تولاّها (jsonb_array_elements + إلحاق متسلسل).
+        final detailByRecordId = <String, List<Map<String, dynamic>>>{};
         for (final d in details) {
           if (d is Map) {
             final rid = d['record_id'] as String?;
-            if (rid != null) detailByRecordId[rid] = d as Map<String, dynamic>;
+            if (rid != null) {
+              detailByRecordId
+                  .putIfAbsent(rid, () => <Map<String, dynamic>>[])
+                  .add(d as Map<String, dynamic>);
+            }
           }
         }
 
@@ -365,7 +417,22 @@ class SyncRepositoryImpl implements SyncRepository {
         final rejectedIds = <String>[];
 
         for (final r in records) {
-          final detail = detailByRecordId[r.recordId];
+          Map<String, dynamic>? detail;
+          final queue = detailByRecordId[r.recordId];
+          if (queue != null) {
+            final opId = r.operationId;
+            if (opId != null && opId.isNotEmpty) {
+              final byOp =
+                  queue.where((d) => d['operation_id'] == opId).toList();
+              if (byOp.isNotEmpty) {
+                detail = byOp.first;
+                queue.remove(detail);
+              }
+            }
+            if (detail == null && queue.isNotEmpty) {
+              detail = queue.removeAt(0);
+            }
+          }
           if (detail == null) {
             // السجل مرفوض من Edge Function (validateRecord فشل)
             rejectedIds.add(r.recordId);
@@ -530,6 +597,7 @@ class SyncRepositoryImpl implements SyncRepository {
       // دون فشل قبلها. هذا يضمن إعادة سحب النسخة الفاشلة في
       // السحب التالي.
       int commitPointVersion = lastVersion;
+      int? minFailedVersion;
 
       // الجداول الموجودة فعلياً محلياً: أي تغيير لجدول غير محلي
       // (مثل app_notifications) نتخطاه ولا نعتبره فشلاً، وإلا
@@ -599,6 +667,9 @@ class SyncRepositoryImpl implements SyncRepository {
           } catch (e) {
             debugPrint('pullAndMerge row failed for $tableName/$recordId: $e');
             conflicts++;
+            if (minFailedVersion == null || serverVersion < minFailedVersion!) {
+              minFailedVersion = serverVersion;
+            }
             // صف واحد معطوب لا يُجمّد السحب كله: نُكمِل بقية الصفوف،
             // وعند نجاح صف لاحق يتقدم commit-point تلقائياً متجاوزاً
             // الصف المعطوب كي تتدفق كل الإصدارات الأحدث.
@@ -608,6 +679,11 @@ class SyncRepositoryImpl implements SyncRepository {
 
       // 4) تحديث آخر إصدار مُستلم لهذه المزرعة — فقط إلى commit-point
       // (لا نتجاوزه عن فشل، وإلا لن يُسحب السجل الفاشل مرة أخرى).
+      // لا يتقدّم commit-point إلى ما بعد أول نسخة فاشلة، وإلا لن يُعاد
+      // سحب الصف الفاشل في المزامنة التالية (يُقفل forever حسب ترتيب ASC).
+      if (minFailedVersion != null && minFailedVersion! - 1 < commitPointVersion) {
+        commitPointVersion = minFailedVersion! - 1;
+      }
       final effectiveVersion = commitPointVersion;
       if (effectiveVersion > lastVersion) {
         await db.rawInsert(
@@ -845,8 +921,27 @@ class SyncRepositoryImpl implements SyncRepository {
 
   @override
   Future<FullSyncResult> syncNow(String farmId) async {
+    if (_syncInProgress) {
+      return FullSyncResult(
+        uploadedCount: 0,
+        downloadedCount: 0,
+        failedCount: 0,
+        completedAt: DateTime.now(),
+        errorMessage: 'Sync already in progress',
+      );
+    }
+    _syncInProgress = true;
     try {
-      final pending = await getPendingChanges(limit: 100);
+      // لا نترك السجلات الفاشلة إلى الأبد: كل مزامنة تعيد تلقائياً
+      // السجلات التي ما تزال ضمن ميزانية المحاولات (attempts < الحد)
+      // إلى الصف ليُرفعها الخادم من جديد. أربط هذا في بداية المزامنة
+      // عمداً بعد استقرار الاتصال كي تُصفَّى شارة «العمليات الفاشلة»
+      // بعد أول نجاح ولا يبقى شعار أحمر مضلِّل. أما السجلات التي أنهت
+      // ميزانيتها فتفشل نهائياً وتحتاج تدخلاً بشرياً (تحرير/حذف يدوي)
+      // ولا تُعاد تلقائياً — حتى لا نغرق في حلقة لا نهائية للبيانات
+      // المرفوضة أصلاً من الخادم.
+      await _requeueRetryableFailed();
+      final pending = await getPendingChanges(limit: 100, farmId: farmId);
       final uploadResult = await uploadBatch(pending);
       final pullResult = await pullAndMerge(farmId);
       await cleanupOldSyncedRecords(daysToKeep: 30);
@@ -895,6 +990,8 @@ class SyncRepositoryImpl implements SyncRepository {
       );
       await _recordHistory(result);
       return result;
+    } finally {
+      _syncInProgress = false;
     }
   }
 

@@ -89,7 +89,7 @@ void main() {
         remoteDatasource: SupabaseEggDatasource(fake),
       );
       await repo.saveLocal(eggRecord());
-      await repo.saveLocal(eggRecord());
+      await repo.saveLocal(eggRecord(date: DateTime(2026, 8, 21)));
 
       await repo.syncPendingRecords();
 
@@ -302,11 +302,11 @@ void main() {
         localDao: dao,
         remoteDatasource: SupabaseFlockDatasource(fake),
       );
-      await repo.createFlock(flock(id: 'new-fl'));
+      await repo.createFlock(flock(id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'));
 
       expect(await dao.getByFarm('farm-1'), hasLength(1));
       expect(fake.tables['flocks'], hasLength(1));
-      expect(fake.tables['flocks']!.first['id'], 'new-fl');
+      expect(fake.tables['flocks']!.first['id'], 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
     });
 
     test('createFlock عند انقطاع الشبكة: يبقى محلياً فقط', () async {

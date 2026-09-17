@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import 'package:uuid/uuid.dart';
 import '../../../core/design_tokens.dart';
 import '../../../core/providers.dart';
 import '../../../shared/widgets/date_picker_field.dart';
@@ -15,6 +16,7 @@ class FlockManagementScreen extends ConsumerStatefulWidget {
 }
 
 class _FlockManagementScreenState extends ConsumerState<FlockManagementScreen> {
+  static const _uuid = Uuid();
   String? _selectedFarmId;
 
   @override
@@ -142,7 +144,7 @@ class _FlockManagementScreenState extends ConsumerState<FlockManagementScreen> {
                           }
                           final repo = ref.read(flockRepositoryProvider);
                           await repo.createFlock(FlockModel(
-                            id: DateTime.now().millisecondsSinceEpoch.toString(),
+                            id: _uuid.v4(),
                             farmId: farmId,
                             breed: breed,
                             startDate: startDate,

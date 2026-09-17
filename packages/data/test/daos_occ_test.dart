@@ -237,8 +237,8 @@ void main() {
       expect(rows.last['action'], 'UPDATE');
       final updatePayload = payloadOf(rows.last);
       expect(updatePayload['previous_version'], 1);
-      // الكمية محلية فقط ولا تُرفع في المزامنة (حسب تصميم DAO)
-      expect(updatePayload.containsKey('quantity'), isFalse);
+      // الكمية تُرفع في الـ payload ليعكس الخادم المخزون الفعلي (إصلاح M7)
+      expect(updatePayload['quantity'], 8);
       // الكمية تُحفظ محليًا في الجدول
       final item = await dao.getById(itemId);
       expect(item!.quantity, 8);
