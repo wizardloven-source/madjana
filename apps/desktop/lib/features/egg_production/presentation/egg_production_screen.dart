@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/csv_exporter.dart';
 import '../../../core/providers.dart';
+import '../../../core/analytics_providers.dart';
 import '../../../core/shell_state.dart';
 import '../../../shared/widgets/farm_dropdown.dart';
 import '../../../shared/widgets/period_filter.dart';
@@ -248,9 +249,10 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
 
     // معدل الإنتاج % للفترة المعروضة
     final days = _toDate.difference(_fromDate).inDays + 1;
+    final counts = ref.watch(effectiveFlockCountsProvider(_farmId));
     final birds = _flocks
         .where((f) => f.status == FlockStatus.active)
-        .fold<int>(0, (s, f) => s + f.currentCount);
+        .fold<int>(0, (s, f) => s + (counts.value?[f.id] ?? f.currentCount));
     final prodRate = FarmAnalytics.avgProductionRate(
       totalEggs: totalEggs,
       birdCount: birds,

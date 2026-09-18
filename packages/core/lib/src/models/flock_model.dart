@@ -42,9 +42,32 @@ class FlockModel {
     required int openingMortality,
     required int dailyMortality,
   }) {
-    final derived = initialCount - openingMortality - dailyMortality;
+    return effectiveCount(openingMortality + dailyMortality);
+  }
+
+  /// العدد "الفعلي" المعروض: لا يتجاوز (العدد الأولي − النفوق الكلي)،
+  /// نأخذ الأصغر بين المخزَّن والسقف المنطقي.
+  int effectiveCount(int totalMortality) {
+    final derived = initialCount - totalMortality;
     final bound = derived < 0 ? 0 : derived;
     return currentCount < bound ? currentCount : bound;
+  }
+
+  /// نسخة من القطيع بعدد حالٍّ معدَّل — تُستخدم لتمرير العدد الفعلي
+  /// إلى ميزات غير متزامنة داخل الواجهة.
+  FlockModel copyWith({int? currentCount}) {
+    return FlockModel(
+      id: id,
+      farmId: farmId,
+      breed: breed,
+      startDate: startDate,
+      initialCount: initialCount,
+      currentCount: currentCount ?? this.currentCount,
+      status: status,
+      sectionsCount: sectionsCount,
+      version: version,
+      previousVersion: previousVersion,
+    );
   }
 
   /// عمر القطيع بالأيام من تاريخ البدء

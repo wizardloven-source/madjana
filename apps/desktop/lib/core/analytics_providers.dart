@@ -6,6 +6,25 @@ import 'providers.dart';
 /// Phase 1 Analytics Providers — Desktop
 /// ═══════════════════════════════════════════════════════════════
 
+/// العدد "الفعلي" لكل قطيع = min(المخزَّن، الأولي − مجموع النفوق الكلي).
+/// لا يُغيّر البيانات المخزنة؛ يُستخدم لعرض العدد الحقيقي في كل الشاشات.
+final effectiveFlockCountsProvider = FutureProvider.autoDispose
+    .family<Map<String, int>, String>((ref, farmId) async {
+  final flocks =
+      await ref.read(flockRepositoryProvider).getFlocks(farmId);
+  final mortality = await ref
+      .read(mortalityRepositoryProvider)
+      .getAllRecords(farmId: farmId);
+  final totals = <String, int>{};
+  for (final m in mortality) {
+    totals[m.flockId] = (totals[m.flockId] ?? 0) + m.count;
+  }
+  return {
+    for (final f in flocks)
+      f.id: f.effectiveCount(totals[f.id] ?? 0),
+  };
+});
+
 final productionKpiProvider = FutureProvider.autoDispose
     .family<ProductionKpi, ({String farmId, DateRange range})>(
         (ref, params) async {
@@ -16,9 +35,11 @@ final productionKpiProvider = FutureProvider.autoDispose
   );
   final flocks =
       await ref.read(flockRepositoryProvider).getFlocks(params.farmId);
+  final counts = await ref
+      .watch(effectiveFlockCountsProvider(params.farmId).future);
   final totalBirds = flocks
       .where((f) => f.status == FlockStatus.active)
-      .fold<int>(0, (s, f) => s + f.currentCount);
+      .fold<int>(0, (s, f) => s + (counts[f.id] ?? f.currentCount));
 
   // الأرصدة الافتتاحية (قطيعة قديمة قبل النظام) — بيض مُنتَج في الماضي
   final openingBalances =
@@ -46,9 +67,11 @@ final mortalityKpiProvider = FutureProvider.autoDispose
       );
   final flocks =
       await ref.read(flockRepositoryProvider).getFlocks(params.farmId);
+  final counts = await ref
+      .watch(effectiveFlockCountsProvider(params.farmId).future);
   final totalBirds = flocks
       .where((f) => f.status == FlockStatus.active)
-      .fold<int>(0, (s, f) => s + f.currentCount);
+      .fold<int>(0, (s, f) => s + (counts[f.id] ?? f.currentCount));
 
   // P0: Include opening balance mortality
   final openingBalances =
@@ -83,9 +106,11 @@ final feedKpiProvider = FutureProvider.autoDispose
       );
   final flocks =
       await ref.read(flockRepositoryProvider).getFlocks(params.farmId);
+  final counts = await ref
+      .watch(effectiveFlockCountsProvider(params.farmId).future);
   final totalBirds = flocks
       .where((f) => f.status == FlockStatus.active)
-      .fold<int>(0, (s, f) => s + f.currentCount);
+      .fold<int>(0, (s, f) => s + (counts[f.id] ?? f.currentCount));
 
   return FeedKpi.calculate(
     consumption: consumption,
@@ -314,5 +339,40 @@ final flockProfitabilityProvider = FutureProvider.autoDispose
     range: params.range,
     pricePerEgg: 0,
     totalFarmEggs: eggs.length,
+  );
+});
+
+/// الربحية على مستوى المزرعة — إيرادات البيض تُحتسب من فواتير التخريج
+/// (التخريج قد لا يحدد قطيعاً، لذا لا يمكن نسبها لقطيع واحد).
+final farmProfitabilityProvider = FutureProvider.autoDispose
+    .family<FarmProfitability, ({String farmId, DateRange range})>(
+        (ref, params) async {
+  final dispatches = await ref.read(dispatchRepositoryProvider).getAll(
+    farmId: params.farmId,
+    fromDate: params.range.from,
+    toDate: params.range.to,
+  );
+  final payments = await ref.read(paymentRepositoryProvider).getAll(
+    farmId: params.farmId,
+    fromDate: params.range.from,
+    toDate: params.range.to,
+  );
+  final feedReceived = await ref.read(feedRepositoryProvider).getAllReceived(
+    farmId: params.farmId,
+    fromDate: params.range.from,
+    toDate: params.range.to,
+  );
+  final expenses = await ref.read(expenseRepositoryProvider).getExpenses(
+    farmId: params.farmId,
+    fromDate: params.range.from,
+    toDate: params.range.to,
+  );
+
+  return FarmProfitability.calculate(
+    dispatches: dispatches,
+    payments: payments,
+    feedReceived: feedReceived,
+    expenses: expenses,
+    range: params.range,
   );
 });

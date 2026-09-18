@@ -7,6 +7,7 @@ import '../../../core/providers.dart';
 import '../../../shared/widgets/date_picker_field.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../reference_data/providers/reference_data_provider.dart';
+import '../../analytics/providers/analytics_providers.dart';
 
 /// شاشة إدارة القطعان من الموبايل
 class FlockManagementScreen extends ConsumerStatefulWidget {
@@ -32,6 +33,7 @@ class _FlockManagementScreenState extends ConsumerState<FlockManagementScreen> {
   Widget build(BuildContext context) {
     final farmId = _selectedFarmId ?? '';
     final flocksAsync = ref.watch(flocksProvider(farmId));
+    final counts = ref.watch(effectiveFlockCountsProvider(farmId));
 
     return Scaffold(
       appBar: AppBar(
@@ -67,7 +69,7 @@ class _FlockManagementScreenState extends ConsumerState<FlockManagementScreen> {
                   ),
                   title: Text(flock.breed, style: const TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: Text(
-                    '${flock.currentCount} طائر من أصل ${flock.initialCount}\n'
+                    '${counts.value?[flock.id] ?? flock.currentCount} طائر من أصل ${flock.initialCount}\n'
                     'العمر: ${flock.ageLabel} | '
                     '${flock.sectionsCount > 1 ? "${flock.sectionsCount} عنابر" : "عنبر واحد"}\n'
                     'تاريخ البداية: ${Formatters.formatDate(flock.startDate)}',

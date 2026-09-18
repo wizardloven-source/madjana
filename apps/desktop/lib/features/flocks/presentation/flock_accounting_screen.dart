@@ -203,7 +203,15 @@ class _FlockAccountingScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // ─── معلومات القطيع ───
-                  _InfoHeader(flock: widget.flock),
+                  _InfoHeader(
+                    flock: widget.flock,
+                    effectiveCount: widget.flock.effectiveCount(
+                      _mortality
+                              .where((m) => m.flockId == widget.flock.id)
+                              .fold<int>(0, (s, m) => s + m.count) +
+                          (_opening?.mortalityCount ?? 0),
+                    ),
+                  ),
                   const SizedBox(height: 20),
 
                   // ─── الأرصدة الافتتاحية (إن وُجدت) ───
@@ -413,7 +421,8 @@ class _FlockAccountingScreenState
 // ─── ودجت عنوان القطيع ───
 class _InfoHeader extends StatelessWidget {
   final FlockModel flock;
-  const _InfoHeader({required this.flock});
+  final int effectiveCount;
+  const _InfoHeader({required this.flock, required this.effectiveCount});
 
   @override
   Widget build(BuildContext context) {
@@ -442,7 +451,7 @@ class _InfoHeader extends StatelessWidget {
                 Text(
                   'العمر: ${flock.ageLabel}  |  '
                   'الأولي: ${flock.initialCount}  |  '
-                  'الحالي: ${flock.currentCount}  |  '
+                  'الحالي: $effectiveCount  |  '
                   'العنابر: ${flock.sectionsCount}',
                   style: TextStyle(
                       fontSize: 12, color: Colors.grey.shade600),

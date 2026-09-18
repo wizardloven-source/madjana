@@ -55,4 +55,38 @@ void main() {
       expect(effective, 5270);
     });
   });
+
+  group('FlockModel.effectiveCount — أحادي المصدر للعدد الفعلي', () {
+    test('يساوي مجموع النفوق (الافتتاحي + اليومي)', () {
+      final flock = _flock(current: 5270);
+      expect(flock.effectiveCount(1460 + 13), 3827);
+    });
+
+    test('يحافظ على المخزَّن عند عدم تجاوز السقف', () {
+      final flock = _flock(current: 3800);
+      expect(flock.effectiveCount(1473), 3800);
+    });
+
+    test('يحدّ النتيجة إلى الصفر', () {
+      final flock = _flock(current: 50, initial: 100);
+      expect(flock.effectiveCount(120), 0);
+    });
+  });
+
+  group('FlockModel.copyWith — العدد الحالي', () {
+    test('ينسخ القيمة الجديدة فقط ويحافظ على البقية', () {
+      final flock = _flock();
+      final updated = flock.copyWith(currentCount: 4000);
+      expect(updated.currentCount, 4000);
+      expect(updated.initialCount, flock.initialCount);
+      expect(updated.id, flock.id);
+    });
+
+    test('بدون وسيط يُبقي القيمة كما هي', () {
+      final flock = _flock();
+      final updated = flock.copyWith();
+      expect(updated.currentCount, flock.currentCount);
+      expect(updated.toJson()['current_count'], flock.currentCount);
+    });
+  });
 }

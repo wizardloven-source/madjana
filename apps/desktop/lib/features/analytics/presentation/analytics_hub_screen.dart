@@ -438,8 +438,12 @@ class _FlockPerformanceCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final counts = ref.watch(effectiveFlockCountsProvider(flock.farmId));
+    final effective = counts.value?[flock.id] ?? flock.currentCount;
     final perfAsync = ref.watch(flockPerformanceProvider(
-        (flock: flock, range: range, pricePerEgg: 0)));
+        (flock: flock.copyWith(currentCount: effective),
+            range: range,
+            pricePerEgg: 0)));
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -454,7 +458,7 @@ class _FlockPerformanceCard extends ConsumerWidget {
         ),
         data: (perf) {
           return ExpansionTile(
-            title: Text('${flock.breed} — ${flock.currentCount} طائر'),
+            title: Text('${flock.breed} — $effective طائر'),
             subtitle: Text('عمر: ${perf.ageDays} يوم'),
             children: [
               Padding(
@@ -711,189 +715,244 @@ class _ProfitabilityTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final farmAsync =
+        ref.watch(farmProfitabilityProvider((farmId: farmId, range: range)));
     final flocksAsync = ref.watch(flockRepositoryProvider).getFlocks(farmId);
 
-    return FutureBuilder<List<FlockModel>>(
-      future: flocksAsync,
-      builder: (context, snap) {
-        if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final flocks = snap.data!;
-        final activeFlocks = flocks
-            .where((f) => f.status == FlockStatus.active)
-            .toList();
-
-        if (activeFlocks.isEmpty) {
-          return const Center(child: Text('لا توجد قطعان نشطة'));
-        }
-
-        return ListView.builder(
+    return farmAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('خطأ في حساب الربحية: $e')),
+      data: (farm) {
+        return SingleChildScrollView(
           padding: const EdgeInsets.all(16),
-          itemCount: activeFlocks.length,
-          itemBuilder: (context, i) {
-            final flock = activeFlocks[i];
-            return _ProfitabilityCard(flock: flock, range: range);
-          },
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _FarmProfitSummary(farm: farm, range: range),
+              const SizedBox(height: 20),
+              FutureBuilder<List<FlockModel>>(
+                future: flocksAsync,
+                builder: (context, snap) {
+                  if (!snap.hasData) return const SizedBox.shrink();
+                  final active = snap.data!
+                      .where((f) => f.status == FlockStatus.active)
+                      .toList();
+                  if (active.isEmpty) return const SizedBox.shrink();
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _SectionTitle('أداء القطعان'),
+                      const SizedBox(height: 8),
+                      ...active.map((f) =>
+                          _FlockOpsCard(flock: f, range: range)),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
         );
       },
     );
   }
 }
 
-class _ProfitabilityCard extends ConsumerWidget {
-  final FlockModel flock;
+class _FarmProfitSummary extends StatelessWidget {
+  final FarmProfitability farm;
   final DateRange range;
 
-  const _ProfitabilityCard({required this.flock, required this.range});
+  const _FarmProfitSummary({required this.farm, required this.range});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final profAsync = ref
-        .watch(flockProfitabilityProvider((flock: flock, range: range)));
-
+  Widget build(BuildContext context) {
+    final marginColor = farm.margin >= 0 ? Colors.green : Colors.red;
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: profAsync.when(
-        loading: () => const Padding(
-          padding: EdgeInsets.all(16),
-          child: Center(child: CircularProgressIndicator()),
-        ),
-        error: (e, _) => Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text('خطأ: $e'),
-        ),
-        data: (p) {
-          final currency = ref.watch(currencyProvider).value ?? '\$';
-          final marginColor = p.estimatedMargin >= 0
-              ? Colors.green
-              : Colors.red;
-          final chip = switch (p.classification) {
-            'profitable' => ('مربح', Colors.green),
-            'loss' => ('خسارة', Colors.red),
-            _ => ('تعادل', Colors.orange),
-          };
-
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        flock.breed,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    Chip(
-                      label: Text(chip.$1,
-                          style: const TextStyle(fontSize: 11)),
-                      backgroundColor: chip.$2.withValues(alpha: 0.15),
-                      labelStyle: TextStyle(color: chip.$2),
-                      padding: EdgeInsets.zero,
-                      materialTapTargetSize:
-                          MaterialTapTargetSize.shrinkWrap,
-                    ),
-                  ],
-                ),
-                Text(
-                  '${flock.currentCount} طائر — ${flock.ageLabel}',
-                  style: TextStyle(
-                      fontSize: 12, color: Colors.grey.shade600),
-                ),
-                const Divider(),
-                _ProfitRow(
-                  label: 'إيرادات البيض',
-                  value: '$currency ${p.revenue.toStringAsFixed(2)}',
-                  icon: Icons.egg_alt,
-                  color: Colors.blue,
-                ),
-                _ProfitRow(
-                  label: 'المقبوضات',
-                  value: '$currency ${p.collected.toStringAsFixed(2)}',
-                  icon: Icons.payments,
-                  color: Colors.green,
-                ),
-                if (p.outstanding > 0)
-                  _ProfitRow(
-                    label: 'المستحق',
-                    value: '$currency ${p.outstanding.toStringAsFixed(2)}',
-                    icon: Icons.hourglass_top,
-                    color: Colors.orange,
+                const Icon(Icons.account_balance_wallet,
+                    size: 22, color: Colors.indigo),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'الربحية — ${range.label}',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
                   ),
-                _ProfitRow(
-                  label: 'تكلفة العلف',
-                  value: '$currency ${p.feedCost.toStringAsFixed(2)}',
-                  icon: Icons.grass,
-                  color: Colors.brown,
                 ),
-                _ProfitRow(
-                  label: 'مصاريف مشتركة',
-                  value: '$currency ${p.expensesCost.toStringAsFixed(2)}',
-                  icon: Icons.receipt_long,
-                  color: Colors.red.shade300,
-                ),
-                const Divider(),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('الربح (إيرادات − مصاريف)',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    Text(
-                      '$currency ${p.estimatedMargin.toStringAsFixed(2)}'
-                      '${p.revenue > 0 ? '  (${p.marginPercent.toStringAsFixed(1)}%)' : ''}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                        color: marginColor,
-                      ),
-                    ),
-                  ],
+                if (farm.invoicedDispatches > 0)
+                  Text(
+                    '${farm.invoicedDispatches} فاتورة',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+              ],
+            ),
+            const Divider(),
+            _ProfitLine(
+              icon: Icons.egg_alt,
+              label: 'إيرادات البيض',
+              value: Formatters.formatCurrency(farm.revenue),
+              color: Colors.blue,
+            ),
+            _ProfitLine(
+              icon: Icons.payments,
+              label: 'المقبوضات',
+              value: Formatters.formatCurrency(farm.collected),
+              color: Colors.green,
+            ),
+            if (farm.outstanding > 0.001)
+              _ProfitLine(
+                icon: Icons.hourglass_top,
+                label: 'المستحق',
+                value: Formatters.formatCurrency(farm.outstanding),
+                color: Colors.orange,
+              ),
+            _ProfitLine(
+              icon: Icons.grass,
+              label: 'تكلفة العلف',
+              value: Formatters.formatCurrency(farm.feedCost),
+              color: Colors.brown,
+            ),
+            _ProfitLine(
+              icon: Icons.receipt_long,
+              label: 'مصاريف أخرى',
+              value: Formatters.formatCurrency(farm.expensesCost),
+              color: Colors.red.shade300,
+            ),
+            if (farm.invoicedDispatches == 0) ...[
+              const Divider(),
+              Text(
+                'لا توجد فواتير مسعّرة في هذه الفترة — سجّل القبض من شاشة الدفعات لتظهر إيرادات البيض.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+            ],
+            const Divider(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('صافي الربح',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 15)),
+                Text(
+                  '${Formatters.formatCurrency(farm.margin)}'
+                  '${farm.revenue > 0 ? '  (${farm.marginPercent.toStringAsFixed(1)}%)' : ''}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                    color: marginColor,
+                  ),
                 ),
               ],
             ),
-          );
-        },
+          ],
+        ),
       ),
     );
   }
 }
 
-class _ProfitRow extends StatelessWidget {
-  final String label;
-  final String value;
+/// بطاقة أداء قطيع (إنتاج/علف/نفوق فقط — الإيرادات تُعرض على مستوى المزرعة)
+class _FlockOpsCard extends ConsumerWidget {
+  final FlockModel flock;
+  final DateRange range;
+
+  const _FlockOpsCard({required this.flock, required this.range});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final counts = ref.watch(effectiveFlockCountsProvider(flock.farmId));
+    final effective = counts.value?[flock.id] ?? flock.currentCount;
+    final perfAsync = ref.watch(flockPerformanceProvider(
+        (flock: flock.copyWith(currentCount: effective),
+            range: range,
+            pricePerEgg: 0)));
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: perfAsync.when(
+        loading: () => const SizedBox(
+            height: 56,
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
+        error: (e, _) =>
+            Padding(padding: const EdgeInsets.all(12), child: Text('خطأ: $e')),
+        data: (p) => ListTile(
+          dense: true,
+          leading: const Icon(Icons.pets, size: 20, color: Colors.blue),
+          title: Text(flock.breed,
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: Text('$effective طائر — ${flock.ageLabel}'),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _FlockMini(
+                  Icons.egg_alt, '${p.production.totalEggs}', Colors.orange),
+              const SizedBox(width: 8),
+              _FlockMini(
+                  Icons.grass, Formatters.formatWeight(p.feed.consumedKg),
+                  Colors.green),
+              const SizedBox(width: 8),
+              _FlockMini(Icons.heart_broken, '${p.mortality.totalDeaths}',
+                  Colors.red),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FlockMini extends StatelessWidget {
   final IconData icon;
+  final String label;
   final Color color;
 
-  const _ProfitRow({
+  const _FlockMini(this.icon, this.label, this.color);
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: color),
+        Text(label, style: TextStyle(fontSize: 11, color: color)),
+      ],
+    );
+  }
+}
+
+class _ProfitLine extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _ProfitLine({
+    required this.icon,
     required this.label,
     required this.value,
-    required this.icon,
     required this.color,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
           Icon(icon, size: 16, color: color),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(label,
-                style: const TextStyle(fontSize: 13)),
+            child: Text(label, style: const TextStyle(fontSize: 13)),
           ),
-          Text(
-            value,
-            style: TextStyle(
-                fontSize: 14, fontWeight: FontWeight.w600, color: color),
-          ),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 15, fontWeight: FontWeight.w600, color: color)),
         ],
       ),
     );

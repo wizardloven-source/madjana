@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/csv_exporter.dart';
 import '../../../core/providers.dart';
+import '../../../core/analytics_providers.dart';
 import '../../../shared/widgets/farm_dropdown.dart';
 import '../../../shared/widgets/period_filter.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -21,6 +22,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   List<FeedConsumptionModel> _consumption = [];
   List<PaymentModel> _payments = [];
   List<OpeningBalanceModel> _openingBalances = [];
+  List<FlockModel> _flocks = [];
   int _birds = 0;
   double _feedStock = 0;
   bool _loading = true;
@@ -75,6 +77,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       _mortality = results[1] as List<MortalityModel>;
       _consumption = results[2] as List<FeedConsumptionModel>;
       _payments = results[3] as List<PaymentModel>;
+      _flocks = flocks;
       _birds = flocks
           .where((f) => f.status == FlockStatus.active)
           .fold<int>(0, (s, f) => s + f.currentCount);
@@ -110,11 +113,17 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
     // المؤشرات التحليلية
     final days = _toDate.difference(_fromDate).inDays + 1;
+    final counts = ref.watch(effectiveFlockCountsProvider(_farmId));
+    final birds = counts.value == null
+        ? _birds
+        : _flocks
+            .where((f) => f.status == FlockStatus.active)
+            .fold<int>(0, (s, f) => s + (counts.value![f.id] ?? f.currentCount));
     final prodRate = FarmAnalytics.avgProductionRate(
-        totalEggs: totalEggs, birdCount: _birds, days: days);
+        totalEggs: totalEggs, birdCount: birds, days: days);
 final mortDailyRate = FarmAnalytics.dailyMortalityRate(
     // نفوق الفترة فقط — لا الأرصدة التراكمية (المقام أيام الفترة)
-    totalDeaths: totalMortality, birdCount: _birds, days: days);
+    totalDeaths: totalMortality, birdCount: birds, days: days);
     final feedPerDay = totalFeed / days;
     final feedDaysLeft = FarmAnalytics.feedDaysLeft(
       stockKg: _feedStock,
@@ -133,7 +142,7 @@ final mortDailyRate = FarmAnalytics.dailyMortalityRate(
             ['إجمالي الكراتين', '$totalCartons'],
             ['المعدل اليومي', avgPerDay.toStringAsFixed(0)],
             ['معدل الإنتاج %', '${prodRate.toStringAsFixed(2)}%'],
-            ['الطيور الحية', '$_birds'],
+            ['الطيور الحية', '$birds'],
             ['إجمالي النفوق', '$grandMortality'],
             ['معدل النفوق اليومي %', '${mortDailyRate.toStringAsFixed(3)}%'],
             ['استهلاك العلف (كغ)', totalFeed.toStringAsFixed(0)],
@@ -247,7 +256,7 @@ final mortDailyRate = FarmAnalytics.dailyMortalityRate(
                                   ? Colors.green
                                   : (prodRate >= 60 ? Colors.orange : Colors.redAccent),
                             ),
-                            ('الطيور الحية', Formatters.formatNumber(_birds), null),
+                            ('الطيور الحية', Formatters.formatNumber(birds), null),
                           ],
                         ),
                         const SizedBox(height: 16),

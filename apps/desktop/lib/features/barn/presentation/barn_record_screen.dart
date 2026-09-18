@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/design_tokens.dart';
 import '../../../core/providers.dart';
+import '../../../core/analytics_providers.dart';
 import '../../auth/providers/auth_provider.dart';
 
 /// سجل العنبر — بطاقة مراقبة يومية لكل عنبر داخل مدجنة
@@ -152,7 +153,10 @@ class _BarnRecordScreenState extends ConsumerState<BarnRecordScreen> {
               children: [
                 _BarnHeaderCard(
                   label: 'إجمالي الطيور',
-                  value: Formatters.formatNumber(widget.flock.currentCount),
+                  value: Formatters.formatNumber(
+                      ref.watch(effectiveFlockCountsProvider(_farmId))
+                              .value?[widget.flock.id] ??
+                          widget.flock.currentCount),
                   icon: Icons.pets,
                   color: theme.colorScheme.primary,
                 ),

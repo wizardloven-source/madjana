@@ -987,6 +987,93 @@ class FlockProfitability {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// 9b. FARM PROFITABILITY — قائمة دخل على مستوى المزرعة
+// ═══════════════════════════════════════════════════════════════
+
+class FarmProfitability {
+  final double revenue; // إيرادات البيض (قيمة فواتير التخريج، كل فاتورة مرة واحدة)
+  final int invoicedDispatches; // عدد الفواتير المسعّرة
+  final double collected; // المقبوضات
+  final double outstanding; // المستحق
+  final double feedCost; // تكلفة العلف (السعر × الكمية)
+  final double expensesCost; // المصروفات المتنوعة
+  final double totalCost;
+  final double margin; // الربح = الإيرادات − المصاريف
+  final double marginPercent;
+
+  const FarmProfitability({
+    required this.revenue,
+    required this.invoicedDispatches,
+    required this.collected,
+    required this.outstanding,
+    required this.feedCost,
+    required this.expensesCost,
+    required this.totalCost,
+    required this.margin,
+    required this.marginPercent,
+  });
+
+  factory FarmProfitability.empty() => const FarmProfitability(
+        revenue: 0,
+        invoicedDispatches: 0,
+        collected: 0,
+        outstanding: 0,
+        feedCost: 0,
+        expensesCost: 0,
+        totalCost: 0,
+        margin: 0,
+        marginPercent: 0,
+      );
+
+  /// ملاحظة: التخريج على الويب/الموبايل قد لا يحدد قطيعاً (flock_id فارغ)،
+  /// لذا تُحسب إيرادات البيض وإجماليات النقود على مستوى المزرعة لا على مستوى القطيع.
+  static FarmProfitability calculate({
+    required List<DispatchModel> dispatches,
+    required List<PaymentModel> payments,
+    required List<FeedReceivedModel> feedReceived,
+    required List<ExpenseModel> expenses,
+    required DateRange range,
+  }) {
+    final invoiceByDispatch = <String, double>{};
+    var collected = 0.0;
+    for (final p in payments.where((p) => range.contains(p.date))) {
+      final did = p.dispatchId;
+      if (did == null) continue;
+      if (p.totalDue > (invoiceByDispatch[did] ?? 0)) {
+        invoiceByDispatch[did] = p.totalDue;
+      }
+      collected += p.amountPaid;
+    }
+    final revenue = invoiceByDispatch.values.fold<double>(0, (s, v) => s + v);
+    final outstanding = revenue - collected;
+
+    final feedCost = feedReceived
+        .where((r) => range.contains(r.date))
+        .fold<double>(0, (s, r) => s + (r.pricePerKg ?? 0) * r.quantityKg);
+
+    final expensesCost = expenses
+        .where((e) => range.contains(e.date))
+        .fold<double>(0, (s, e) => s + e.amount);
+
+    final totalCost = feedCost + expensesCost;
+    final margin = revenue - totalCost;
+    final marginPercent = revenue > 0 ? (margin / revenue * 100).toDouble() : 0.0;
+
+    return FarmProfitability(
+      revenue: revenue,
+      invoicedDispatches: invoiceByDispatch.length,
+      collected: collected,
+      outstanding: outstanding,
+      feedCost: feedCost,
+      expensesCost: expensesCost,
+      totalCost: totalCost,
+      margin: margin,
+      marginPercent: marginPercent,
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // 10. LOW STOCK ALERTS
 // ═══════════════════════════════════════════════════════════════
 

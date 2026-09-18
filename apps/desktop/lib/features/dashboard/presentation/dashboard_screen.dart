@@ -4,6 +4,7 @@ import 'package:core/core.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../core/design_tokens.dart';
 import '../../../core/providers.dart';
+import '../../../core/analytics_providers.dart';
 import '../../../core/shell_state.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../barn/presentation/barn_record_screen.dart';
@@ -242,8 +243,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     final activeFlocks =
         _flocks.where((f) => f.status == FlockStatus.active).toList();
+    final counts = ref.watch(effectiveFlockCountsProvider(_farmId));
     final totalBirds =
-        activeFlocks.fold<int>(0, (sum, f) => sum + f.currentCount);
+        activeFlocks.fold<int>(0, (sum, f) => sum + (counts.value?[f.id] ?? f.currentCount));
 
     // ---- المؤشرات التحليلية (معدل الإنتاج / النفوق / العلف) ----
     final weekStart = DateTime(now.year, now.month, now.day)
@@ -634,32 +636,32 @@ child: InkWell(
                                               builder: (_) =>
                                                   BarnRecordScreen(
                                                       flock: f))),
-                                      child: Row(
-                                        children: [
-                                          Container(
-                                            width: 8,
-                                            height: 8,
-                                            decoration: BoxDecoration(
-                                              color: f.sectionsCount > 1
-                                                  ? Theme.of(context)
-                                                      .colorScheme
-                                                      .secondary
-                                                  : Theme.of(context)
-                                                      .colorScheme
-                                                      .outline,
-                                              shape: BoxShape.circle,
+child: Row(
+                                          children: [
+                                            Container(
+                                              width: 8,
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                color: f.sectionsCount > 1
+                                                    ? Theme.of(context)
+                                                        .colorScheme
+                                                        .secondary
+                                                    : Theme.of(context)
+                                                        .colorScheme
+                                                        .outline,
+                                                shape: BoxShape.circle,
+                                              ),
                                             ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: Text(
-                                              '${f.breed} — ${f.currentCount} طائر (${f.sectionsCount > 1 ? '${f.sectionsCount} عنابر' : 'عنبر واحد'})',
-                                              style:
-                                                  const TextStyle(fontSize: 13),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                '${f.breed} — ${counts.value?[f.id] ?? f.currentCount} طائر (${f.sectionsCount > 1 ? '${f.sectionsCount} عنابر' : 'عنبر واحد'})',
+                                                style:
+                                                    const TextStyle(fontSize: 13),
+                                              ),
                                             ),
-                                          ),
-                                        ],
-                                      ),
+                                          ],
+                                        ),
                                     ),
                             )),
                       ],
