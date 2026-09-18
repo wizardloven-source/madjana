@@ -149,12 +149,17 @@ class SyncNotifier extends StateNotifier<SyncState> {
     state = state.copyWith(isSyncing: true);
     try {
       final result = await repository.syncNow(fid);
-      _consecutiveFailures = 0;
-      _backoffMinutes = 0;
-      _backoffTimer?.cancel();
+      if (result.isSuccess) {
+        _consecutiveFailures = 0;
+        _backoffMinutes = 0;
+        _backoffTimer?.cancel();
+      }
       await _refreshCounts();
-      // ═══ H-4 FIX: لا تُحدّث lastSyncAt إلا عند نجاح المزامنة ═══
-      state = state.copyWith(isSyncing: false, lastSyncAt: DateTime.now());
+      // ═══ H-4 FIX: لا تُحدّث lastSyncAt إلا عند نجاح المزامنة الكاملة ═══
+      state = state.copyWith(
+        isSyncing: false,
+        lastSyncAt: result.isSuccess ? DateTime.now() : null,
+      );
       return result;
     } catch (_) {
       _consecutiveFailures++;

@@ -57,7 +57,11 @@ class _FlockData {
     if (effectiveCurrent <= 0 || totalEggs <= 0 || flock.ageInDays <= 0) {
       return 0;
     }
-    return totalEggs / (effectiveCurrent * flock.ageInDays) * 100;
+    // المعدل = بيض إجمالي ÷ (متوسط الطيور خلال العمر × الأيام) — المتوسط
+    // أقرب لمجموع الطيور الحاضن كل يوم من العدد الحالي المتناقص.
+    final avgBirds = (effectiveInitial + effectiveCurrent) / 2;
+    if (avgBirds <= 0) return 0;
+    return totalEggs / (avgBirds * flock.ageInDays) * 100;
   }
 
   double get feedConversionRatio {
@@ -754,7 +758,7 @@ class _EnhancedFlockCard extends StatelessWidget {
                     color: Colors.green,
                   ),
                 _FlockInfoChip(
-                  label: 'الربح/الخسارة',
+                  label: 'المستحق (غير المحصّل)',
                   value: '\$${profitLoss.toStringAsFixed(0)}',
                   color: profitColor,
                 ),

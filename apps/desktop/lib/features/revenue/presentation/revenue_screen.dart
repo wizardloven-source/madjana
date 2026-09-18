@@ -30,6 +30,14 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
 
   double get _total => _revenues.fold(0, (s, r) => s + r.amount);
 
+  /// عرض المبلغ محوّلاً من الدولار (عملة التخزين) إلى عملة السجل الأصلية
+  String _displayAmount(RevenueModel r) {
+    final value = r.currency == AppCurrency.lira && (r.exchangeRate ?? 0) > 0
+        ? r.amount * r.exchangeRate!
+        : r.amount;
+    return '${NumberFormat('#,##0.##').format(value)} ${r.currency.symbol}';
+  }
+
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
@@ -706,8 +714,7 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
                       DataCell(Text(r.quantity != null
                           ? '${Formatters.formatNumber(r.quantity!)} ${r.unit ?? ''}'
                           : '-')),
-                      DataCell(Text(
-                          '${NumberFormat('#,##0.##').format(r.amount)} $currency')),
+                      DataCell(Text(_displayAmount(r))),
                       DataCell(Row(children: [
                         IconButton(
                           tooltip: 'تعديل',

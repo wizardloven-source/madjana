@@ -134,6 +134,12 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
       _showError('اختر الفاتورة');
       return;
     }
+    final chosen =
+        _dispatches.where((d) => d.id == _selectedDispatchId).firstOrNull;
+    if (chosen == null || chosen.customerId != _selectedCustomerId) {
+      _showError('الفاتورة لا تنتمي لهذا الزبون');
+      return;
+    }
     if (_pricePerCarton <= 0) {
       _showError('أدخل سعر الكرتون');
       return;
@@ -199,6 +205,13 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
     final customersAsync = ref.watch(customersProvider(farmId));
     final customers = customersAsync.value ?? const <CustomerModel>[];
 
+    // فواتير الزبون المختار فقط
+    final visibleDispatches = _selectedCustomerId == null
+        ? _dispatches
+        : _dispatches
+            .where((d) => d.customerId == _selectedCustomerId)
+            .toList();
+
     return Scaffold(
       appBar: AppBar(title: const Text('قبض المبالغ')),
       body: SingleChildScrollView(
@@ -218,13 +231,16 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
               items: customers.map((c) {
                 return DropdownMenuItem(value: c.id, child: Text(c.name));
               }).toList(),
-              onChanged: (v) => setState(() => _selectedCustomerId = v),
+              onChanged: (v) => setState(() {
+                _selectedCustomerId = v;
+                _selectedDispatchId = null;
+              }),
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               initialValue: _selectedDispatchId,
               decoration: const InputDecoration(labelText: 'الفاتورة'),
-              items: _dispatches.map((d) {
+              items: visibleDispatches.map((d) {
                 return DropdownMenuItem(
                   value: d.id,
                   child: Text(

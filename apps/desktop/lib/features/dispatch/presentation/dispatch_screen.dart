@@ -615,10 +615,15 @@ class _PaymentDialogState extends State<_PaymentDialog> {
   void initState() {
     super.initState();
     _currency = widget.defaultCurrency;
-    // تعبئة السعر من قبض سابق إن وجد
+    // تعبئة السعر من قبض سابق إن وجد — القيمة المخزنة بالدولار تُحوَّل
+    // إلى عملة الإدخال الحالية حتى لا يُعاد تطبيق التحويل عند الحفظ (تحويل مزدوج).
     if (widget.existingPayments.isNotEmpty) {
-      _priceController.text =
-          widget.existingPayments.last.pricePerCarton.toStringAsFixed(0);
+      final last = widget.existingPayments.last;
+      final inInputCurrency =
+          last.currency == AppCurrency.lira && (last.exchangeRate ?? 0) > 0
+              ? last.pricePerCarton * last.exchangeRate!
+              : last.pricePerCarton;
+      _priceController.text = inInputCurrency.toStringAsFixed(0);
     }
   }
 

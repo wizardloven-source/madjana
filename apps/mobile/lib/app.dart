@@ -22,6 +22,7 @@ import 'features/settings/providers/theme_provider.dart';
 import 'features/emergency/emergency_screen.dart';
 import 'features/sync_center/sync_center_screen.dart';
 import 'features/analytics/presentation/analytics_screen.dart';
+import 'shared/widgets/role_gate.dart';
 
 /// التطبيق الرئيسي
 class PoultryApp extends ConsumerWidget {
@@ -58,13 +59,13 @@ class PoultryApp extends ConsumerWidget {
         '/medications': (_) => const MedicationsScreen(),
         '/feed-received': (_) => const FeedReceivedScreen(),
         '/settings': (_) => const SettingsScreen(),
-        '/payments': (_) => const PaymentsScreen(),
-        '/reports': (_) => const ReportsScreen(),
-        '/flock-management': (_) => const FlockManagementScreen(),
-        '/customers': (_) => const CustomersScreen(),
+        '/payments': (_) => const ManagerGate(child: PaymentsScreen()),
+        '/reports': (_) => const ManagerGate(child: ReportsScreen()),
+        '/flock-management': (_) => const ManagerGate(child: FlockManagementScreen()),
+        '/customers': (_) => const ManagerGate(child: CustomersScreen()),
         '/emergency': (_) => const EmergencyScreen(),
         '/sync-center': (_) => const SyncCenterScreen(),
-        '/analytics': (_) => const AnalyticsScreen(),
+        '/analytics': (_) => const ManagerGate(child: AnalyticsScreen()),
       },
     );
   }

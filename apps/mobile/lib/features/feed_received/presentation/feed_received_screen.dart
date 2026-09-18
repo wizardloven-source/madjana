@@ -6,6 +6,7 @@ import '../../../shared/widgets/custom_numpad.dart';
 import '../../../shared/widgets/date_picker_field.dart';
 import '../../../shared/widgets/modern_ui.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../reference_data/providers/reference_data_provider.dart';
 import '../providers/feed_received_provider.dart';
 
 /// شاشة استلام علف
@@ -25,6 +26,7 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
   String? _selectedFarmId;
   FeedEntryMode _entryMode = FeedEntryMode.bags;
   double _quantity = 0;
+  double _kgPerBag = AppConstants.kgPerBag;
   FeedType? _selectedFeedType;
   final _supplierController = TextEditingController();
   final _invoiceController = TextEditingController();
@@ -42,10 +44,10 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
     });
   }
 
-  /// الكمية بالكيلو (محسوبة)
+  /// الكمية بالكيلو (محسوبة) — وزن الكيس من إعداد المزرعة الفعلي
   double get _quantityKg {
     return switch (_entryMode) {
-      FeedEntryMode.bags => _quantity * AppConstants.kgPerBag,
+      FeedEntryMode.bags => _quantity * _kgPerBag,
       FeedEntryMode.kg => _quantity,
       FeedEntryMode.ton => _quantity * AppConstants.kgPerTon,
     };
@@ -137,6 +139,8 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
       _showSuccess('تم حفظ الاستلام بنجاح');
       setState(() {
         _quantity = 0;
+        _hasDecimal = false;
+        _decimalBuffer = '';
         _selectedFeedType = null;
         _supplierController.clear();
         _invoiceController.clear();
@@ -153,6 +157,16 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final user = ref.watch(authProvider).currentUser;
+    final farmId = user?.farmId ?? '';
+    final farmSettingsAsync = ref.watch(farmSettingsProvider(farmId));
+    final farmSettings = farmSettingsAsync.value;
+    final kgPerBag = farmSettings?.feedBagWeightKg ?? AppConstants.kgPerBag;
+    if (_kgPerBag != kgPerBag) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _kgPerBag = kgPerBag);
+      });
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('استلام علف')),
       body: SingleChildScrollView(
@@ -187,6 +201,8 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
                       onTap: () => setState(() {
                         _entryMode = mode;
                         _quantity = 0;
+                        _hasDecimal = false;
+                        _decimalBuffer = '';
                       }),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 12),

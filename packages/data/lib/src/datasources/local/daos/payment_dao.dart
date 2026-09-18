@@ -188,17 +188,36 @@ class PaymentDao {
 
   Future<double> getTotalOutstanding({String? farmId}) async {
     final db = await LocalDatabase.database;
-    final where = <String>['amount_paid < total_due'];
     final args = <dynamic>[];
-    if (farmId != null) {
-      where.add('farm_id = ?');
-      args.add(farmId);
-    }
+
+    // الذمم تُحسب لكل فاتورة (dispatch) بتجميع المدفوعات، لا لكل سجل دفع —
+    // وإلا تتضاعف عند الدفع بالتقسيط. سجلات بلا فاتورة (قديمة) تُحسب كلٌّ على حدة.
+    final farmWhere = farmId != null ? ' AND farm_id = ?' : '';
+    if (farmId != null) args..add(farmId)..add(farmId);
 
     final result = await db.rawQuery(
-      'SELECT SUM(total_due - amount_paid) as total FROM $_table '
-      'WHERE ${where.join(' AND ')}',
+      'SELECT SUM(t.due - t.paid) as total FROM ('
+      '  SELECT dispatch_id, MAX(total_due) as due, SUM(amount_paid) as paid '
+      '  FROM $_table '
+      '  WHERE dispatch_id IS NOT NULL$farmWhere '
+      '  GROUP BY dispatch_id '
+      '  HAVING SUM(amount_paid) < MAX(total_due)'
+      '  UNION ALL '
+      '  SELECT id, total_due as due, amount_paid as paid '
+      '  FROM $_table '
+      '  WHERE dispatch_id IS NULL AND amount_paid < total_due$farmWhere'
+      ') t',
       args,
+    );
+    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+  }
+
+  /// إجمالي المدفوعات المسجلة لفاتورة واحدة (لتحديد هل اكتمل السداد)
+  Future<double> getTotalPaidForDispatch(String dispatchId) async {
+    final db = await LocalDatabase.database;
+    final result = await db.rawQuery(
+      'SELECT SUM(amount_paid) as total FROM $_table WHERE dispatch_id = ?',
+      [dispatchId],
     );
     return (result.first['total'] as num?)?.toDouble() ?? 0.0;
   }

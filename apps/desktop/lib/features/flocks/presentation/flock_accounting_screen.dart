@@ -228,7 +228,7 @@ class _FlockAccountingScreenState
                       _StatTile(
                           'كنار',
                           ob != null
-                              ? '$totalCartons (+${obProduced ~/ 100} أرصدة)'
+                              ? '$totalCartons (+${obProduced ~/ AppConstants.eggsPerCarton} كرتون أرصدة)'
                               : '$totalCartons',
                           Icons.inventory_2, Colors.brown),
                       _StatTile(
@@ -379,7 +379,11 @@ class _FlockAccountingScreenState
                             return DataRow(cells: [
                               DataCell(Text(
                                   '${d.date.year}/${d.date.month}/${d.date.day}')),
-                              DataCell(Text(d.customerId.substring(0, 8))),
+                              DataCell(Text(
+                                d.customerId.length <= 8
+                                    ? d.customerId
+                                    : d.customerId.substring(0, 8),
+                              )),
                               DataCell(Text('${d.cartons}')),
                               DataCell(Text('${d.trays}')),
                               DataCell(Chip(

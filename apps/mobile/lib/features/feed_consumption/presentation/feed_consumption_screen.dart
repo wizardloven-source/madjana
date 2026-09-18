@@ -117,8 +117,11 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
         final digits = str.replaceAll('.', '');
         str = digits == '0' ? key : '$digits$key';
       } else {
-        // وضع الكيلو: إذا كانت السلسلة "0" أو "0." ابدأ بدل الرقم الجديد
-        if (str == '0') {
+        // وضع الكيلو: نبسط الأشكال "0" و"0.0" إلى "0" لبدء الرقم من أول ضغطة
+        final buff = str.endsWith('.0')
+            ? str.substring(0, str.length - 2)
+            : str;
+        if (buff == '0' || buff == '-0') {
           str = key;
         } else {
           str = '$str$key';

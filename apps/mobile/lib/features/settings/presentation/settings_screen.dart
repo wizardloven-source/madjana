@@ -554,7 +554,7 @@ class SettingsScreen extends ConsumerWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('تأكيد تسجيل الخروج'),
-        content: const Text('سيتم مسح البيانات غير المزامنة. هل أنت متأكد؟'),
+        content: const Text('سيتم تسجيل الخروج من هذا الجهاز. هل أنت متأكد؟'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),

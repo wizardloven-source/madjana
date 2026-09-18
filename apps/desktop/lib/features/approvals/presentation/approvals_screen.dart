@@ -217,6 +217,10 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
                             final stockEggs =
                                 (request['stock_eggs'] as num?)?.toInt() ?? 0;
 
+                            // عرض الفرق بإشارة صحيحة (مطلوب التخريج − المخزون وقت الطلب)
+                            String approvalDiff(int req, int stock) =>
+                                '${req - stock >= 0 ? '+' : ''}${req - stock}';
+
                             return DataRow(
                               cells: [
                                 DataCell(Text(dateFormat.format(
@@ -228,10 +232,11 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
                                 DataCell(Text('$totalEggs بيضة')),
                                 DataCell(Text('$stockEggs بيضة')),
                                 DataCell(Text(
-                                  '+${totalEggs - stockEggs}',
+                                  approvalDiff(totalEggs, stockEggs),
                                   style: TextStyle(
-                                    color:
-                                        Theme.of(context).colorScheme.error,
+                                    color: totalEggs - stockEggs < 0
+                                        ? Theme.of(context).colorScheme.error
+                                        : Colors.green,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 )),

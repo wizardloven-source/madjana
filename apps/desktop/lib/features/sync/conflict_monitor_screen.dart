@@ -265,7 +265,7 @@ class _ConflictCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '${conflict.tableName} — ${conflict.recordId.substring(0, 8)}...',
+                    '${conflict.tableName} — ${conflict.recordId.length <= 8 ? conflict.recordId : '${conflict.recordId.substring(0, 8)}...'}',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),

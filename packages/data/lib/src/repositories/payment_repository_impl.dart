@@ -55,9 +55,14 @@ class PaymentRepositoryImpl implements PaymentRepository {
     // Update dispatch payment status
     final dispatchId = payment.dispatchId;
     if (dispatchId != null) {
+      // مدفوعة فقط عندما يساوي إجمالي المدفوعات التراكمي للفاتورة كامل المستحق؛
+      // الدفعات الجزئية تبقى partial حتى اكتمالها (لا يعتمد على سجل الدفع الواحد).
+      final cumulativePaid = await _paymentDao.getTotalPaidForDispatch(dispatchId);
+      final isNowPaid =
+          cumulativePaid >= payment.totalDue - 0.001 && payment.totalDue > 0;
       await _dispatchDao.updatePaymentStatus(
         dispatchId,
-        payment.isPaid ? PaymentStatus.paid : PaymentStatus.partial,
+        isNowPaid ? PaymentStatus.paid : PaymentStatus.partial,
       );
     }
   }

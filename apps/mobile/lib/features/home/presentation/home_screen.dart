@@ -437,39 +437,42 @@ class _SyncStatusBanner extends StatelessWidget {
       );
     }
 
+    final hasFailures = failedCount > 0;
+    final statusColor =
+        hasFailures ? AppStatusColors.warning(context) : success;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: success.withValues(alpha: isDark ? 0.15 : 0.08),
+        color: statusColor.withValues(alpha: isDark ? 0.15 : 0.08),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
-          Icon(Icons.check_circle_outline, size: 18, color: success),
+          Icon(
+            hasFailures
+                ? Icons.warning_amber_rounded
+                : Icons.check_circle_outline,
+            size: 18,
+            color: statusColor,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'جميع السجلات متزامنة',
+              hasFailures
+                  ? 'تعذّر رفع $failedCount سجل'
+                  : 'جميع السجلات متزامنة',
               style: TextStyle(
                 fontSize: 12,
-                color: success,
+                color: statusColor,
                 fontWeight: FontWeight.w600,
               ),
             ),
           ),
-          if (lastSyncAt != null || failedCount > 0)
+          if (lastSyncAt != null)
             Text(
-              [
-                if (lastSyncAt != null)
-                  'آخر مزامنة ${lastSyncAt!.hour}:${lastSyncAt!.minute.toString().padLeft(2, '0')}',
-                if (failedCount > 0) '$failedCount فاشل',
-              ].join(' • '),
-              style: TextStyle(
-                fontSize: 11,
-                color: failedCount > 0
-                    ? AppStatusColors.warning(context)
-                    : success,
-              ),
+              'آخر مزامنة ${lastSyncAt!.hour}:${lastSyncAt!.minute.toString().padLeft(2, '0')}',
+              style: TextStyle(fontSize: 11, color: statusColor),
             ),
         ],
       ),
