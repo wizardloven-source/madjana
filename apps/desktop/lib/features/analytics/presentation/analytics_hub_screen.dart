@@ -288,6 +288,7 @@ class _MortalityTab extends ConsumerWidget {
       'cannibalism': 'تعاض',
       'unknown': 'مجهول',
       'other': 'آخر',
+      'opening_balance': 'رصيد افتتاحي',
     };
     return labels[reason] ?? reason;
   }
@@ -677,8 +678,6 @@ class _CostTab extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 8),
                       Text('التكلفة الإجمالية: ${Formatters.formatCurrency(cost.totalCost)}'),
                       Text('عدد البيض: ${Formatters.formatNumber(cost.totalEggs)}'),
@@ -750,12 +749,12 @@ class _ProfitabilityCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final perfAsync = ref.watch(flockPerformanceProvider(
-        (flock: flock, range: range, pricePerEgg: 0)));
+    final profAsync = ref
+        .watch(flockProfitabilityProvider((flock: flock, range: range)));
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: perfAsync.when(
+      child: profAsync.when(
         loading: () => const Padding(
           padding: EdgeInsets.all(16),
           child: Center(child: CircularProgressIndicator()),
@@ -764,33 +763,138 @@ class _ProfitabilityCard extends ConsumerWidget {
           padding: const EdgeInsets.all(16),
           child: Text('خطأ: $e'),
         ),
-        data: (perf) {
-          return ListTile(
-            title: Text('${flock.breed}'),
-            subtitle: Text('${flock.currentCount} طائر — ${perf.ageDays} يوم'),
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
+        data: (p) {
+          final currency = ref.watch(currencyProvider).value ?? '\$';
+          final marginColor = p.estimatedMargin >= 0
+              ? Colors.green
+              : Colors.red;
+          final chip = switch (p.classification) {
+            'profitable' => ('مربح', Colors.green),
+            'loss' => ('خسارة', Colors.red),
+            _ => ('تعادل', Colors.orange),
+          };
+
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'الإيراد: ${Formatters.formatCurrency(perf.estimatedRevenue)}',
-                  style: const TextStyle(fontSize: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        flock.breed,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    Chip(
+                      label: Text(chip.$1,
+                          style: const TextStyle(fontSize: 11)),
+                      backgroundColor: chip.$2.withValues(alpha: 0.15),
+                      labelStyle: TextStyle(color: chip.$2),
+                      padding: EdgeInsets.zero,
+                      materialTapTargetSize:
+                          MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ],
                 ),
                 Text(
-                  'التكلفة: ${Formatters.formatCurrency(perf.estimatedCost)}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                Text(
-                  'الهامش: ${Formatters.formatCurrency(perf.estimatedMargin)}',
+                  '${flock.currentCount} طائر — ${flock.ageLabel}',
                   style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: perf.estimatedMargin >= 0 ? Colors.green : Colors.red,
+                      fontSize: 12, color: Colors.grey.shade600),
+                ),
+                const Divider(),
+                _ProfitRow(
+                  label: 'إيرادات البيض',
+                  value: '$currency ${p.revenue.toStringAsFixed(2)}',
+                  icon: Icons.egg_alt,
+                  color: Colors.blue,
+                ),
+                _ProfitRow(
+                  label: 'المقبوضات',
+                  value: '$currency ${p.collected.toStringAsFixed(2)}',
+                  icon: Icons.payments,
+                  color: Colors.green,
+                ),
+                if (p.outstanding > 0)
+                  _ProfitRow(
+                    label: 'المستحق',
+                    value: '$currency ${p.outstanding.toStringAsFixed(2)}',
+                    icon: Icons.hourglass_top,
+                    color: Colors.orange,
                   ),
+                _ProfitRow(
+                  label: 'تكلفة العلف',
+                  value: '$currency ${p.feedCost.toStringAsFixed(2)}',
+                  icon: Icons.grass,
+                  color: Colors.brown,
+                ),
+                _ProfitRow(
+                  label: 'مصاريف مشتركة',
+                  value: '$currency ${p.expensesCost.toStringAsFixed(2)}',
+                  icon: Icons.receipt_long,
+                  color: Colors.red.shade300,
+                ),
+                const Divider(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('الربح (إيرادات − مصاريف)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text(
+                      '$currency ${p.estimatedMargin.toStringAsFixed(2)}'
+                      '${p.revenue > 0 ? '  (${p.marginPercent.toStringAsFixed(1)}%)' : ''}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: marginColor,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _ProfitRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  const _ProfitRow({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(label,
+                style: const TextStyle(fontSize: 13)),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+                fontSize: 14, fontWeight: FontWeight.w600, color: color),
+          ),
+        ],
       ),
     );
   }

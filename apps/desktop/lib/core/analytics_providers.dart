@@ -272,3 +272,47 @@ final flockPerformanceProvider = FutureProvider.autoDispose
     openingBalance: openingBalance,
   );
 });
+
+/// ربحية القطيع بالبيانات المالية الفعلية: إيرادات البيض، المقبوضات، المصاريف
+final flockProfitabilityProvider = FutureProvider.autoDispose
+    .family<FlockProfitability, ({FlockModel flock, DateRange range})>(
+        (ref, params) async {
+  final farmId = params.flock.farmId;
+  final eggs = await ref.read(eggProductionRepositoryProvider).getAllRecords(
+    farmId: farmId,
+    fromDate: params.range.from,
+    toDate: params.range.to,
+  );
+  final dispatches = await ref.read(dispatchRepositoryProvider).getAll(
+    farmId: farmId,
+    fromDate: params.range.from,
+    toDate: params.range.to,
+  );
+  final payments = await ref.read(paymentRepositoryProvider).getAll(
+    farmId: farmId,
+    fromDate: params.range.from,
+    toDate: params.range.to,
+  );
+  final feedReceived = await ref.read(feedRepositoryProvider).getAllReceived(
+    farmId: farmId,
+    fromDate: params.range.from,
+    toDate: params.range.to,
+  );
+  final expenses = await ref.read(expenseRepositoryProvider).getExpenses(
+    farmId: farmId,
+    fromDate: params.range.from,
+    toDate: params.range.to,
+  );
+
+  return FlockProfitability.calculate(
+    flock: params.flock,
+    eggs: eggs,
+    dispatches: dispatches,
+    payments: payments,
+    feedReceived: feedReceived,
+    expenses: expenses,
+    range: params.range,
+    pricePerEgg: 0,
+    totalFarmEggs: eggs.length,
+  );
+});

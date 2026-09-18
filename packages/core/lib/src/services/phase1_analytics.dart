@@ -519,7 +519,18 @@ class FlockPerformance {
       currentStockKg: 0,
     );
 
-    final revenue = flockPayments.fold<double>(0, (s, p) => s + p.totalDue);
+    // قيمة الفاتورة تُحتسب مرة واحدة لكل تخريج — الدفع بالتقسيط يُسجّل عدة
+    // دفعات لنفس الفاتورة، وجمع totalDue المباشر يضاعف الإيراد.
+    final invoiceByDispatch = <String, double>{};
+    for (final p in flockPayments) {
+      final dispatchId = p.dispatchId;
+      if (dispatchId == null) continue;
+      if (p.totalDue > (invoiceByDispatch[dispatchId] ?? 0)) {
+        invoiceByDispatch[dispatchId] = p.totalDue;
+      }
+    }
+    final revenue =
+        invoiceByDispatch.values.fold<double>(0, (s, v) => s + v);
     final cost = flockFeed.fold<double>(0, (s, f) => s + f.quantityKg) *
         (pricePerEgg > 0 ? pricePerEgg : 0);
     final totalEggs = production.totalEggs;
@@ -817,7 +828,9 @@ class CostPerEgg {
 class FlockProfitability {
   final String flockId;
   final String breed;
-  final double revenue;
+  final double revenue; // إيرادات البيض: قيمة الفواتير (كل فاتورة مرة واحدة)
+  final double collected; // المقبوضات (المحصّل نقداً)
+  final double outstanding; // المستحق = revenue - collected
   final double feedCost;
   final double expensesCost;
   final double totalCost;
@@ -831,6 +844,8 @@ class FlockProfitability {
     required this.flockId,
     required this.breed,
     required this.revenue,
+    required this.collected,
+    required this.outstanding,
     required this.feedCost,
     required this.expensesCost,
     required this.totalCost,
@@ -845,6 +860,8 @@ class FlockProfitability {
         flockId: '',
         breed: '',
         revenue: 0,
+        collected: 0,
+        outstanding: 0,
         feedCost: 0,
         expensesCost: 0,
         totalCost: 0,
@@ -867,7 +884,8 @@ class FlockProfitability {
     required double pricePerEgg,
     required int totalFarmEggs,
   }) {
-    // Revenue: sum of payments for this flock's dispatches
+    // Revenue: قيمة فواتير البيض — كل فاتورة تُحتسب مرة واحدة
+    // حتى لو قُسّط الدفع على عدة سجلات قبض (تُأخذ أقصى totalDue لكل فاتورة).
     final flockDispatches =
         dispatches.where((d) => d.flockId == flock.id).toList();
     final dispatchIds =
@@ -875,8 +893,18 @@ class FlockProfitability {
     final flockPayments = payments
         .where((p) => p.dispatchId != null && dispatchIds.contains(p.dispatchId))
         .toList();
-    final revenue =
-        flockPayments.fold<double>(0, (s, p) => s + p.amountPaid);
+
+    final invoiceByDispatch = <String, double>{};
+    var collectedTotal = 0.0;
+    for (final p in flockPayments) {
+      final did = p.dispatchId!;
+      if (p.totalDue > (invoiceByDispatch[did] ?? 0)) {
+        invoiceByDispatch[did] = p.totalDue;
+      }
+      collectedTotal += p.amountPaid;
+    }
+    final revenue = invoiceByDispatch.values.fold<double>(0, (s, v) => s + v);
+    final outstanding = revenue - collectedTotal;
 
     // Feed cost: direct + shared
     final directFeedCost = feedReceived
@@ -913,6 +941,8 @@ class FlockProfitability {
       flockId: flock.id,
       breed: flock.breed,
       revenue: revenue,
+      collected: collectedTotal,
+      outstanding: outstanding,
       feedCost: directFeedCost,
       expensesCost: sharedExpenses,
       totalCost: totalCost,
