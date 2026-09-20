@@ -1,34 +1,34 @@
 -- ============================================================================
--- ترقية: العملة الديناميكية (دولار/ليرة) + مخزون صحون الكرتون
+-- طھط±ظ‚ظٹط©: ط§ظ„ط¹ظ…ظ„ط© ط§ظ„ط¯ظٹظ†ط§ظ…ظٹظƒظٹط© (ط¯ظˆظ„ط§ط±/ظ„ظٹط±ط©) + ظ…ط®ط²ظˆظ† طµط­ظˆظ† ط§ظ„ظƒط±طھظˆظ†
 --
--- ملاحظة: ملف إضافي (additive) - لا يمسح أي بيانات.
--- يُطبَّق في محرر SQL الخاص بـ Supabase (SQL Editor).
+-- ظ…ظ„ط§ط­ط¸ط©: ظ…ظ„ظپ ط¥ط¶ط§ظپظٹ (additive) - ظ„ط§ ظٹظ…ط³ط­ ط£ظٹ ط¨ظٹط§ظ†ط§طھ.
+-- ظٹظڈط·ط¨ظژظ‘ظ‚ ظپظٹ ظ…ط­ط±ط± SQL ط§ظ„ط®ط§طµ ط¨ظ€ Supabase (SQL Editor).
 --
--- 1) farms  : عمود حد التنبيه لمخزون صحون الكرتون (صحن)
--- 2) payments: عمودا العملة وسعر الصرف (تخزين بالدولار دائماً)
--- 3) expenses: عمودا العملة وسعر الصرف + عدد ربطات الكرتون المشتراة
--- 4) فئة مصروف جديدة: carton (صحون كرتون)
--- 5) إعادة إنشاء sync_records_batch مع السماح بالأعمدة الجديدة في المزامنة
+-- 1) farms  : ط¹ظ…ظˆط¯ ط­ط¯ ط§ظ„طھظ†ط¨ظٹظ‡ ظ„ظ…ط®ط²ظˆظ† طµط­ظˆظ† ط§ظ„ظƒط±طھظˆظ† (طµط­ظ†)
+-- 2) payments: ط¹ظ…ظˆط¯ط§ ط§ظ„ط¹ظ…ظ„ط© ظˆط³ط¹ط± ط§ظ„طµط±ظپ (طھط®ط²ظٹظ† ط¨ط§ظ„ط¯ظˆظ„ط§ط± ط¯ط§ط¦ظ…ط§ظ‹)
+-- 3) expenses: ط¹ظ…ظˆط¯ط§ ط§ظ„ط¹ظ…ظ„ط© ظˆط³ط¹ط± ط§ظ„طµط±ظپ + ط¹ط¯ط¯ ط±ط¨ط·ط§طھ ط§ظ„ظƒط±طھظˆظ† ط§ظ„ظ…ط´طھط±ط§ط©
+-- 4) ظپط¦ط© ظ…طµط±ظˆظپ ط¬ط¯ظٹط¯ط©: carton (طµط­ظˆظ† ظƒط±طھظˆظ†)
+-- 5) ط¥ط¹ط§ط¯ط© ط¥ظ†ط´ط§ط، sync_records_batch ظ…ط¹ ط§ظ„ط³ظ…ط§ط­ ط¨ط§ظ„ط£ط¹ظ…ط¯ط© ط§ظ„ط¬ط¯ظٹط¯ط© ظپظٹ ط§ظ„ظ…ط²ط§ظ…ظ†ط©
 -- ============================================================================
 
--- 1) حد التنبيه لمخزون صحون الكرتون في جدول المداجن
+-- 1) ط­ط¯ ط§ظ„طھظ†ط¨ظٹظ‡ ظ„ظ…ط®ط²ظˆظ† طµط­ظˆظ† ط§ظ„ظƒط±طھظˆظ† ظپظٹ ط¬ط¯ظˆظ„ ط§ظ„ظ…ط¯ط§ط¬ظ†
 ALTER TABLE farms
     ADD COLUMN IF NOT EXISTS carton_low_threshold INTEGER NOT NULL DEFAULT 100;
 
--- 2) القبض: العملة وسعر الصرف (المبالغ تُخزَّن بالدولار وهو الأساسي)
+-- 2) ط§ظ„ظ‚ط¨ط¶: ط§ظ„ط¹ظ…ظ„ط© ظˆط³ط¹ط± ط§ظ„طµط±ظپ (ط§ظ„ظ…ط¨ط§ظ„ط؛ طھظڈط®ط²ظژظ‘ظ† ط¨ط§ظ„ط¯ظˆظ„ط§ط± ظˆظ‡ظˆ ط§ظ„ط£ط³ط§ط³ظٹ)
 ALTER TABLE payments
     ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'dollar'
         CHECK (currency IN ('dollar', 'lira')),
     ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC(12,4);
 
--- 3) المصروفات: العملة وسعر الصرف + عدد ربطات الكرتون المشتراة
+-- 3) ط§ظ„ظ…طµط±ظˆظپط§طھ: ط§ظ„ط¹ظ…ظ„ط© ظˆط³ط¹ط± ط§ظ„طµط±ظپ + ط¹ط¯ط¯ ط±ط¨ط·ط§طھ ط§ظ„ظƒط±طھظˆظ† ط§ظ„ظ…ط´طھط±ط§ط©
 ALTER TABLE expenses
     ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'dollar'
         CHECK (currency IN ('dollar', 'lira')),
     ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC(12,4),
     ADD COLUMN IF NOT EXISTS carton_bundles INTEGER;
 
--- 4) فئة مصروف جديدة: صحون كرتون (تشترى ربطات، الربطة = 100 صحن)
+-- 4) ظپط¦ط© ظ…طµط±ظˆظپ ط¬ط¯ظٹط¯ط©: طµط­ظˆظ† ظƒط±طھظˆظ† (طھط´طھط±ظ‰ ط±ط¨ط·ط§طھطŒ ط§ظ„ط±ط¨ط·ط© = 100 طµط­ظ†)
 ALTER TABLE expenses
     DROP CONSTRAINT IF EXISTS expenses_category_check;
 ALTER TABLE expenses
@@ -37,7 +37,7 @@ ALTER TABLE expenses
         'transport', 'feed', 'medicine', 'carton', 'other'
     ));
 
--- 5) إعادة إنشاء sync_records_batch مع السماح بالأعمدة الجديدة
+-- 5) ط¥ط¹ط§ط¯ط© ط¥ظ†ط´ط§ط، sync_records_batch ظ…ط¹ ط§ظ„ط³ظ…ط§ط­ ط¨ط§ظ„ط£ط¹ظ…ط¯ط© ط§ظ„ط¬ط¯ظٹط¯ط©
 CREATE OR REPLACE FUNCTION public.sync_records_batch(
     p_records jsonb
 )
@@ -75,7 +75,7 @@ BEGIN
         v_user_farm := public.current_user_farm_id();
         v_user_role := public.current_user_role();
         IF v_user_farm IS NULL THEN
-            RAISE EXCEPTION 'لا يمكن تحديد المزرعة للمستخدم الحالي';
+            RAISE EXCEPTION 'ظ„ط§ ظٹظ…ظƒظ† طھط­ط¯ظٹط¯ ط§ظ„ظ…ط²ط±ط¹ط© ظ„ظ„ظ…ط³طھط®ط¯ظ… ط§ظ„ط­ط§ظ„ظٹ';
         END IF;
 
         FOR v_record IN SELECT * FROM jsonb_array_elements(p_records)
@@ -129,7 +129,7 @@ BEGIN
                         v_result := v_result || jsonb_build_object(
                             'record_id', v_record_id,
                             'status', 'error',
-                            'message', 'operation_id مستخدم بالفعل لعملية أخرى'
+                            'message', 'operation_id ظ…ط³طھط®ط¯ظ… ط¨ط§ظ„ظپط¹ظ„ ظ„ط¹ظ…ظ„ظٹط© ط£ط®ط±ظ‰'
                         );
                         CONTINUE;
                     END IF;
@@ -141,7 +141,7 @@ BEGIN
                 v_result := v_result || jsonb_build_object(
                     'record_id', v_record_id,
                     'status', 'error',
-                    'message', 'جدول ممنوع للمزامنة عبر RPC: ' || v_table_name
+                    'message', 'ط¬ط¯ظˆظ„ ظ…ظ…ظ†ظˆط¹ ظ„ظ„ظ…ط²ط§ظ…ظ†ط© ط¹ط¨ط± RPC: ' || v_table_name
                 );
                 CONTINUE;
             END IF;
@@ -151,7 +151,7 @@ BEGIN
                 v_result := v_result || jsonb_build_object(
                     'record_id', v_record_id,
                     'status', 'error',
-                    'message', 'الدور الحالي لا يملك صلاحية المزامنة للجدول: ' || v_table_name
+                    'message', 'ط§ظ„ط¯ظˆط± ط§ظ„ط­ط§ظ„ظٹ ظ„ط§ ظٹظ…ظ„ظƒ طµظ„ط§ط­ظٹط© ط§ظ„ظ…ط²ط§ظ…ظ†ط© ظ„ظ„ط¬ط¯ظˆظ„: ' || v_table_name
                 );
                 CONTINUE;
             END IF;
@@ -168,7 +168,7 @@ BEGIN
                     v_result := v_result || jsonb_build_object(
                         'record_id', v_record_id,
                         'status', 'skipped',
-                        'message', 'السجل غير موجود أو لا ينتمي للمزرعة'
+                        'message', 'ط§ظ„ط³ط¬ظ„ ط؛ظٹط± ظ…ظˆط¬ظˆط¯ ط£ظˆ ظ„ط§ ظٹظ†طھظ…ظٹ ظ„ظ„ظ…ط²ط±ط¹ط©'
                     );
                     CONTINUE;
                 END IF;
@@ -195,7 +195,7 @@ BEGIN
                     v_result := v_result || jsonb_build_object(
                         'record_id', v_record_id,
                         'status', 'error',
-                        'message', 'غير مصرح: لا يمكن تعديل/حذف سجل ليس من إنشائك'
+                        'message', 'ط؛ظٹط± ظ…طµط±ط­: ظ„ط§ ظٹظ…ظƒظ† طھط¹ط¯ظٹظ„/ط­ط°ظپ ط³ط¬ظ„ ظ„ظٹط³ ظ…ظ† ط¥ظ†ط´ط§ط¦ظƒ'
                     );
                     CONTINUE;
                 END IF;
@@ -206,7 +206,7 @@ BEGIN
                 v_result := v_result || jsonb_build_object(
                     'record_id', v_record_id,
                     'status', 'error',
-                    'message', 'غير مصرح: الحذف للمدير فقط'
+                    'message', 'ط؛ظٹط± ظ…طµط±ط­: ط§ظ„ط­ط°ظپ ظ„ظ„ظ…ط¯ظٹط± ظپظ‚ط·'
                 );
                 CONTINUE;
             END IF;
@@ -219,8 +219,7 @@ BEGIN
                 WHEN 'egg_dispatch' THEN v_allowed_cols := ARRAY['flock_id','date','customer_id','cartons','trays','tray_weight_kg','notes','payment_status','worker_id'];
                 WHEN 'medications' THEN v_allowed_cols := ARRAY['flock_id','date','type','medicine_name','dosage','administration_route','treatment_days','withdrawal_days','notes','worker_id'];
                 WHEN 'customers' THEN v_allowed_cols := ARRAY['name','phone','notes'];
-                WHEN 'flocks' THEN v_allowed_cols := ARRAY['breed','start_date','initial_count','current_count','status','sections_count']
-                WHEN 'dispatch_requests' THEN v_allowed_cols := ARRAY['farm_id','flock_id','customer_id','requested_cartons','requested_trays','notes','status','worker_id'];
+                WHEN 'flocks' THEN v_allowed_cols := ARRAY['breed','start_date','initial_count','current_count','status','sections_count'];
                 WHEN 'expenses' THEN v_allowed_cols := ARRAY['date','category','description','amount','currency','exchange_rate','carton_bundles'];
                 WHEN 'inventory_items' THEN v_allowed_cols := ARRAY['name','unit','low_stock_threshold','notes'];
                 WHEN 'inventory_transactions' THEN v_allowed_cols := ARRAY['item_id','date','type','quantity','note','user_id'];
@@ -246,7 +245,7 @@ BEGIN
                         v_errors := v_errors + 1;
                         v_result := v_result || jsonb_build_object(
                             'record_id', v_record_id, 'status', 'error',
-                            'message', 'customer_id لا ينتمي لمزرعتك'
+                            'message', 'customer_id ظ„ط§ ظٹظ†طھظ…ظٹ ظ„ظ…ط²ط±ط¹طھظƒ'
                         );
                         CONTINUE;
                     END IF;
@@ -258,7 +257,7 @@ BEGIN
                         v_errors := v_errors + 1;
                         v_result := v_result || jsonb_build_object(
                             'record_id', v_record_id, 'status', 'error',
-                            'message', 'flock_id لا ينتمي لمزرعتك'
+                            'message', 'flock_id ظ„ط§ ظٹظ†طھظ…ظٹ ظ„ظ…ط²ط±ط¹طھظƒ'
                         );
                         CONTINUE;
                     END IF;
@@ -269,7 +268,7 @@ BEGIN
                         v_errors := v_errors + 1;
                         v_result := v_result || jsonb_build_object(
                             'record_id', v_record_id, 'status', 'error',
-                            'message', 'item_id لا ينتمي لمزرعتك'
+                            'message', 'item_id ظ„ط§ ظٹظ†طھظ…ظٹ ظ„ظ…ط²ط±ط¹طھظƒ'
                         );
                         CONTINUE;
                     END IF;
@@ -328,7 +327,7 @@ BEGIN
                         v_result := v_result || jsonb_build_object(
                             'record_id', v_record_id,
                             'status', 'conflict',
-                            'message', 'تعارض في الإصدار أثناء التحديث'
+                            'message', 'طھط¹ط§ط±ط¶ ظپظٹ ط§ظ„ط¥طµط¯ط§ط± ط£ط«ظ†ط§ط، ط§ظ„طھط­ط¯ظٹط«'
                         );
                         CONTINUE;
                     END IF;
@@ -345,7 +344,7 @@ BEGIN
                         v_result := v_result || jsonb_build_object(
                             'record_id', v_record_id,
                             'status', 'conflict',
-                            'message', 'تعارض في الإصدار أثناء الحذف'
+                            'message', 'طھط¹ط§ط±ط¶ ظپظٹ ط§ظ„ط¥طµط¯ط§ط± ط£ط«ظ†ط§ط، ط§ظ„ط­ط°ظپ'
                         );
                         CONTINUE;
                     END IF;

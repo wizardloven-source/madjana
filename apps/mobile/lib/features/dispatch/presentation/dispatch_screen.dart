@@ -200,19 +200,24 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
     required int stock,
   }) async {
     try {
-      final supabase = ref.read(supabaseClientProvider);
-      if (supabase == null) throw Exception('غير متصل بالسحابة');
-      await supabase.from('dispatch_requests').insert({
-        'farm_id': farmId,
-        'customer_id': _selectedCustomerId,
-        'cartons': _cartons,
-        'trays': _trays,
-        'total_eggs': _totalEggs,
-        'stock_eggs': stock,
-        'worker_id': ref.read(authProvider).currentUser?.uid,
-      });
+      // offline-first: حفظ محلي في طابور المزامنة بدل إدراج سحابي مباشر
+      final request = DispatchRequestModel(
+        farmId: farmId,
+        customerId: _selectedCustomerId!,
+        requestedCartons: _cartons,
+        requestedTrays: _trays,
+        notes: _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim(),
+        status: 'pending',
+        createdAt: DateTime.now(),
+      );
+      await ref.read(dispatchRequestDaoProvider).insert(request     );
+      // دفع غير متزامن — يبقى في الطابور عند انقطاع الاتصال ويُزامَن لاحقاً
+      final sync = ref.read(syncRepositoryProvider);
+      unawaited(sync.syncPendingRecords());
       if (!mounted) return;
-      _showSuccess('تم إرسال الطلب إلى المدير بنجاح');
+      _showSuccess('تم إرسال الطلب إلى المدير (يُزامَن تلقائياً)');
       setState(() {
         _cartons = 0;
         _trays = 0;
@@ -221,7 +226,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       });
     } catch (_) {
       if (!mounted) return;
-      AppSnack.error(context, 'تعذر إرسال الطلب، تحقق من الاتصال');
+      AppSnack.error(context, 'تعذر حفظ الطلب محلياً');
     }
   }
 

@@ -198,6 +198,7 @@ BEGIN
                 WHEN 'medications' THEN v_allowed_cols := ARRAY['flock_id','date','type','medicine_name','dosage','administration_route','treatment_days','withdrawal_days','notes','worker_id'];
                 WHEN 'customers' THEN v_allowed_cols := ARRAY['name','phone','notes'];
                 WHEN 'flocks' THEN v_allowed_cols := ARRAY['breed','start_date','initial_count','current_count','status','sections_count'];
+                WHEN 'dispatch_requests' THEN v_allowed_cols := ARRAY['farm_id','flock_id','customer_id','cartons','trays','total_eggs','stock_eggs','status','worker_id','notes'];
                 WHEN 'expenses' THEN v_allowed_cols := ARRAY['date','category','description','amount','currency','exchange_rate','carton_bundles'];
                 WHEN 'inventory_items' THEN v_allowed_cols := ARRAY['name','unit','low_stock_threshold','notes'];
                 WHEN 'inventory_transactions' THEN v_allowed_cols := ARRAY['item_id','date','type','quantity','note','user_id'];
