@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../core/design_tokens.dart';
-import '../../sync/providers/sync_provider.dart';
+import '../../core/design_tokens.dart';
+import '../sync/providers/sync_provider.dart';
 import 'providers/emergency_provider.dart';
 
 /// شاشة طوارئ للعامل
