@@ -49,8 +49,8 @@ void main() {
     });
 
     test('kgToBags - تحويل صحيح', () {
-      expect(EggCalculator.kgToBags(48), 2.0);
-      expect(EggCalculator.kgToBags(24), 1.0);
+      expect(EggCalculator.kgToBags(100), 2.0);
+      expect(EggCalculator.kgToBags(50), 1.0);
     });
 
     test('tonsToKg - تحويل صحيح', () {

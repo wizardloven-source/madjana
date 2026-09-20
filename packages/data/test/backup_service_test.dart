@@ -4,7 +4,6 @@ import 'package:data/src/backup/backup_models.dart';
 import 'package:data/src/backup/backup_service.dart';
 import 'package:data/src/datasources/local/local_database.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/db_harness.dart';
 
@@ -68,8 +67,6 @@ void main() {
     });
 
     test('استعادة النسخة — يتم نسخ الملف والتحقق من سلامته', () async {
-      final db = await LocalDatabase.database;
-
       // نسخة أولية بها سجل
       final service = BackupService();
       final create = await service.createBackup();

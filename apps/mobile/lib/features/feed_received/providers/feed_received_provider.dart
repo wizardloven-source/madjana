@@ -49,7 +49,6 @@ class FeedReceivedNotifier extends StateNotifier<bool> {
           workerId: workerId,
         ),
       );
-      _repository.syncPendingConsumption();
       return const FeedReceivedSaveResult.success();
     } catch (e) {
       return FeedReceivedSaveResult.failure('فشل الحفظ: $e');

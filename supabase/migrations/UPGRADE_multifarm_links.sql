@@ -499,6 +499,18 @@ BEGIN
         RAISE EXCEPTION 'حدد المدجنة أولاً';
     END IF;
 
+    -- منع ترك المستخدم بدون أي مدجنة (يُصبح حساباً بلا مزرعة نشطة فيختفي
+    -- من كل قوائم التطبيق ويُعجز دخوله)
+    IF EXISTS (
+        SELECT 1 FROM public.user_farms
+        WHERE user_id = p_uid::uuid AND farm_id = v_farm_uuid
+    ) AND NOT EXISTS (
+        SELECT 1 FROM public.user_farms
+        WHERE user_id = p_uid::uuid AND farm_id <> v_farm_uuid
+    ) THEN
+        RAISE EXCEPTION 'لا يمكن إلغاء ربط المدجنة الأخيرة للمستخدم — اربطه بمدجنة أخرى أولاً أو استخدم "حذف المستخدم" لإزالته نهائياً';
+    END IF;
+
     DELETE FROM public.user_farms
     WHERE user_id = p_uid::uuid AND farm_id = v_farm_uuid;
 

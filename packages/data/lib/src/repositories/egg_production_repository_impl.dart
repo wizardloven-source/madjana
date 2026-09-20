@@ -1,5 +1,4 @@
 import 'package:core/core.dart';
-import 'package:domain/domain.dart';
 import '../datasources/local/daos/egg_production_dao.dart';
 import '../datasources/remote/supabase_egg_datasource.dart';
 

@@ -1,5 +1,4 @@
 import 'package:core/core.dart';
-import 'package:domain/domain.dart';
 import '../datasources/local/daos/medication_dao.dart';
 import '../datasources/remote/supabase_medication_datasource.dart';
 

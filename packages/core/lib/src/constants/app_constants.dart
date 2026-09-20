@@ -9,7 +9,9 @@ class AppConstants {
   static const int traysPerBundle = 100;
 
   // تحويلات العلف
-  static const double kgPerBag = 24.0;
+  // قيمة الكيس الافتراضية = 50 كج، مطابقة للافتراضي في السيرفر
+  // (feed_bag_weight_kg = 50)؛ تعويض فقط قبل تحميل إعدادات المزرعة.
+  static const double kgPerBag = 50.0;
   static const double kgPerTon = 1000.0;
 
   // حدود UI

@@ -18,16 +18,12 @@ dependencies:
     path: ../../packages/core
   data:
     path: ../../packages/data
-  domain:
-    path: ../../packages/domain
   
   # إدارة الحالة
   flutter_riverpod: ^2.4.9
-  riverpod_annotation: ^2.3.3
   
   # قاعدة البيانات المحلية
   sqflite: ^2.3.0
-  sqflite_common_ffi: ^2.3.0  # ✅ أضفت هذا
   path_provider: ^2.1.1
   path: ^1.9.0  # ✅ أضفت هذا (مستخدم في LocalDatabase)
   
@@ -36,15 +32,10 @@ dependencies:
   
   # الشبكة
   connectivity_plus: ^6.0.3
-  http: ^1.1.0
   
   # UI
-  flutter_svg: ^2.0.9
-  cached_network_image: ^3.3.0
   image_picker: ^1.0.4
-  intl: 0.20.2
   google_fonts: ^6.1.0
-  fl_chart: ^0.66.0
 
   # الملاحظات الصوتية (محلية فقط)
   record: ^7.1.1
@@ -53,10 +44,8 @@ dependencies:
   # التخزين المحلي
   shared_preferences: ^2.2.2
   csv: ^6.0.0
-  flutter_secure_storage: ^9.0.0
   
-  # التشفير
-  crypto: ^3.0.3
+  # الأدوات
   uuid: ^4.2.1
 
   # المتغيرات البيئية
@@ -66,8 +55,6 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
-  build_runner: ^2.4.7
-  riverpod_generator: ^2.3.9
 
 flutter:
   uses-material-design: true

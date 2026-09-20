@@ -7,8 +7,6 @@ environment:
 
 dependencies:
   intl: 0.20.2
-  equatable: ^2.0.5
-  uuid: ^4.2.1
 
 dev_dependencies:
   test: ^1.25.0

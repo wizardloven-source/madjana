@@ -285,6 +285,7 @@ class PaymentDao {
       updatedAt: map['updated_at'] != null
           ? DateTime.tryParse(map['updated_at'] as String)
           : null,
+      version: map['version'] != null ? (map['version'] as num).toInt() : null,
     );
   }
 }

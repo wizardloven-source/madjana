@@ -1,5 +1,4 @@
 import 'package:core/core.dart';
-import 'package:domain/domain.dart';
 import '../datasources/local/daos/dispatch_dao.dart';
 import '../datasources/local/daos/payment_dao.dart';
 import '../datasources/remote/supabase_payment_datasource.dart';

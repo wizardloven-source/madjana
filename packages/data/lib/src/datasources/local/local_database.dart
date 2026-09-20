@@ -14,7 +14,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 23;
+  static const int _dbVersion = 24;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -457,6 +457,19 @@ class LocalDatabase {
         title TEXT NOT NULL,
         body TEXT,
         created_at TEXT NOT NULL
+      )
+    ''');
+
+    // تنبيهات الطوارئ غير المُرسَلة (محلية — تُحفظ حتى يعود الاتصال)
+    await db.execute('''
+      CREATE TABLE emergency_alerts (
+        id TEXT PRIMARY KEY,
+        farm_id TEXT NOT NULL,
+        alert_type TEXT NOT NULL,
+        description TEXT,
+        created_by TEXT,
+        created_at TEXT NOT NULL,
+        sent_at TEXT
       )
     ''');
 
@@ -987,6 +1000,21 @@ class LocalDatabase {
             await db.execute('ALTER TABLE sync_queue ADD COLUMN farm_id TEXT');
           }
         }
+
+        // v24: جدول تنبيهات الطوارئ المحلية (offline-first للعامل)
+        if (oldVersion < 24) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS emergency_alerts (
+              id TEXT PRIMARY KEY,
+              farm_id TEXT NOT NULL,
+              alert_type TEXT NOT NULL,
+              description TEXT,
+              created_by TEXT,
+              created_at TEXT NOT NULL,
+              sent_at TEXT
+            )
+          ''');
+        }
   }
 
   /// يتحقق من وجود عمود في جدول (بدلاً من إخفاء أخطاء migration عبر catch عام)
@@ -1019,6 +1047,7 @@ class LocalDatabase {
       'session',
       'worker_notes',
       'worker_reminders',
+      'emergency_alerts',
       'dispatch_requests',
       'opening_balances',
       'sync_state',

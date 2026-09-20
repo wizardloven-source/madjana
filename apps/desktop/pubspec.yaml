@@ -13,7 +13,6 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
-  cupertino_icons: ^1.0.8
   flutter_riverpod: ^2.5.1
   supabase_flutter: ^2.7.0
   intl: 0.20.2
@@ -28,8 +27,6 @@ dependencies:
 
   core:
     path: ../../packages/core
-  domain:
-    path: ../../packages/domain
   data:
     path: ../../packages/data
 

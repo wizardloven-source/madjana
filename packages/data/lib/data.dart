@@ -19,6 +19,7 @@ export 'src/datasources/local/daos/revenue_dao.dart';
 export 'src/datasources/local/daos/inventory_dao.dart';
 export 'src/datasources/local/daos/notes_dao.dart';
 export 'src/datasources/local/daos/reminders_dao.dart';
+export 'src/datasources/local/daos/emergency_alert_dao.dart';
 export 'src/datasources/local/daos/opening_balance_dao.dart';
 export 'src/datasources/local/daos/user_dao.dart';
 

@@ -553,7 +553,8 @@ INSERT INTO medicines_catalog (name, type, withdrawal_days, notes) VALUES
     ('لقاح جامبورو (Gumboro)', 'vaccine', 0, 'تحصين'),
     ('فيتامين A,D3,E', 'vitamin', 0, 'فيتامينات ذائبة في الدهون'),
     ('فيتامين C', 'vitamin', 0, 'دعم المناعة'),
-    ('مولتي فيتامين (Multivitamin)', 'vitamin', 0, 'فيتامينات متكاملة');
+    ('مولتي فيتامين (Multivitamin)', 'vitamin', 0, 'فيتامينات متكاملة')
+ON CONFLICT (name) DO NOTHING;
 
 -- ============================================================
 -- 5) الدوال الأساسية

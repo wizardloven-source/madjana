@@ -221,7 +221,7 @@ class BackupService {
       // عدّ السجلات المُستعادة
       final tables = [
         'egg_production', 'mortality', 'feed_consumption',
-        'dispatches', 'customers', 'medications', 'payments',
+        'egg_dispatch', 'customers', 'medications', 'payments',
       ];
       int totalRecords = 0;
       for (final table in tables) {

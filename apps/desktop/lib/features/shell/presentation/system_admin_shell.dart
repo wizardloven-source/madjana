@@ -183,8 +183,25 @@ class _SystemAdminShellState extends ConsumerState<SystemAdminShell> {
                 _ShellTile(
                   icon: Icons.people_rounded,
                   label: 'المستخدمون',
-                  onTap: () =>
-                      _pushScreen(const UsersScreen(), 'المستخدمون'),
+                  onTap: () {
+                    final farmId = _selectedFarmId;
+                    if (farmId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                              'حدد مدجنة من القائمة أولاً لفتح شاشة المستخدمين'),
+                        ),
+                      );
+                      return;
+                    }
+                    _pushScreen(
+                      UsersScreen(
+                        farmId: farmId,
+                        farmName: _selectedFarmName,
+                      ),
+                      'المستخدمون',
+                    );
+                  },
                 ),
                 _ShellTile(
                   icon: Icons.sync_rounded,
@@ -660,7 +677,10 @@ class _FarmDetailViewState extends ConsumerState<_FarmDetailView> {
             title: const Text('المستخدمون',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           ),
-          body: const UsersScreen(),
+          body: UsersScreen(
+            farmId: widget.farmId,
+            farmName: _farm?.name ?? widget.farmName,
+          ),
         ),
       ),
     );

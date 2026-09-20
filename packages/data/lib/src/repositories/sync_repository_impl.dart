@@ -393,9 +393,10 @@ class SyncRepositoryImpl implements SyncRepository {
           );
         }
 
-        // بناء خريطة(record_id → detail) للمطابقة�AMESAFE.
-        // Edge Function قد ترفض سجلات غير صالحة (validateRecord)،
-        // في缩减 normalized قبل إرسالها للـ SQL. لذلك details أقصر من
+        // بناء خريطة (record_id → تفاصيل) للمطابقة.
+        // Edge Function قد ترفض سجلات غير صالحة (validateRecord) وتُطبّع
+        // البيانات قبل إرسالها للـ SQL، لذلك details أقصر من records — لا
+        // يمكن المطابقة بالفهرس.
         // records — لا يمكن المطابقة بالفهرس.
         // قائمة details محفوظة الترتيب لكل record_id: نفس السجل قد يحمل
         // عمليات متعددة في نفس الدفعة (insert ثم update)، فمطابقة record_id

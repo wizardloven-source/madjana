@@ -10,6 +10,7 @@ class InventoryItemModel {
   final double lowStockThreshold;
   final String? notes;
   final DateTime? updatedAt;
+  final int? version;
 
   const InventoryItemModel({
     this.id,
@@ -20,6 +21,7 @@ class InventoryItemModel {
     this.lowStockThreshold = 5,
     this.notes,
     this.updatedAt,
+    this.version,
   });
 
   /// هل الكمية منخفضة؟
@@ -41,6 +43,9 @@ class InventoryItemModel {
       updatedAt: json['updated_at'] != null
           ? DateTime.tryParse(json['updated_at'] as String)
           : null,
+      version: json['version'] != null
+          ? (json['version'] as num).toInt()
+          : null,
     );
   }
 
@@ -52,6 +57,7 @@ class InventoryItemModel {
         'quantity': quantity,
         'low_stock_threshold': lowStockThreshold,
         'notes': notes,
+        if (version != null) 'version': version,
       };
 
   InventoryItemModel copyWith({
@@ -62,6 +68,7 @@ class InventoryItemModel {
     double? quantity,
     double? lowStockThreshold,
     String? notes,
+    int? version,
   }) {
     return InventoryItemModel(
       id: id ?? this.id,
@@ -72,6 +79,7 @@ class InventoryItemModel {
       lowStockThreshold: lowStockThreshold ?? this.lowStockThreshold,
       notes: notes ?? this.notes,
       updatedAt: updatedAt,
+      version: version ?? this.version,
     );
   }
 }

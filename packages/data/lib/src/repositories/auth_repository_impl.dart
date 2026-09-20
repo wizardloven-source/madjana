@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:core/core.dart';
 import 'package:crypto/crypto.dart';
-import 'package:domain/domain.dart';
 import '../datasources/local/daos/session_dao.dart';
 import '../datasources/local/daos/settings_dao.dart';
 import '../datasources/remote/supabase_auth_datasource.dart';

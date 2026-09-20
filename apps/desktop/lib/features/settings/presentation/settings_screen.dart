@@ -38,6 +38,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
 
+  /// شاشة إدارة المستخدمين داخل الإعدادات مناسبة للمدير فقط؛
+  /// مدير النظام يستخدمها من الشريط الجانبي حيث تُربط بالمدجنة المختارة.
+  bool get _canManageUsers =>
+      ref.read(authProvider).currentUser?.role != UserRole.system_admin;
+
   @override
   void initState() {
     super.initState();
@@ -907,7 +912,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 16),
 
-          // ─── إدارة المستخدمين ───
+          // ─── إدارة المستخدمين (للمدير فقط) ───
+          if (_canManageUsers) ...[
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -941,6 +947,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
           ),
+          ],
           const SizedBox(height: 16),
 
           // ─── النسخ الاحتياطي والاستعادة ───

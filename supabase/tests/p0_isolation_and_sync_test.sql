@@ -188,12 +188,25 @@ SELECT tests.expect_ok('A: update بـ previous_version=1 (ناجح أولاً)'
     '"operation_id":"t4-A","previous_version":1,' ||
     '"data":{"name":"قطيع محدّث بجهاز A"}}]''::jsonb)');
 --    الجهاز B يرسل update لنفس السجل بـ previous_version=1 (متقادم) → conflict
+--    (sync_records_batch لا ترمي استثناءً — تُرجع status='conflict' في النتيجة)
 SELECT tests.set_user('00000000-0000-0000-0000-00000000000c'); -- admin_b
-SELECT tests.expect_denied('B: update بـ previous_version=1 بعد أن رُفّع → conflict',
-    'SELECT public.sync_records_batch(''[{"table_name":"flocks","record_id":"' ||
-    '00000000-0000-0000-0000-0000000000ee","operation":"update",' ||
-    '"operation_id":"t4-B","previous_version":1,' ||
-    '"data":{"name":"تحديث متعارض من جهاز B"}}]''::jsonb)');
+DO $$
+DECLARE
+    v_res jsonb;
+    v_status text;
+BEGIN
+    SELECT public.sync_records_batch(''[{"table_name":"flocks","record_id":"' ||
+        '00000000-0000-0000-0000-0000000000ee","operation":"update",' ||
+        '"operation_id":"t4-B","previous_version":1,' ||
+        '"data":{"name":"تحديث متعارض من جهاز B"}}]''::jsonb)
+        INTO v_res;
+    v_status := v_res->0->>'status';
+    IF v_status = 'conflict' THEN
+        RAISE NOTICE 'PASS [B: update بـ previous_version=1 → conflict] : تم رفض التعارض';
+    ELSE
+        RAISE EXCEPTION 'FAIL [B: update بـ previous_version=1 → conflict] : توقع status=conflict لكن حصل status=%', v_status;
+    END IF;
+END $$;
 
 RAISE NOTICE '== تم تنفيذ الاختبارات بنجاح ==';
 -- ============================================================================

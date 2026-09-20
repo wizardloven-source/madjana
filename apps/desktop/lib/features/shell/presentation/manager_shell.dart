@@ -238,7 +238,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                             icon: _icons[i],
                             label: _titles[i],
                             selected: selectedIndex == i,
-                            badgeCount: i == 6 ? pendingApprovals : 0,
+                            badgeCount: i == 7 ? pendingApprovals : 0,
                             onTap: () => _selectTab(i),
                           ),
                       ],
@@ -324,15 +324,15 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                       // زر فتح مركز المزامنة (يظهر عند وجود عمليات فاشلة)
                       if (_failedSyncCount > 0) ...[
                         Tooltip(
-                          message:
-                              '$_failedSyncCount عملية فاشلة — افتح مركز المزامنة',
+                            message:
+                                '$_failedSyncCount عملية فاشلة — افتح مركز المزامنة',
                           child: IconButton(
                             icon: Badge(
                               label: Text('$_failedSyncCount'),
                               child: const Icon(Icons.sync_problem_rounded),
                             ),
                             color: theme.colorScheme.error,
-                            onPressed: () => _selectTab(14),
+                            onPressed: () => _selectTab(15),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -341,7 +341,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                       IconButton(
                         tooltip: 'مركز المزامنة',
                         icon: const Icon(Icons.sync_rounded),
-                        onPressed: () => _selectTab(14),
+                        onPressed: () => _selectTab(15),
                       ),
                       // مبدّل المدجنة النشطة (لمدير/عامل يملك أكثر من مدجنة)
                       const FarmDropdown(),

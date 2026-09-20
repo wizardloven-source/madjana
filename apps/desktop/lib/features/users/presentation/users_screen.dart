@@ -5,8 +5,14 @@ import '../../../core/providers.dart';
 import '../../auth/providers/auth_provider.dart';
 
 /// شاشة إدارة المستخدمين (العاملين) - للمدير
+///
+/// نطاقها مدجنة واحدة: إن مُرّرت [farmId] تُستخدم مباشرةً (حالة مدير النظام
+/// الذي يدير عدة مداجن)، وإلا تُؤخذ مدجنة المستخدم الحالي النشطة.
 class UsersScreen extends ConsumerStatefulWidget {
-  const UsersScreen({super.key});
+  const UsersScreen({super.key, this.farmId, this.farmName});
+
+  final String? farmId;
+  final String? farmName;
 
   @override
   ConsumerState<UsersScreen> createState() => _UsersScreenState();
@@ -17,7 +23,11 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
   bool _loading = true;
   String _farmName = '';
 
-  String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
+  String get _farmId {
+    final explicit = widget.farmId;
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+    return ref.read(authProvider).currentUser?.farmId ?? '';
+  }
   String get _currentUid => ref.read(authProvider).currentUser?.uid ?? '';
   UserRole get _currentRole =>
       ref.read(authProvider).currentUser?.role ?? UserRole.worker;
@@ -47,7 +57,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
     try {
       final users =
           await ref.read(userAdminRepositoryProvider).getUsers(_farmId);
-      String farmName = '';
+      String farmName = widget.farmName ?? '';
       try {
         final farm = await ref.read(farmRepositoryProvider).getFarm(_farmId);
         farmName = farm.name;

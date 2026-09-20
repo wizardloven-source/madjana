@@ -124,8 +124,8 @@
 | P2-09 | Medicine ID generated in UI as DateTime milliseconds | `medicines_screen.dart:110` | OPEN |
 | P2-10 | Settings screen controller leak (new TextEditingController every build, never disposed) | `settings_screen.dart:698` | OPEN |
 | P2-11 | Dashboard feed-alert threshold hardcoded at 500kg | `dashboard_screen.dart:248` | OPEN |
-| P2-12 | `flock.productionRate` formula appears incorrect | `flock_model.dart:33` | OPEN |
-| P2-13 | Multiple mortality thresholds (1.0% use case vs 0.1%/0.2% FarmAnalytics) | `save_mortality_usecase.dart:30`, `farm_analytics.dart` | OPEN |
+| P2-12 | `flock.productionRate` formula appears incorrect | `flock_model.dart:33` | **FIXED** — Property removed; correct calculation lives in `FarmAnalytics.productionRate(eggs:, birdCount:)` and `FarmAnalytics.avgProductionRate(...)` |
+| P2-13 | Multiple mortality thresholds (1.0% use case vs 0.1%/0.2% FarmAnalytics) | `save_mortality_usecase.dart:30`, `farm_analytics.dart` | **FIXED** — Use case now uses `FarmAnalytics.dailyMortalityRate(days: 1)` + `FarmAnalytics.mortalityLevel(...)`; thresholds unified to 0.10% / 0.20% |
 | P2-14 | Payments screen saves directly to repo with no offline queue / SyncStatus handling | `payments_screen.dart:168` | OPEN |
 | P2-15 | `copyWith` createdAt reset bugs in Expense/Inventory models | `expense_model.dart`, `inventory_model.dart` | OPEN |
 | P2-16 | Lira secondary amount in payments shows dollar value | `payments_screen.dart:288` | OPEN |
@@ -156,6 +156,6 @@
 |----------|----------|-------|-----------|
 | P0 — CRITICAL | 5 | 5 | 0 |
 | P1 — HIGH | 6 | 5 | 1 (P1-006: requires server-side) |
-| P2 — MEDIUM | 17 | 2 | 15 |
+| P2 — MEDIUM | 17 | 4 | 13 |
 | P3 — LOW | 10 | 0 | 10 |
-| **TOTAL** | **38** | **12** | **26** |
+| **TOTAL** | **38** | **14** | **24** |

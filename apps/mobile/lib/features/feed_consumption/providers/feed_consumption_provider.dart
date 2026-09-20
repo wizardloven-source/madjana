@@ -29,7 +29,6 @@ class FeedConsumptionNotifier extends StateNotifier<bool> {
   Future<FeedSaveResult> save(FeedConsumptionModel record) async {
     final result = await _saveUseCase.call(record);
     if (result.success) {
-      _repository.syncPendingConsumption();
       return const FeedSaveResult.success();
     }
     return FeedSaveResult.failure(result.error ?? 'فشل الحفظ');

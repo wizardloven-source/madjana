@@ -1,11 +1,15 @@
 import 'package:core/core.dart';
 
 /// حالة استخدام: حفظ سجل النفوق
-/// 
+///
 /// يتحقق من:
-/// 1. نسبة النفوق (تنبيه إذا > 1%)
+/// 1. نسبة النفوق (تنبيه إذا >= FarmAnalytics.mortalityWarningRate)
 /// 2. رفع الصورة إن وجدت
 /// 3. حفظ محلياً + مزامنة
+///
+/// ملاحظة: تم توحيد عتبة التحذير مع FarmAnalytics.mortalityWarningRate
+/// (كانت هذه الحالة تستخدم عتبة 1.0% منفصلة بينما تستخدم FarmAnalytics
+/// عتبتي 0.10%/0.20%، ما كان يُنتج تصنيفات متضاربة لنفس الحدث).
 class SaveMortalityUseCase {
   final MortalityRepository repository;
 
@@ -26,12 +30,18 @@ class SaveMortalityUseCase {
     // 3. جلب العدد الحالي للقطيع للتحذير
     final flockCount = await repository.getFlockCurrentCount(record.flockId);
     // حماية من القسمة على صفر (قطيع بدون طيور أو عدد غير مُحلَّى بعد)
-    final mortalityPercentage = flockCount > 0 ? (record.count / flockCount) * 100 : 0.0;
-    
-    bool highMortalityWarning = false;
-    if (mortalityPercentage > 1.0) {
-      highMortalityWarning = true;
-    }
+    // نستخدم FarmAnalytics.dailyMortalityRate (days: 1) لضمان توحيد
+    // منطق حساب نسبة النفوق مع باقي الشاشات (لوحة التحكم والتقارير).
+    final mortalityPercentage = FarmAnalytics.dailyMortalityRate(
+      totalDeaths: record.count,
+      birdCount: flockCount,
+      days: 1,
+    );
+
+    // نفس عتبات FarmAnalytics المستخدمة في التقارير ولوحة التحكم،
+    // بدلاً من عتبة منفصلة (1.0%) كانت تتناقض مع 0.10%/0.20%.
+    final highMortalityWarning =
+        FarmAnalytics.mortalityLevel(mortalityPercentage) != 'ok';
 
     // 4. حفظ
     try {

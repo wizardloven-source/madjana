@@ -127,10 +127,32 @@ void main() {
       final result = await useCase.call(record);
       expect(result.success, true);
       expect(result.mortalityPercentage, 2.0);
-      expect(result.highMortalityWarning, true); // > 1%
+      // 2.0% >= FarmAnalytics.mortalityDangerRate (0.20%)
+      expect(result.highMortalityWarning, true);
     });
 
-    test('لا يُطلق تحذير عندما تكون النسبة أقل من 1%', () async {
+    // P2-13 regression: توحيد عتبة التحذير مع FarmAnalytics بدلاً من
+    // عتبة منفصلة (1.0%) كانت تتناقض مع عتبتي FarmAnalytics (0.10%/0.20%).
+    test('لا يُطلق تحذير عندما تكون النسبة أقل من عتبة التحذير الموحّدة (0.10%)', () async {
+      repo = _FakeMortalityRepository(flockCount: 50000);
+      final useCase = SaveMortalityUseCase(repo);
+      final record = MortalityModel(
+        farmId: 'farm-1',
+        flockId: 'flock-1',
+        date: DateTime(2026, 9, 10),
+        count: 10,
+        reason: MortalityReason.other,
+        reasonOther: 'سبب',
+        workerId: 'worker-1',
+      );
+
+      final result = await useCase.call(record);
+      expect(result.success, true);
+      expect(result.mortalityPercentage, closeTo(0.02, 0.001));
+      expect(result.highMortalityWarning, false);
+    });
+
+    test('يُطلق تحذير عندما تصل النسبة إلى عتبة التحذير الموحّدة (0.10%)', () async {
       repo = _FakeMortalityRepository(flockCount: 5000);
       final useCase = SaveMortalityUseCase(repo);
       final record = MortalityModel(
@@ -146,7 +168,8 @@ void main() {
       final result = await useCase.call(record);
       expect(result.success, true);
       expect(result.mortalityPercentage, closeTo(0.2, 0.01));
-      expect(result.highMortalityWarning, false);
+      // 0.2% تقع بين عتبتي التحذير (0.10%) والخطر (0.20%) — تحذير مفعّل
+      expect(result.highMortalityWarning, true);
     });
   });
 }

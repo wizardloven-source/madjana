@@ -248,6 +248,18 @@ class HomeScreen extends ConsumerWidget {
                   onTap: () => Navigator.pushNamed(context, '/notes'),
                 ),
                 _MenuCard(
+                  icon: Icons.emergency_rounded,
+                  label: 'بلاغ طارئ',
+                  color: AppStatusColors.danger(context),
+                  onTap: () => Navigator.pushNamed(context, '/emergency'),
+                ),
+                _MenuCard(
+                  icon: Icons.sync_rounded,
+                  label: 'مركز المزامنة',
+                  color: cs.primary,
+                  onTap: () => Navigator.pushNamed(context, '/sync-center'),
+                ),
+                _MenuCard(
                   icon: Icons.settings_rounded,
                   label: 'الإعدادات',
                   color: cs.onSurfaceVariant,
@@ -589,6 +601,7 @@ class _TodaySummaryCardState extends ConsumerState<_TodaySummaryCard> {
   bool _loading = true;
 
   ProviderSubscription<int>? _pendingSub;
+  DateTime _lastLoadAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -599,10 +612,13 @@ class _TodaySummaryCardState extends ConsumerState<_TodaySummaryCard> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // يُحدّث عند تغيّر عدد المعلّق (بعد إضافة سجل محلياً)
+    // يُحدّث عند إضافة سجل محلياً (زيادة عدد المعلّق) فقط،
+    // لا عند كل نبضة مزامنة دورية (تجنب إعادة جلب متكررة كل 30 ثانية)
     _pendingSub ??= ref.listenManual<int>(
       syncProvider.select((s) => s.pendingCount),
-      (_, __) => _load(),
+      (prev, next) {
+        if (next > prev) _load();
+      },
     );
   }
 
@@ -613,6 +629,11 @@ class _TodaySummaryCardState extends ConsumerState<_TodaySummaryCard> {
   }
 
   Future<void> _load() async {
+    // حماية من النبضات المتسرعة (زمن أقصر من 2 ثانية بين عمليات الجلب)
+    final now = DateTime.now();
+    if (now.difference(_lastLoadAt).inMilliseconds < 2000) return;
+    _lastLoadAt = now;
+
     final farmId = widget.farmId;
     if (farmId == null || farmId.isEmpty) {
       if (mounted) setState(() => _loading = false);

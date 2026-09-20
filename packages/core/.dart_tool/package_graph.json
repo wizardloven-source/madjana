@@ -7,9 +7,7 @@
       "name": "core",
       "version": "1.0.0",
       "dependencies": [
-        "equatable",
-        "intl",
-        "uuid"
+        "intl"
       ],
       "devDependencies": [
         "test"
@@ -44,22 +42,6 @@
         "web_socket_channel",
         "webkit_inspection_protocol",
         "yaml"
-      ]
-    },
-    {
-      "name": "uuid",
-      "version": "4.6.0",
-      "dependencies": [
-        "crypto",
-        "fixnum"
-      ]
-    },
-    {
-      "name": "equatable",
-      "version": "2.1.0",
-      "dependencies": [
-        "collection",
-        "meta"
       ]
     },
     {
@@ -320,18 +302,6 @@
       ]
     },
     {
-      "name": "fixnum",
-      "version": "1.1.1",
-      "dependencies": []
-    },
-    {
-      "name": "crypto",
-      "version": "3.0.7",
-      "dependencies": [
-        "typed_data"
-      ]
-    },
-    {
       "name": "meta",
       "version": "1.19.0",
       "dependencies": []
@@ -364,6 +334,13 @@
       "name": "web",
       "version": "1.1.1",
       "dependencies": []
+    },
+    {
+      "name": "crypto",
+      "version": "3.0.7",
+      "dependencies": [
+        "typed_data"
+      ]
     },
     {
       "name": "vm_service",

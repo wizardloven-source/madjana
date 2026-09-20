@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:core/core.dart';
-import 'package:domain/domain.dart';
 import '../datasources/local/daos/mortality_dao.dart';
 import '../datasources/remote/supabase_mortality_datasource.dart';
 

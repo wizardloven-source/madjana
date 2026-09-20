@@ -19,11 +19,13 @@
 | P1-011 | Division-by-zero in mortality % | `packages/core/.../save_mortality_usecase.dart` | `(count/0)*100` → Infinity/NaN | Zero-guard: `flockCount > 0 ? ... : 0.0` | `mortality_regression_test.dart` (3 tests) | ✅ PASS |
 | P2-01 | Offline creds survive logout | `packages/data/.../auth_repository_impl.dart` | `logout()` clears session only | `logout()` also clears `offline_phone`, `offline_pin_hash`, `offline_user_json`, `offline_farm_id` | Unit test required | NOT VERIFIED |
 | P2-07 | Chinese text in onboarding | `apps/mobile/.../new_flock_wizard_screen.dart`, `old_flock_wizard_screen.dart` | `基本信息` (Chinese) | `البيانات الأساسية` (Arabic) | Visual inspection | ✅ PASS (text replacement verified) |
+| P2-12 | `flock.productionRate` formula incorrect (1/currentCount * 100) | `packages/core/lib/src/models/flock_model.dart` | `double get productionRate => currentCount == 0 ? 0 : (1 / currentCount) * 100;` | Property removed; correct calculation via `FarmAnalytics.productionRate(eggs:, birdCount:)` / `avgProductionRate(...)` | `dart analyze` + all core tests pass | ✅ PASS |
+| P2-13 | Mortality thresholds inconsistent (1.0% vs 0.10%/0.20%) | `packages/core/lib/src/usecases/save_mortality_usecase.dart` | `mortalityPercentage > 1.0` hardcoded | `FarmAnalytics.dailyMortalityRate(days: 1)` + `FarmAnalytics.mortalityLevel(...)` | `mortality_regression_test.dart` (8 tests) | ✅ PASS |
 
 ## Summary
 
-- **Total fixes applied:** 12
-- **Verified by automated tests:** 4 (P0-003: 4 tests, P1-010: 5 tests, P1-011: 3 tests)
+- **Total fixes applied:** 14
+- **Verified by automated tests:** 6 (P0-003: 4 tests, P1-010: 5 tests, P1-011: 3 tests, P2-13: 3 tests)
 - **Requires staging verification:** 5 (P0-001, P0-002, P0-004, P0-005, P1-008)
 - **Requires widget/integration test:** 2 (P1-007, P1-009)
 - **Visual/manual verification:** 1 (P2-07)

@@ -227,6 +227,9 @@ final syncRepositoryProvider = Provider<SyncRepository>(
 
 final remindersDaoProvider = Provider<RemindersDao>((ref) => RemindersDao());
 
+final emergencyAlertDaoProvider =
+    Provider<EmergencyAlertDao>((ref) => EmergencyAlertDao());
+
 final notificationRepositoryProvider = Provider<NotificationRepository>(
   (ref) => NotificationRepositoryImpl(
     remoteDatasource: ref.watch(supabaseNotificationDatasourceProvider),

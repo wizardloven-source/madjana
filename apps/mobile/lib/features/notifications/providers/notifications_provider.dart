@@ -7,11 +7,16 @@ import '../../../core/providers.dart';
 
 /// الإشعارات النشطة من المدير (من السحابة)
 /// [farmId] معرف المدجنة
+/// عند انقطاع الإنترنت تُعرض آخر نسخة مُحمّلَة (كاش) بدل قائمة فارغة.
+final Map<String, List<AppNotificationModel>> _activeNoticesCache = {};
+
 final activeNoticesProvider =
     FutureProvider.autoDispose.family<List<AppNotificationModel>, String>(
         (ref, farmId) async {
   final client = ref.watch(supabaseClientProvider);
-  if (client == null) return const <AppNotificationModel>[];
+  if (client == null) {
+    return _activeNoticesCache[farmId] ?? const <AppNotificationModel>[];
+  }
   try {
     final rows = await client
         .from('app_notifications')
@@ -20,11 +25,14 @@ final activeNoticesProvider =
         .eq('is_active', true)
         .order('created_at', ascending: false);
 
-    return ((rows as List).cast<Map<String, dynamic>>())
+    final notices = ((rows as List).cast<Map<String, dynamic>>())
         .map(AppNotificationModel.fromJson)
         .toList();
+    _activeNoticesCache[farmId] = notices;
+    return notices;
   } catch (_) {
-    return const <AppNotificationModel>[];
+    // Offline: نسخ من ذاكرة الجلسة الحالية، وإلا قائمة فارغة
+    return _activeNoticesCache[farmId] ?? const <AppNotificationModel>[];
   }
 });
 

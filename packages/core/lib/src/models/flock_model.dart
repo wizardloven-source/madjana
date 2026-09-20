@@ -28,9 +28,15 @@ class FlockModel {
     this.previousVersion,
   });
 
-  /// نسبة الإنتاج المتوقعة اليومية
-  double get productionRate =>
-      currentCount == 0 ? 0 : (1 / currentCount) * 100;
+  /// ملاحظة: تم حذف الخاصية productionRate القديمة من هنا لأن صيغتها
+  /// كانت خاطئة منطقياً (1 / currentCount * 100) — لا تعتمد على عدد
+  /// البيض الفعلي المُنتَج إطلاقاً، بل تتناقص كلما زاد عدد الطيور بغض
+  /// النظر عن الأداء الحقيقي. الحساب الصحيح لنسبة الإنتاج يتطلب عدد
+  /// البيض المُنتَج فعلياً، وهو متوفر عبر:
+  ///   FarmAnalytics.productionRate(eggs: ..., birdCount: ...)
+  /// أو لمعدل فترة كاملة:
+  ///   FarmAnalytics.avgProductionRate(totalEggs: ..., birdCount: ..., days: ...)
+  /// استخدم هاتين الدالتين بدلاً من أي خاصية على FlockModel.
 
   /// العدد "الفعلي" المعروض: يصلح الحالات التي يكون فيها
   /// currentCount المخزن أقدم/فاسداً (أكبر من السقف المنطقي).

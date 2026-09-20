@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/providers.dart';
 import '../../../core/design_tokens.dart';
+import '../../sync/providers/sync_provider.dart';
+import 'providers/emergency_provider.dart';
 
 /// شاشة طوارئ للعامل
 /// تتيح إرسال تنبيه فوري للمدير عند وجود مشكلة حرجة
+/// Offline-first: عند الانقطاع يُحفظ التنبيه محلياً ويُرسل عند عودة الاتصال
 class EmergencyScreen extends ConsumerStatefulWidget {
   const EmergencyScreen({Key? key}) : super(key: key);
 
@@ -17,6 +19,8 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
   String _description = '';
   bool _isSending = false;
 
+  ProviderSubscription<SyncConnectionStatus>? _statusSub;
+
   final List<Map<String, dynamic>> _emergencyTypes = [
     {'icon': Icons.local_fire_department, 'label': 'حريق', 'color': AppColors.danger, 'fg': Colors.white},
     {'icon': Icons.biotech, 'label': 'وباء مرضي', 'color': AppColors.warning, 'fg': Colors.white},
@@ -27,7 +31,41 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    // محاولة تسليم أي تنبيهات معلقة من جلسة سابقة عند فتح الشاشة
+    WidgetsBinding.instance.addPostFrameCallback((_) => _retryPending());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // عند عودة الاتصال: إرسال التنبيهات المحلية المعلقة تلقائياً
+    _statusSub ??= ref.listenManual<SyncConnectionStatus>(
+      syncProvider.select((s) => s.connectionStatus),
+      (prev, next) {
+        if (next == SyncConnectionStatus.connected &&
+            prev != SyncConnectionStatus.connected) {
+          _retryPending();
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _statusSub?.close();
+    super.dispose();
+  }
+
+  Future<void> _retryPending() async {
+    if (!mounted) return;
+    await ref.read(emergencyProvider.notifier).retryPending();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final pendingCount = ref.watch(emergencyProvider.select((s) => s.pendingCount));
     return Scaffold(
       backgroundColor: AppColors.danger.withOpacity(0.05),
       appBar: AppBar(
@@ -144,7 +182,32 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
               ),
               onChanged: (value) => setState(() => _description = value),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 16),
+
+            // تنبيه المعلّقة محلياً (غير متصل)
+            if (pendingCount > 0) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.warning),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.cloud_off, color: AppColors.warning),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'لديك $pendingCount تنبيه لم يُرسل بعد — سيُرسل تلقائياً عند عودة الاتصال',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
 
             // زر الإرسال
             ElevatedButton(
@@ -173,74 +236,72 @@ class _EmergencyScreenState extends ConsumerState<EmergencyScreen> {
   }
 
   Future<void> _sendEmergency() async {
+    final type = _selectedEmergencyType;
+    if (type == null) return;
+
     setState(() => _isSending = true);
 
-    try {
-      final supabase = ref.read(supabaseClientProvider);
-      if (supabase == null) throw Exception('غير متصل بالسحابة');
-      final user = supabase.auth.currentUser;
-      final farmId = user?.userMetadata?['farm_id']?.toString() ?? '';
+    final result = await ref
+        .read(emergencyProvider.notifier)
+        .submit(alertType: type, description: _description);
 
-      if (farmId.isEmpty) {
-        throw Exception('لا توجد مزرعة مرتبطة بالحساب');
-      }
+    if (!mounted) return;
+    setState(() => _isSending = false);
 
-      // إرسال تنبيه الطوارئ فعلياً إلى جدول الإشعارات
-      // (يظهر فوراً لشاشة الإشعارات لدى المدير/المشرف)
-      final title = '🚨 طارئ: ${_selectedEmergencyType ?? 'حالة طارئة'}';
-      final body = _description.trim().isEmpty
-          ? 'تنبيه طارئ من عامل — ${_selectedEmergencyType ?? 'غير محدد'}'
-          : _description.trim();
-      await supabase.from('app_notifications').insert({
-        'farm_id': farmId,
-        'title': title,
-        'body': body,
-        'level': 'danger',
-        'is_persistent': true,
-        'is_active': true,
-        'created_by': user?.id,
-      });
-
-      if (!mounted) return;
-
-      setState(() => _isSending = false);
-
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          icon: Icon(Icons.check_circle, color: AppColors.success, size: 60),
-          title: const Text('تم الإرسال!'),
-          content: Text(
-              'تم إرسال تنبيه الطوارئ بنجاح إلى المدير بخصوص: $_selectedEmergencyType'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.pop(context);
-              },
-              child: const Text('موافق'),
-            ),
-          ],
-        ),
+    if (result.sent) {
+      _showDialog(
+        icon: Icons.check_circle,
+        color: AppColors.success,
+        title: 'تم الإرسال!',
+        content: 'تم إرسال تنبيه الطوارئ بنجاح إلى المدير بخصوص: $type',
+        onOk: () {
+          Navigator.pop(context);
+          Navigator.pop(context);
+        },
       );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isSending = false);
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          icon: Icon(Icons.error, color: AppColors.danger, size: 60),
-          title: const Text('فشل الإرسال'),
-          content: Text('تعذّر إرسال التنبيه: $e\n'
-              'تأكد من اتصالك بالإنترنت ثم حاول مجدداً.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('حسناً'),
-            ),
-          ],
-        ),
+    } else if (result.queued) {
+      _showDialog(
+        icon: Icons.cloud_off,
+        color: AppColors.warning,
+        title: 'حُفظ محلياً',
+        content: 'أنت غير متصل بالإنترنت — سيُرسل التنبيه تلقائياً إلى المدير '
+            'فور عودة الاتصال.',
+        onOk: () {
+          Navigator.pop(context);
+          Navigator.pop(context);
+        },
+      );
+    } else {
+      _showDialog(
+        icon: Icons.error,
+        color: AppColors.danger,
+        title: 'فشل الإرسال',
+        content: result.error ?? 'تعذّر إرسال التنبيه.',
+        onOk: () => Navigator.pop(context),
       );
     }
+  }
+
+  void _showDialog({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String content,
+    required VoidCallback onOk,
+  }) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: Icon(icon, color: color, size: 60),
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: onOk,
+            child: const Text('موافق'),
+          ),
+        ],
+      ),
+    );
   }
 }

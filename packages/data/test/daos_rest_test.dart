@@ -423,31 +423,33 @@ void main() {
       expect(found!['table_name'], 'expenses');
       expect(found['action'], 'INSERT');
       expect(found['user_id'], 'user-1');
+      expect(found['operation_id'], isNotNull);
+      expect(found['id'], found['operation_id']);
       expect(jsonDecode(found['payload'] as String)['amount'], 10);
     });
 
-    test('updateStatus/incrementAttempts/updateError تلاحق حالة السجل', () async {
+    test('updateStatus/incrementAttempts/updateError تلاحق حالة العملية بعملية id عملية', () async {
       final dao = SyncQueueDao();
-      await dao.insert(
+      final op = await dao.insert(
           tableName: 'flocks',
           recordId: 'fl-1',
           action: 'INSERT',
           userId: 'u',
           payload: {'name': 'x'});
 
-      await dao.incrementAttempts('fl-1');
-      await dao.incrementAttempts('fl-1');
+      await dao.incrementAttempts(op);
+      await dao.incrementAttempts(op);
       var row = (await dao.findByRecordId('fl-1'))!;
       expect(row['attempts'], 2);
 
-      await dao.updateError('fl-1', 'network down');
+      await dao.updateError(op, 'network down');
       row = (await dao.findByRecordId('fl-1'))!;
       expect(row['status'], 'failed');
       expect(row['last_error'], 'network down');
       expect(await dao.countByStatus('pending'), 0);
       expect(await dao.countByStatus('failed'), 1);
 
-      await dao.updateStatus('fl-1', 'synced');
+      await dao.updateStatus(op, 'synced');
       expect((await dao.findByRecordId('fl-1'))!['status'], 'synced');
     });
 

@@ -18,8 +18,6 @@ Future<void> main() async {
   runApp(const ProviderScope(child: MadjanaBootstrap()));
 }
 
-enum _InitStep { database, session, supabase }
-
 /// حالة تهيئة التطبيق (تحت ProviderScope الجذر)
 class MadjanaBootstrap extends StatefulWidget {
   const MadjanaBootstrap({super.key});

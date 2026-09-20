@@ -194,12 +194,27 @@ madjana/
 
 ## التشغيل
 
-### 1. Supabase
-```bash
-# نفّذ migration واحد فقط (UNIFIED_schema.sql ثم UPGRADEs بالترتيب)
-# أو نفّذ UPGRADE_p0_security_data_integrity.sql بعد UNIFIED
+### 1. قاعدة البيانات (Supabase)
 
-# ارفع Edge Function
+> **ملف واحد لكل الحالات: `supabase/init.sql`**
+> ملف موحّد يضم `UNIFIED_schema.sql` + جميع ملفات `UPGRADE_*.sql`
+> (بأحدث تعريف لكل كيان)، وهو **idempotent** وآمن على البيانات.
+
+| الحالة | الملف الذي يوضَع في SQL Editor | النتيجة |
+|--------|-------------------------------|---------|
+| **قاعدة جديدة** (تطبيق جديد بلا بيانات) | `supabase/init.sql` | يُنشئ كل شيء من الصفر: الجداول، الدوال، المشغلات، سياسات RLS، الفهارس — وتصبح القاعدة جاهزة فوراً |
+| **قاعدة قائمة فيها بيانات** (تحديث لأحدث نسخة) | `supabase/init.sql` | تحديث فقط: `CREATE TABLE/INDEX ... IF NOT EXISTS`، `ADD COLUMN IF NOT EXISTS`، `CREATE OR REPLACE FUNCTION`، إعادة السياسات والمشغلات بأحدث تعريف — **لا حذف بيانات، لا DROP TABLE** |
+
+خطوات التنفيذ في **Supabase Dashboard → SQL Editor**:
+1. افتح `supabase/init.sql` وانسخ محتواه كاملاً.
+2. الصقه في الـ SQL Editor واضغط **Run**.
+3. آمن لإعادة التشغيل أكثر من مرة (`run twice = same state`).
+
+> ملاحظة: مجلد `supabase/migrations/` يبقى كمرجع تاريخي للتطوير؛
+> لا داعي لتشغيل ملفاته يدوياً عند استخدام `init.sql`.
+
+ثم ارفع Edge Function:
+```bash
 supabase functions deploy sync_records
 ```
 

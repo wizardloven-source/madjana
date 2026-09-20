@@ -147,6 +147,12 @@ flock_movements (id, farm_id, flock_id, type, count, date, notes, worker_id, ver
 | P0-05 | Merge resolution غير موجود | تنفيذ بسيط (server data) |
 | P0-07 | current_count ناقص | flock_movements + trigger |
 
+### P2 — تم إصلاحها (2026-09-15)
+| # | Problem | Fix |
+|---|---------|-----|
+| P2-12 | `flock.productionRate` formula incorrect (1/currentCount * 100) | Property removed; correct calculation via `FarmAnalytics.productionRate(eggs:, birdCount:)` / `avgProductionRate(...)` |
+| P2-13 | Mortality thresholds inconsistent (1.0% vs 0.10%/0.20%) | `SaveMortalityUseCase` now uses `FarmAnalytics.dailyMortalityRate(days: 1)` + `mortalityLevel(...)` |
+
 ### P1 — لم تُenzَ بعد (28 ميزة)
 1. إدارة الموردين + حساباتهم
 2. فواتير الشراء + الذمم الدائنة

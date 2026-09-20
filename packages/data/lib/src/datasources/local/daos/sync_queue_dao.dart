@@ -4,11 +4,17 @@ import 'package:uuid/uuid.dart';
 import '../local_database.dart';
 
 /// DAO لطابور المزامنة
+///
+/// ملاحظة الاتساق: المحرك في [SyncRepositoryImpl] يعتمد على عمود `id`
+/// (= operation_id) لمطابقة العمليات وتحديث حالتها. هذا الـ DAO القديم
+/// يُبقي نفس الاتفاقية: `insert` يولّد operation_id ويخزنه في `id`
+/// و`operation_id`، وكل تحديثات الحالة تتم بعمود `id` — لا بـ record_id
+/// (الذي قد يحمل عمليات متعددة لنفس السجل).
 class SyncQueueDao {
   static const String _table = 'sync_queue';
   static const _uuid = Uuid();
 
-  Future<void> insert({
+  Future<String> insert({
     required String tableName,
     required String recordId,
     required Map<String, dynamic> payload,
@@ -17,9 +23,11 @@ class SyncQueueDao {
   }) async {
     final db = await LocalDatabase.database;
     final now = DateTime.now().toIso8601String();
+    final operationId = _uuid.v4();
 
     await db.insert(_table, {
-      'id': _uuid.v4(),
+      'id': operationId,
+      'operation_id': operationId,
       'table_name': tableName,
       'record_id': recordId,
       'action': action,
@@ -30,6 +38,7 @@ class SyncQueueDao {
       'created_at': now,
       'updated_at': now,
     });
+    return operationId;
   }
 
   Future<int> countByStatus(String status) async {
@@ -41,7 +50,7 @@ class SyncQueueDao {
     return Sqflite.firstIntValue(result) ?? 0;
   }
 
-  Future<void> updateStatus(String recordId, String status) async {
+  Future<void> updateStatus(String operationId, String status) async {
     final db = await LocalDatabase.database;
     await db.update(
       _table,
@@ -49,20 +58,20 @@ class SyncQueueDao {
         'status': status,
         'updated_at': DateTime.now().toIso8601String(),
       },
-      where: 'record_id = ?',
-      whereArgs: [recordId],
+      where: 'id = ?',
+      whereArgs: [operationId],
     );
   }
 
-  Future<void> incrementAttempts(String recordId) async {
+  Future<void> incrementAttempts(String operationId) async {
     final db = await LocalDatabase.database;
     await db.rawUpdate(
-      'UPDATE $_table SET attempts = attempts + 1, updated_at = ? WHERE record_id = ?',
-      [DateTime.now().toIso8601String(), recordId],
+      'UPDATE $_table SET attempts = attempts + 1, updated_at = ? WHERE id = ?',
+      [DateTime.now().toIso8601String(), operationId],
     );
   }
 
-  Future<void> updateError(String recordId, String error) async {
+  Future<void> updateError(String operationId, String error) async {
     final db = await LocalDatabase.database;
     await db.update(
       _table,
@@ -71,8 +80,8 @@ class SyncQueueDao {
         'status': 'failed',
         'updated_at': DateTime.now().toIso8601String(),
       },
-      where: 'record_id = ?',
-      whereArgs: [recordId],
+      where: 'id = ?',
+      whereArgs: [operationId],
     );
   }
 

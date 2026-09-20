@@ -5,6 +5,7 @@ import '../../../core/providers.dart';
 import '../../../core/shell_state.dart';
 import '../../../core/design_tokens.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../conflict_monitor_screen.dart';
 
 /// مركز المزامنة - سطح المكتب
 /// يعرض حالة المزامنة الحقيقية، وعدد العمليات قيد الانتظار/المزامنة/الفاشلة،
@@ -153,6 +154,18 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
                   icon: const Icon(Icons.refresh_rounded),
                   label: Text('إعادة المحاولة ($_failed)'),
                 ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'تعارضات المزامنة',
+                icon: const Icon(Icons.sync_problem_rounded),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ConflictMonitorScreen(),
+                    ),
+                  );
+                },
+              ),
               const SizedBox(width: 8),
               IconButton(
                 tooltip: 'تحديث',

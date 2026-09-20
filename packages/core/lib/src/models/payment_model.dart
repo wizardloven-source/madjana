@@ -19,6 +19,7 @@ class PaymentModel {
   final SyncStatus syncStatus;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final int? version;
 
   const PaymentModel({
     this.id,
@@ -38,6 +39,7 @@ class PaymentModel {
     this.syncStatus = SyncStatus.synced,
     this.createdAt,
     this.updatedAt,
+    this.version,
   });
 
   /// هل المبلغ مسدد بالكامل؟
@@ -61,6 +63,7 @@ class PaymentModel {
     SyncStatus? syncStatus,
     DateTime? createdAt,
     DateTime? updatedAt,
+    int? version,
   }) {
     return PaymentModel(
       id: id ?? this.id,
@@ -80,6 +83,7 @@ class PaymentModel {
       syncStatus: syncStatus ?? this.syncStatus,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      version: version ?? this.version,
     );
   }
 
@@ -119,6 +123,9 @@ class PaymentModel {
       updatedAt: json['updated_at'] != null
           ? DateTime.tryParse(json['updated_at'] as String)
           : null,
+      version: json['version'] != null
+          ? (json['version'] as num).toInt()
+          : null,
     );
   }
 
@@ -140,5 +147,6 @@ class PaymentModel {
         if (syncStatus != SyncStatus.synced) 'sync_status': syncStatus.name,
         if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
         if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
+        if (version != null) 'version': version,
       };
 }
