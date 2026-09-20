@@ -1586,7 +1586,7 @@ BEGIN
                 WHEN 'egg_dispatch' THEN v_allowed_cols := ARRAY['flock_id','date','customer_id','cartons','trays','tray_weight_kg','notes','payment_status','worker_id'];
                 WHEN 'medications' THEN v_allowed_cols := ARRAY['flock_id','date','type','medicine_name','dosage','administration_route','treatment_days','withdrawal_days','notes','worker_id'];
                 WHEN 'customers' THEN v_allowed_cols := ARRAY['name','phone','notes'];
-                WHEN 'flocks' THEN v_allowed_cols := ARRAY['breed','start_date','initial_count','status','sections_count'];
+                WHEN 'flocks' THEN v_allowed_cols := ARRAY['breed','start_date','initial_count','current_count','status','sections_count'];
                 WHEN 'expenses' THEN v_allowed_cols := ARRAY['date','category','description','amount','currency','exchange_rate','carton_bundles'];
                 WHEN 'inventory_items' THEN v_allowed_cols := ARRAY['name','unit','low_stock_threshold','notes'];
                 WHEN 'inventory_transactions' THEN v_allowed_cols := ARRAY['item_id','date','type','quantity','note','user_id'];
@@ -3806,3 +3806,4 @@ ALTER TABLE public.feed_received
             (entry_mode = 'bags' AND quantity_kg >= quantity)
         )
     );
+

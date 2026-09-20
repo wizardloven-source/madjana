@@ -1,19 +1,19 @@
--- ============================================================================
--- ترقية: منع فشل المزامنة عند رفع سجل مكرر (رفع مزدوج)
+﻿-- ============================================================================
+-- طھط±ظ‚ظٹط©: ظ…ظ†ط¹ ظپط´ظ„ ط§ظ„ظ…ط²ط§ظ…ظ†ط© ط¹ظ†ط¯ ط±ظپط¹ ط³ط¬ظ„ ظ…ظƒط±ط± (ط±ظپط¹ ظ…ط²ط¯ظˆط¬)
 --
--- ملاحظة: ملف إضافي (additive) - لا يمسح أي بيانات.
--- يُطبَّق في محرر SQL الخاص بـ Supabase (SQL Editor).
+-- ظ…ظ„ط§ط­ط¸ط©: ظ…ظ„ظپ ط¥ط¶ط§ظپظٹ (additive) - ظ„ط§ ظٹظ…ط³ط­ ط£ظٹ ط¨ظٹط§ظ†ط§طھ.
+-- ظٹظڈط·ط¨ظژظ‘ظ‚ ظپظٹ ظ…ط­ط±ط± SQL ط§ظ„ط®ط§طµ ط¨ظ€ Supabase (SQL Editor).
 --
--- المشكلة:
--- الموبايل كان يرفع سجل إنتاج البيض مرتين:
---   1) طابور المزامنة (sync_queue → sync_records_batch) و
---   2) رفع REST مباشر (syncPendingRecords بنفس UUID).
--- المسار الثاني يمشي أولاً ويُدرج السجل، ثم يعيد الطابور إدراج نفس
--- UUID → خطأ duplicate key → يُعلَّم السجل فاشلاً في الجهاز
--- ("هناك محاولة مزامنة فاشلة").
+-- ط§ظ„ظ…ط´ظƒظ„ط©:
+-- ط§ظ„ظ…ظˆط¨ط§ظٹظ„ ظƒط§ظ† ظٹط±ظپط¹ ط³ط¬ظ„ ط¥ظ†طھط§ط¬ ط§ظ„ط¨ظٹط¶ ظ…ط±طھظٹظ†:
+--   1) ط·ط§ط¨ظˆط± ط§ظ„ظ…ط²ط§ظ…ظ†ط© (sync_queue â†’ sync_records_batch) ظˆ
+--   2) ط±ظپط¹ REST ظ…ط¨ط§ط´ط± (syncPendingRecords ط¨ظ†ظپط³ UUID).
+-- ط§ظ„ظ…ط³ط§ط± ط§ظ„ط«ط§ظ†ظٹ ظٹظ…ط´ظٹ ط£ظˆظ„ط§ظ‹ ظˆظٹظڈط¯ط±ط¬ ط§ظ„ط³ط¬ظ„طŒ ط«ظ… ظٹط¹ظٹط¯ ط§ظ„ط·ط§ط¨ظˆط± ط¥ط¯ط±ط§ط¬ ظ†ظپط³
+-- UUID â†’ ط®ط·ط£ duplicate key â†’ ظٹظڈط¹ظ„ظژظ‘ظ… ط§ظ„ط³ط¬ظ„ ظپط§ط´ظ„ط§ظ‹ ظپظٹ ط§ظ„ط¬ظ‡ط§ط²
+-- ("ظ‡ظ†ط§ظƒ ظ…ط­ط§ظˆظ„ط© ظ…ط²ط§ظ…ظ†ط© ظپط§ط´ظ„ط©").
 --
--- الحل (هنا): جعل sync_records_batch متسامحاً مع التكرار — إن وُجد
--- سجل بنفس id لنفس المزرعة أثناء INSERT نعتبر العملية ناجحة (بلا خطأ).
+-- ط§ظ„ط­ظ„ (ظ‡ظ†ط§): ط¬ط¹ظ„ sync_records_batch ظ…طھط³ط§ظ…ط­ط§ظ‹ ظ…ط¹ ط§ظ„طھظƒط±ط§ط± â€” ط¥ظ† ظˆظڈط¬ط¯
+-- ط³ط¬ظ„ ط¨ظ†ظپط³ id ظ„ظ†ظپط³ ط§ظ„ظ…ط²ط±ط¹ط© ط£ط«ظ†ط§ط، INSERT ظ†ط¹طھط¨ط± ط§ظ„ط¹ظ…ظ„ظٹط© ظ†ط§ط¬ط­ط© (ط¨ظ„ط§ ط®ط·ط£).
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.sync_records_batch(
@@ -53,7 +53,7 @@ BEGIN
         v_user_farm := public.current_user_farm_id();
         v_user_role := public.current_user_role();
         IF v_user_farm IS NULL THEN
-            RAISE EXCEPTION 'لا يمكن تحديد المزرعة للمستخدم الحالي';
+            RAISE EXCEPTION 'ظ„ط§ ظٹظ…ظƒظ† طھط­ط¯ظٹط¯ ط§ظ„ظ…ط²ط±ط¹ط© ظ„ظ„ظ…ط³طھط®ط¯ظ… ط§ظ„ط­ط§ظ„ظٹ';
         END IF;
 
         FOR v_record IN SELECT * FROM jsonb_array_elements(p_records)
@@ -107,7 +107,7 @@ BEGIN
                         v_result := v_result || jsonb_build_object(
                             'record_id', v_record_id,
                             'status', 'error',
-                            'message', 'operation_id مستخدم بالفعل لعملية أخرى'
+                            'message', 'operation_id ظ…ط³طھط®ط¯ظ… ط¨ط§ظ„ظپط¹ظ„ ظ„ط¹ظ…ظ„ظٹط© ط£ط®ط±ظ‰'
                         );
                         CONTINUE;
                     END IF;
@@ -119,7 +119,7 @@ BEGIN
                 v_result := v_result || jsonb_build_object(
                     'record_id', v_record_id,
                     'status', 'error',
-                    'message', 'جدول ممنوع للمزامنة عبر RPC: ' || v_table_name
+                    'message', 'ط¬ط¯ظˆظ„ ظ…ظ…ظ†ظˆط¹ ظ„ظ„ظ…ط²ط§ظ…ظ†ط© ط¹ط¨ط± RPC: ' || v_table_name
                 );
                 CONTINUE;
             END IF;
@@ -129,7 +129,7 @@ BEGIN
                 v_result := v_result || jsonb_build_object(
                     'record_id', v_record_id,
                     'status', 'error',
-                    'message', 'الدور الحالي لا يملك صلاحية المزامنة للجدول: ' || v_table_name
+                    'message', 'ط§ظ„ط¯ظˆط± ط§ظ„ط­ط§ظ„ظٹ ظ„ط§ ظٹظ…ظ„ظƒ طµظ„ط§ط­ظٹط© ط§ظ„ظ…ط²ط§ظ…ظ†ط© ظ„ظ„ط¬ط¯ظˆظ„: ' || v_table_name
                 );
                 CONTINUE;
             END IF;
@@ -146,7 +146,7 @@ BEGIN
                     v_result := v_result || jsonb_build_object(
                         'record_id', v_record_id,
                         'status', 'skipped',
-                        'message', 'السجل غير موجود أو لا ينتمي للمزرعة'
+                        'message', 'ط§ظ„ط³ط¬ظ„ ط؛ظٹط± ظ…ظˆط¬ظˆط¯ ط£ظˆ ظ„ط§ ظٹظ†طھظ…ظٹ ظ„ظ„ظ…ط²ط±ط¹ط©'
                     );
                     CONTINUE;
                 END IF;
@@ -173,7 +173,7 @@ BEGIN
                     v_result := v_result || jsonb_build_object(
                         'record_id', v_record_id,
                         'status', 'error',
-                        'message', 'غير مصرح: لا يمكن تعديل/حذف سجل ليس من إنشائك'
+                        'message', 'ط؛ظٹط± ظ…طµط±ط­: ظ„ط§ ظٹظ…ظƒظ† طھط¹ط¯ظٹظ„/ط­ط°ظپ ط³ط¬ظ„ ظ„ظٹط³ ظ…ظ† ط¥ظ†ط´ط§ط¦ظƒ'
                     );
                     CONTINUE;
                 END IF;
@@ -184,7 +184,7 @@ BEGIN
                 v_result := v_result || jsonb_build_object(
                     'record_id', v_record_id,
                     'status', 'error',
-                    'message', 'غير مصرح: الحذف للمدير فقط'
+                    'message', 'ط؛ظٹط± ظ…طµط±ط­: ط§ظ„ط­ط°ظپ ظ„ظ„ظ…ط¯ظٹط± ظپظ‚ط·'
                 );
                 CONTINUE;
             END IF;
@@ -197,7 +197,7 @@ BEGIN
                 WHEN 'egg_dispatch' THEN v_allowed_cols := ARRAY['flock_id','date','customer_id','cartons','trays','tray_weight_kg','notes','payment_status','worker_id'];
                 WHEN 'medications' THEN v_allowed_cols := ARRAY['flock_id','date','type','medicine_name','dosage','administration_route','treatment_days','withdrawal_days','notes','worker_id'];
                 WHEN 'customers' THEN v_allowed_cols := ARRAY['name','phone','notes'];
-                WHEN 'flocks' THEN v_allowed_cols := ARRAY['breed','start_date','initial_count','status','sections_count'];
+                WHEN 'flocks' THEN v_allowed_cols := ARRAY['breed','start_date','initial_count','current_count','status','sections_count'];
                 WHEN 'expenses' THEN v_allowed_cols := ARRAY['date','category','description','amount','currency','exchange_rate','carton_bundles'];
                 WHEN 'inventory_items' THEN v_allowed_cols := ARRAY['name','unit','low_stock_threshold','notes'];
                 WHEN 'inventory_transactions' THEN v_allowed_cols := ARRAY['item_id','date','type','quantity','note','user_id'];
@@ -223,7 +223,7 @@ BEGIN
                         v_errors := v_errors + 1;
                         v_result := v_result || jsonb_build_object(
                             'record_id', v_record_id, 'status', 'error',
-                            'message', 'customer_id لا ينتمي لمزرعتك'
+                            'message', 'customer_id ظ„ط§ ظٹظ†طھظ…ظٹ ظ„ظ…ط²ط±ط¹طھظƒ'
                         );
                         CONTINUE;
                     END IF;
@@ -235,7 +235,7 @@ BEGIN
                         v_errors := v_errors + 1;
                         v_result := v_result || jsonb_build_object(
                             'record_id', v_record_id, 'status', 'error',
-                            'message', 'flock_id لا ينتمي لمزرعتك'
+                            'message', 'flock_id ظ„ط§ ظٹظ†طھظ…ظٹ ظ„ظ…ط²ط±ط¹طھظƒ'
                         );
                         CONTINUE;
                     END IF;
@@ -246,7 +246,7 @@ BEGIN
                         v_errors := v_errors + 1;
                         v_result := v_result || jsonb_build_object(
                             'record_id', v_record_id, 'status', 'error',
-                            'message', 'item_id لا ينتمي لمزرعتك'
+                            'message', 'item_id ظ„ط§ ظٹظ†طھظ…ظٹ ظ„ظ…ط²ط±ط¹طھظƒ'
                         );
                         CONTINUE;
                     END IF;
@@ -255,8 +255,8 @@ BEGIN
 
             BEGIN
                 IF v_operation = 'insert' THEN
-                    -- منع الرفع المزدوج: إن وُجد السجل أصلاً بنفس id لنفس المزرعة
-                    -- (أدخله مسار REST المباشر قبل الطابور) نعتبر المزامنة ناجحة.
+                    -- ظ…ظ†ط¹ ط§ظ„ط±ظپط¹ ط§ظ„ظ…ط²ط¯ظˆط¬: ط¥ظ† ظˆظڈط¬ط¯ ط§ظ„ط³ط¬ظ„ ط£طµظ„ط§ظ‹ ط¨ظ†ظپط³ id ظ„ظ†ظپط³ ط§ظ„ظ…ط²ط±ط¹ط©
+                    -- (ط£ط¯ط®ظ„ظ‡ ظ…ط³ط§ط± REST ط§ظ„ظ…ط¨ط§ط´ط± ظ‚ط¨ظ„ ط§ظ„ط·ط§ط¨ظˆط±) ظ†ط¹طھط¨ط± ط§ظ„ظ…ط²ط§ظ…ظ†ط© ظ†ط§ط¬ط­ط©.
                     EXECUTE format(
                         'SELECT to_jsonb(t) FROM %I t WHERE t.id = $1 AND t.farm_id = $2',
                         v_table_name
@@ -324,7 +324,7 @@ BEGIN
                         v_result := v_result || jsonb_build_object(
                             'record_id', v_record_id,
                             'status', 'conflict',
-                            'message', 'تعارض في الإصدار أثناء التحديث'
+                            'message', 'طھط¹ط§ط±ط¶ ظپظٹ ط§ظ„ط¥طµط¯ط§ط± ط£ط«ظ†ط§ط، ط§ظ„طھط­ط¯ظٹط«'
                         );
                         CONTINUE;
                     END IF;
@@ -341,7 +341,7 @@ BEGIN
                         v_result := v_result || jsonb_build_object(
                             'record_id', v_record_id,
                             'status', 'conflict',
-                            'message', 'تعارض في الإصدار أثناء الحذف'
+                            'message', 'طھط¹ط§ط±ط¶ ظپظٹ ط§ظ„ط¥طµط¯ط§ط± ط£ط«ظ†ط§ط، ط§ظ„ط­ط°ظپ'
                         );
                         CONTINUE;
                     END IF;
