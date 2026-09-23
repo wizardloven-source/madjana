@@ -117,6 +117,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       _flocks = results[7] as List<FlockModel>;
       _inventoryItems = results[8] as List<InventoryItemModel>;
       _payments = results[9] as List<PaymentModel>;
+      // المقبوضات تُحسب من نفس قائمة الدفعات المعروضة (خادم ثم رجوع للمحلي)
+      // بدل مصدر محلي منفصل قد يتعارض مع حالة المزامنة فيظهر صفراً.
+      _collected = _payments
+          .where((p) =>
+              !p.date.isBefore(monthAgo) && !p.date.isAfter(today))
+          .fold<double>(0, (s, p) => s + p.amountPaid);
       _expensesToday = results[10] as double;
       _expenses30 = results[11] as double;
 

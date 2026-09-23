@@ -233,7 +233,8 @@ class SyncRepositoryImpl implements SyncRepository {
         'egg_production', 'mortality', 'feed_consumption',
         'feed_received', 'egg_dispatch', 'medications',
         'customers', 'flocks', 'expenses', 'payments',
-        'inventory_items',
+        'inventory_items', 'inventory_transactions',
+        'stock_adjustments',
       ];
       if (allowedTables.contains(tableName)) {
         await db.rawUpdate(
@@ -379,6 +380,7 @@ class SyncRepositoryImpl implements SyncRepository {
         final successRecordIds = <String>[];
         final failedRecordIds = <String>[];
         final conflictRecordIds = <String>[];
+        final failedMessageById = <String, String>{};
 
         // عندما يعيد خادم النشر "نجاح كلي" دون تفاصيل لكل سجل، نعتبر كل
         // العملية نجحت (الخادم التزم بها ورفعها لقاعدة البيانات).
@@ -439,6 +441,8 @@ class SyncRepositoryImpl implements SyncRepository {
             rejectedIds.add(r.recordId);
             failedOps.add(r.operationId!);
             failedRecordIds.add(r.recordId);
+            failedMessageById[r.operationId!] =
+                'السجل مرفوض من الخادم (validateRecord فشل)';
             continue;
           }
 
@@ -473,13 +477,15 @@ class SyncRepositoryImpl implements SyncRepository {
             case 'error':
               failedOps.add(queueKey);
               failedRecordIds.add(r.recordId);
+              failedMessageById[queueKey] =
+                  (detail['message'] as String?) ?? 'Sync error';
               break;
           }
         }
 
         if (successOps.isNotEmpty) await markAsSynced(successOps);
         for (var id in failedOps) {
-          await markAsFailed(id, 'Sync error');
+          await markAsFailed(id, failedMessageById[id] ?? 'Sync error');
         }
         for (var id in conflictOps) {
           await markAsConflict(id);
@@ -756,7 +762,8 @@ class SyncRepositoryImpl implements SyncRepository {
         final localRows = await db.query(
           tableName,
           columns: ['id'],
-          where: "sync_status = 'synced'",
+          where: 'sync_status = ? AND farm_id = ?',
+          whereArgs: [SyncStatus.synced.name, farmId],
         );
         final stale = localRows
             .map((r) => r['id']?.toString() ?? '')

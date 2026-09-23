@@ -6,12 +6,23 @@ import 'providers.dart';
 /// Phase 1 Analytics Providers — Desktop
 /// ═══════════════════════════════════════════════════════════════
 
+/// قائمة القطعان (مؤقَّتة لكل مزرعة) — بديل استدعاء getFlocks داخل
+/// build() الذي كان يُنشئ Future جديداً في كل إعادة بناء فيتوقف
+/// المؤشر أو تتكرر استدعاءات الشبكة. الانقطاع يقود إلى النسخة المحلية
+/// تلقائياً (مع مهلة الشبكة في SupabaseApi).
+final flocksListProvider = FutureProvider.autoDispose
+    .family<List<FlockModel>, String>(
+        (ref, farmId) => ref.read(flockRepositoryProvider).getFlocks(farmId));
+
+/// مخزون العلف الحالي (كغ) — نفس المعالجة لمؤشرات تبويب العلف.
+final feedStockProvider = FutureProvider.autoDispose.family<double, String>(
+    (ref, farmId) => ref.read(feedRepositoryProvider).getCurrentFeedStock(farmId));
+
 /// العدد "الفعلي" لكل قطيع = min(المخزَّن، الأولي − مجموع النفوق الكلي).
 /// لا يُغيّر البيانات المخزنة؛ يُستخدم لعرض العدد الحقيقي في كل الشاشات.
 final effectiveFlockCountsProvider = FutureProvider.autoDispose
     .family<Map<String, int>, String>((ref, farmId) async {
-  final flocks =
-      await ref.read(flockRepositoryProvider).getFlocks(farmId);
+  final flocks = await ref.watch(flocksListProvider(farmId).future);
   final mortality = await ref
       .read(mortalityRepositoryProvider)
       .getAllRecords(farmId: farmId);
@@ -41,11 +52,15 @@ final productionKpiProvider = FutureProvider.autoDispose
       .where((f) => f.status == FlockStatus.active)
       .fold<int>(0, (s, f) => s + (counts[f.id] ?? f.currentCount));
 
-  // الأرصدة الافتتاحية (قطيعة قديمة قبل النظام) — بيض مُنتَج في الماضي
+  // الأرصدة الافتتاحية (قطيعة قديمة قبل النظام) — بيض مُنتَج في الماضي.
+  // تُضاف إلى الإجمالي فقط عندما يشمل النطاق المختار تاريخ "التجهيز"
+  // (وإلا فاختيار "اليوم/البارحة/7 أيام" يجلب اليوم فقط ويكون الرقم
+  // حقيقياً للأيام المحددة دون تلويثه برصيد قديم).
   final openingBalances =
       await ref.read(openingBalanceRepositoryProvider).getForFarm(params.farmId);
-  final openingEggsTotal =
-      openingBalances.fold<int>(0, (s, b) => s + b.eggsProduced);
+  final openingEggsTotal = openingBalances
+      .where((b) => params.range.contains(b.createdAt))
+      .fold<int>(0, (s, b) => s + b.eggsProduced);
 
   return ProductionKpi.calculate(
     records: eggs,
@@ -73,11 +88,14 @@ final mortalityKpiProvider = FutureProvider.autoDispose
       .where((f) => f.status == FlockStatus.active)
       .fold<int>(0, (s, f) => s + (counts[f.id] ?? f.currentCount));
 
-  // P0: Include opening balance mortality
+  // P0: Include opening balance mortality — فقط عندما يشمل النطاق
+  // تاريخ "التجهيز" نفسه (اليوم/البارحة/7 أيام تجلب نفوق الفترة فقط،
+  // والرصيد القديم يظهر في النطاقات الواسعة/العامة فقط).
   final openingBalances =
       await ref.read(openingBalanceRepositoryProvider).getForFarm(params.farmId);
-  final openingMortalityTotal =
-      openingBalances.fold<int>(0, (s, b) => s + b.mortalityCount);
+  final openingMortalityTotal = openingBalances
+      .where((b) => params.range.contains(b.createdAt))
+      .fold<int>(0, (s, b) => s + b.mortalityCount);
 
   return MortalityKpi.calculate(
     records: mortality,

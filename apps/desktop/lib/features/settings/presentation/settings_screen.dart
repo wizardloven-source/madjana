@@ -12,7 +12,11 @@ import '../../auth/providers/auth_provider.dart';
 import '../../users/presentation/users_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.farmId, this.farmName});
+
+  /// مدجنة محددة (من شاشة مدير النظام). إن كانت null يُستخدم farmId المستخدم.
+  final String? farmId;
+  final String? farmName;
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -36,7 +40,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _selectedLanguage = 'العربية';
   late TextEditingController _exchangeRateCtrl;
 
-  String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
+  String get _farmId =>
+      widget.farmId ?? ref.read(authProvider).currentUser?.farmId ?? '';
 
   /// شاشة إدارة المستخدمين داخل الإعدادات مناسبة للمدير فقط؛
   /// مدير النظام يستخدمها من الشريط الجانبي حيث تُربط بالمدجنة المختارة.
@@ -73,15 +78,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
+      // نقرأ إعدادات هذه المدجنة من نموذجها (المصدر السحابي/الكاش الخاص بها)
+      // حتى لا تتداخل إعدادات المداجن ببعضها.
       final farm = await ref.read(farmRepositoryProvider).getFarm(_farmId);
       final inputCurrency =
           await ref.read(farmRepositoryProvider).getInputCurrency();
-      final feedWeight = await ref.read(farmRepositoryProvider).getFeedBagWeightKg();
-      final eggsCarton = await ref.read(farmRepositoryProvider).getEggsPerCarton();
-      final eggsTray = await ref.read(farmRepositoryProvider).getEggsPerTray();
-      final mortalityRate = await ref.read(farmRepositoryProvider).getDefaultMortalityRate();
-      final cartonThreshold =
-          await ref.read(farmRepositoryProvider).getCartonLowThreshold();
 
       if (!mounted) return;
       setState(() {
@@ -89,11 +90,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _nameCtrl.text = farm.name;
         _locationCtrl.text = farm.location ?? '';
         _inputCurrency = inputCurrency;
-        _feedBagWeightCtrl.text = feedWeight.toString();
-        _eggsPerCartonCtrl.text = eggsCarton.toString();
-        _eggsPerTrayCtrl.text = eggsTray.toString();
-        _mortalityRateCtrl.text = mortalityRate.toString();
-        _cartonThresholdCtrl.text = cartonThreshold.toString();
+        _feedBagWeightCtrl.text = farm.feedBagWeightKg.toString();
+        _eggsPerCartonCtrl.text = farm.eggsPerCarton.toString();
+        _eggsPerTrayCtrl.text = farm.eggsPerTray.toString();
+        _mortalityRateCtrl.text = farm.defaultMortalityRate.toString();
+        _cartonThresholdCtrl.text = farm.cartonLowThreshold.toString();
         _loading = false;
       });
     } catch (e) {
@@ -115,8 +116,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             : _locationCtrl.text.trim(),
         ownerId: _farm!.ownerId,
         createdAt: _farm!.createdAt,
+        // نُبقي إعدادات المدجنة كما هي حتى لا تُصفَّر عند حفظ الاسم/الموقع.
+        feedBagWeightKg: _farm!.feedBagWeightKg,
+        eggsPerCarton: _farm!.eggsPerCarton,
+        eggsPerTray: _farm!.eggsPerTray,
+        defaultMortalityRate: _farm!.defaultMortalityRate,
+        cartonLowThreshold: _farm!.cartonLowThreshold,
       );
-      await ref.read(farmRepositoryProvider).updateFarm(updated);
+      // updateSettings يكتب محلياً ثم يحاول الرفع، ويعلّمها معلّقة عند الفشل
+      // ليُعاد رفعها تلقائياً (بدل ابتلاع الخطأ).
+      await ref.read(farmRepositoryProvider).updateSettings(updated);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('تم حفظ بيانات المدجنة')));

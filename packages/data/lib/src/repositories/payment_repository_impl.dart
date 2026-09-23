@@ -80,19 +80,31 @@ class PaymentRepositoryImpl implements PaymentRepository {
     DateTime? fromDate,
     DateTime? toDate,
   }) async {
+    // دمج السجلات المحلية (المعلّقة للمزامنة) مع البعيدة حتى لا تختفي
+    // المقبوضات المسجلة دون اتصال أو التي لم تُرفع بعد، مع تفضيل
+    // النسخة البعيدة عند التطابق.
+    final local = await _paymentDao.getAll(
+      farmId: farmId,
+      fromDate: fromDate,
+      toDate: toDate,
+    );
     try {
-      final payments = await _remoteDatasource.getPayments(
+      final remote = await _remoteDatasource.getPayments(
         farmId: farmId ?? '',
         fromDate: fromDate,
         toDate: toDate,
       );
-      return payments;
+      final byId = <String, PaymentModel>{
+        for (final p in remote)
+          if (p.id != null) p.id! : p,
+      };
+      for (final p in local) {
+        if (p.id != null) byId.putIfAbsent(p.id!, () => p);
+      }
+      return byId.values.toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
     } catch (_) {
-      return _paymentDao.getAll(
-        farmId: farmId,
-        fromDate: fromDate,
-        toDate: toDate,
-      );
+      return local;
     }
   }
 

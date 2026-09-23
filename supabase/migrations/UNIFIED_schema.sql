@@ -27,6 +27,7 @@ DROP TABLE IF EXISTS sync_queue, app_notifications, dispatch_requests,
     audit_log, medicines_catalog, medications, payments, egg_dispatch,
     customers, feed_received, feed_consumption, mortality, egg_production,
     flocks, opening_balances, inventory_transactions, inventory_items,
+    stock_adjustments,
     expenses, revenue, users, farms, sync_changes, sync_checkpoint,
     idempotency_log, app_settings CASCADE;
 
@@ -163,7 +164,7 @@ CREATE TABLE egg_production (
     date           DATE NOT NULL CHECK (date <= CURRENT_DATE),
     cartons        INTEGER NOT NULL DEFAULT 0 CHECK (cartons >= 0),
     trays          INTEGER NOT NULL DEFAULT 0 CHECK (trays >= 0 AND trays < 12),
-    loose_eggs     INTEGER NOT NULL DEFAULT 0 CHECK (loose_eggs >= 0 AND loose_eggs < 30),
+    loose_eggs     INTEGER NOT NULL DEFAULT 0 CHECK (loose_eggs >= 0),
     total_eggs     INTEGER NOT NULL DEFAULT 0,
     broken_eggs    INTEGER DEFAULT 0 CHECK (broken_eggs >= 0),
     dirty_eggs     INTEGER DEFAULT 0 CHECK (dirty_eggs >= 0),
@@ -373,7 +374,7 @@ CREATE TABLE revenue (
     farm_id     UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
     date        DATE NOT NULL DEFAULT CURRENT_DATE,
     category    TEXT NOT NULL CHECK (category IN (
-        'liveChicken', 'building', 'equipment', 'other'
+        'liveChicken', 'eggSales', 'building', 'equipment', 'other'
     )),
     description TEXT,
     amount      NUMERIC(12,2) NOT NULL CHECK (amount > 0),
@@ -436,6 +437,24 @@ CREATE TABLE inventory_transactions (
     user_id   UUID REFERENCES users(id)
 );
 CREATE INDEX idx_inventory_tx_item ON inventory_transactions(item_id, date);
+
+CREATE TABLE stock_adjustments (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    farm_id     UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    stock_type  TEXT NOT NULL CHECK (stock_type IN ('eggs', 'cartons', 'feed')),
+    delta_qty   NUMERIC(14,2) NOT NULL CHECK (delta_qty <> 0),
+    reason      TEXT,
+    notes       TEXT,
+    date        DATE NOT NULL DEFAULT CURRENT_DATE CHECK (date <= CURRENT_DATE),
+    manager_id  UUID NOT NULL REFERENCES users(id),
+    sync_status TEXT DEFAULT 'synced'
+                     CHECK (sync_status IN ('pending', 'synced', 'failed', 'processing', 'conflict')),
+    version     BIGINT NOT NULL DEFAULT 1,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at  TIMESTAMPTZ
+);
+CREATE INDEX idx_stock_adjustments_farm ON stock_adjustments(farm_id, date);
 
 CREATE TABLE audit_log (
     id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -1089,6 +1108,7 @@ ALTER TABLE revenue ENABLE ROW LEVEL SECURITY;
 ALTER TABLE opening_balances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE inventory_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE inventory_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_adjustments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_notifications ENABLE ROW LEVEL SECURITY;
@@ -1105,7 +1125,7 @@ GRANT SELECT ON farms, users, user_farms, flocks, customers TO authenticated;
 GRANT SELECT ON egg_production, mortality, feed_consumption, feed_received TO authenticated;
 GRANT SELECT ON egg_dispatch, medications, medicines_catalog TO authenticated;
 GRANT SELECT ON payments, expenses, revenue, opening_balances TO authenticated;
-GRANT SELECT ON inventory_items, inventory_transactions TO authenticated;
+GRANT SELECT ON inventory_items, inventory_transactions, stock_adjustments TO authenticated;
 GRANT SELECT, INSERT, UPDATE ON app_settings TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON app_notifications TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON dispatch_requests TO authenticated;
@@ -1132,6 +1152,7 @@ GRANT INSERT, UPDATE, DELETE ON revenue TO authenticated;
 GRANT INSERT, UPDATE, DELETE ON opening_balances TO authenticated;
 GRANT INSERT, UPDATE, DELETE ON inventory_items TO authenticated;
 GRANT INSERT, UPDATE, DELETE ON inventory_transactions TO authenticated;
+GRANT INSERT, UPDATE, DELETE ON stock_adjustments TO authenticated;
 
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
 DROP POLICY IF EXISTS idemp_only_owner ON idempotency_log;
@@ -1223,7 +1244,9 @@ BEGIN
 
     PERFORM set_config('app.allow_debt_update', 'on', true);
     FOR v_new_cust IN
-        SELECT DISTINCT unnest(v_custs) WHERE unnest(v_custs) IS NOT NULL
+        SELECT DISTINCT v
+        FROM unnest(v_custs) AS t(v)
+        WHERE v IS NOT NULL
     LOOP
         UPDATE customers
         SET total_debt = COALESCE((
@@ -1338,7 +1361,7 @@ BEGIN
         'feed_consumption', 'feed_received', 'egg_dispatch', 'medications',
         'expenses', 'inventory_items', 'inventory_transactions',
         'opening_balances', 'dispatch_requests', 'payments',
-        'app_settings', 'app_notifications'
+        'app_settings', 'app_notifications', 'stock_adjustments'
     ] LOOP
         EXECUTE format(
             'DROP TRIGGER IF EXISTS trg_populate_sync ON %I; ' ||
@@ -1367,13 +1390,13 @@ AS $$
             WHEN 'manager' THEN p_table IN (
                 'egg_production', 'mortality', 'feed_consumption',
                 'feed_received', 'egg_dispatch', 'medications',
-                'customers', 'flocks', 'expenses', 'payments',
-                'inventory_items', 'inventory_transactions',
-                'opening_balances'
-            )
-            WHEN 'system_admin' THEN p_table NOT IN ('users', 'farms')
-            ELSE false
-        END;
+'customers', 'flocks', 'expenses', 'payments',
+            'inventory_items', 'inventory_transactions',
+            'opening_balances', 'revenue', 'stock_adjustments'
+        )
+        WHEN 'system_admin' THEN p_table NOT IN ('users', 'farms')
+        ELSE false
+    END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.sync_can_read(p_role text, p_table text)
@@ -1392,7 +1415,7 @@ AS $$
                 'feed_received', 'egg_dispatch', 'medications',
                 'customers', 'flocks', 'expenses', 'payments',
                 'inventory_items', 'inventory_transactions',
-                'opening_balances'
+                'opening_balances', 'revenue', 'stock_adjustments'
             )
             WHEN 'system_admin' THEN p_table NOT IN ('users', 'farms')
             ELSE false
@@ -1593,6 +1616,8 @@ BEGIN
                 WHEN 'inventory_transactions' THEN v_allowed_cols := ARRAY['item_id','date','type','quantity','note','user_id'];
                 WHEN 'opening_balances' THEN v_allowed_cols := ARRAY['flock_id','eggs_produced','eggs_dispatched','feed_consumed_kg','initial_birds','mortality_count','total_payments','total_revenues','sections'];
                 WHEN 'payments' THEN v_allowed_cols := ARRAY['dispatch_id','customer_id','date','price_per_carton','total_due','amount_paid','payment_method','currency','exchange_rate','due_date','notes','manager_id'];
+                WHEN 'revenue' THEN v_allowed_cols := ARRAY['date','category','description','amount','currency','exchange_rate','quantity','unit','reference_id','worker_id'];
+                WHEN 'stock_adjustments' THEN v_allowed_cols := ARRAY['stock_type','delta_qty','reason','notes','date','manager_id'];
                 ELSE v_allowed_cols := ARRAY[]::text[];
             END CASE;
 
@@ -3167,6 +3192,18 @@ CREATE POLICY mgr_tx ON inventory_transactions
         )
     );
 
+DROP POLICY IF EXISTS stock_adjustments_manager_farm_scoped ON stock_adjustments;
+CREATE POLICY stock_adjustments_manager_farm_scoped ON stock_adjustments
+    FOR ALL TO authenticated
+    USING (
+        is_system_admin()
+        OR (current_user_role() = 'manager' AND farm_id = current_user_farm_id())
+    )
+    WITH CHECK (
+        is_system_admin()
+        OR (current_user_role() = 'manager' AND farm_id = current_user_farm_id())
+    );
+
 -- ============================================================
 -- 41) سياسات extra
 -- ============================================================
@@ -3382,6 +3419,9 @@ ALTER TABLE inventory_items
 ALTER TABLE payments
     ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
 
+ALTER TABLE stock_adjustments
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1;
+
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
 
@@ -3455,7 +3495,7 @@ BEGIN
     IF p_table NOT IN (
         'flocks','egg_production','mortality','feed_consumption','feed_received',
         'egg_dispatch','medications','customers','expenses','inventory_items',
-        'inventory_transactions','opening_balances','payments'
+        'inventory_transactions','opening_balances','payments','stock_adjustments'
     ) THEN
         RETURN false;
     END IF;
@@ -3563,6 +3603,10 @@ CREATE TRIGGER trg_sync_tombstone_opening_balances AFTER DELETE ON public.openin
 
 DROP TRIGGER IF EXISTS trg_sync_tombstone_payments ON public.payments;
 CREATE TRIGGER trg_sync_tombstone_payments AFTER DELETE ON public.payments
+    FOR EACH ROW EXECUTE FUNCTION public.sync_tombstone_after_delete();
+
+DROP TRIGGER IF EXISTS trg_sync_tombstone_stock_adjustments ON public.stock_adjustments;
+CREATE TRIGGER trg_sync_tombstone_stock_adjustments AFTER DELETE ON public.stock_adjustments
     FOR EACH ROW EXECUTE FUNCTION public.sync_tombstone_after_delete();
 
 -- ---------------------------------------------------------------------------
@@ -3707,7 +3751,7 @@ BEGIN
         v_tables := ARRAY['flocks','egg_production','mortality','feed_consumption',
                           'feed_received','egg_dispatch','medications','customers',
                           'expenses','inventory_items','inventory_transactions',
-                          'opening_balances','payments'];
+                          'opening_balances','payments','stock_adjustments'];
     ELSIF v_role = 'worker' THEN
         v_tables := ARRAY['egg_production','mortality','feed_consumption',
                           'feed_received','egg_dispatch','medications'];
@@ -3720,11 +3764,20 @@ BEGIN
             CONTINUE;
         END IF;
         BEGIN
-EXECUTE format($q$
-                SELECT COALESCE(jsonb_agg(id::text ORDER BY id::text), '[]'::jsonb)
-                FROM public.%I
-                WHERE farm_id = $1 AND deleted_at IS NULL
-            $q$, v_t) INTO v_ids USING p_farm_id;
+            IF v_t = 'customers' THEN
+                -- الزبائن العامة (is_global) يُبقيها كلُّ مزارع حسب الصلاحية
+                EXECUTE format($q$
+                    SELECT COALESCE(jsonb_agg(id::text ORDER BY id::text), '[]'::jsonb)
+                    FROM public.%I
+                    WHERE (farm_id = $1 OR is_global = TRUE) AND deleted_at IS NULL
+                $q$, v_t) INTO v_ids USING p_farm_id;
+            ELSE
+                EXECUTE format($q$
+                    SELECT COALESCE(jsonb_agg(id::text ORDER BY id::text), '[]'::jsonb)
+                    FROM public.%I
+                    WHERE farm_id = $1 AND deleted_at IS NULL
+                $q$, v_t) INTO v_ids USING p_farm_id;
+            END IF;
         EXCEPTION WHEN OTHERS THEN
             CONTINUE;
         END;

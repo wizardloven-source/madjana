@@ -8,6 +8,9 @@ class CustomerModel {
   final double totalDebt;
   final int version;
   final int? previousVersion;
+  /// زبون مشترك بين المداجن كلها (is_global).
+  /// يظهر في قوائم كل المزارع المحلية ولو كان farm_id مزرعة إنشائه.
+  final bool isGlobal;
 
   const CustomerModel({
     this.id,
@@ -18,6 +21,7 @@ class CustomerModel {
     this.totalDebt = 0,
     this.version = 1,
     this.previousVersion,
+    this.isGlobal = false,
   });
 
   factory CustomerModel.fromJson(Map<String, dynamic> json) {
@@ -29,6 +33,7 @@ class CustomerModel {
       notes: json['notes'] as String?,
       totalDebt: (json['total_debt'] as num?)?.toDouble() ?? 0,
       version: json['version'] as int? ?? 1,
+      isGlobal: (json['is_global'] as bool?) ?? false,
     );
   }
 
@@ -40,5 +45,6 @@ class CustomerModel {
         'notes': notes,
         'total_debt': totalDebt,
         'version': version,
+        'is_global': isGlobal,
       };
 }

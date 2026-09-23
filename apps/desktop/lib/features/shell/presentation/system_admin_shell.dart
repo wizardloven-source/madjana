@@ -6,6 +6,7 @@ import 'package:core/core.dart';
 import '../../../core/providers.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../users/presentation/users_screen.dart';
+import '../../customers/presentation/customers_screen.dart';
 import '../../settings/presentation/settings_screen.dart';
 import '../../sync/presentation/sync_center_screen.dart';
 
@@ -204,6 +205,29 @@ class _SystemAdminShellState extends ConsumerState<SystemAdminShell> {
                   },
                 ),
                 _ShellTile(
+                  icon: Icons.people_alt_rounded,
+                  label: 'الزبائن',
+                  onTap: () {
+                    final farmId = _selectedFarmId;
+                    if (farmId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                              'حدد مدجنة من القائمة أولاً لفتح شاشة الزبائن'),
+                        ),
+                      );
+                      return;
+                    }
+                    _pushScreen(
+                      CustomersScreen(
+                        farmId: farmId,
+                        farmName: _selectedFarmName,
+                      ),
+                      'الزبائن',
+                    );
+                  },
+                ),
+                _ShellTile(
                   icon: Icons.sync_rounded,
                   label: 'مركز المزامنة',
                   onTap: () {
@@ -217,7 +241,25 @@ class _SystemAdminShellState extends ConsumerState<SystemAdminShell> {
                 _ShellTile(
                   icon: Icons.settings_rounded,
                   label: 'الإعدادات',
-                  onTap: () => _pushScreen(const SettingsScreen(), 'الإعدادات'),
+                  onTap: () {
+                    final farmId = _selectedFarmId;
+                    if (farmId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                              'حدد مدجنة من القائمة أولاً لفتح إعداداتها'),
+                        ),
+                      );
+                      return;
+                    }
+                    _pushScreen(
+                      SettingsScreen(
+                        farmId: farmId,
+                        farmName: _selectedFarmName,
+                      ),
+                      'إعدادات ${_selectedFarmName ?? 'المدجنة'}',
+                    );
+                  },
                 ),
                 const SizedBox(height: 8),
                 // معلومات المستخدم

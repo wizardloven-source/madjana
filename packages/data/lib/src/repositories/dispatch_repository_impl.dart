@@ -36,17 +36,27 @@ class DispatchRepositoryImpl implements DispatchRepository {
 
   @override
   Future<List<CustomerModel>> getCustomers(String farmId) async {
+    // دمج "الكاش البعيد" مع "الصفوف المحلية غير المزامنة": أي زبون
+    // أُنشئ محلياً ولم يصل للسحابة بعد (أو حُذف منه) يبقى ظاهراً
+    // بدل أن يختفي بمجرد نجاح قراءة REST ترجع قائمة ناقصة.
+    final List<CustomerModel> remote;
     try {
-      // قراءة من السحابة مع تعبئة الكاش المحلي (مثل القطعان)
-      final remote = await _remoteDatasource.getCustomers(farmId);
+      remote = await _remoteDatasource.getCustomers(farmId);
       for (final customer in remote) {
         await _customerDao.upsertFromRemote(customer);
       }
-      return remote;
     } catch (_) {
       // انقطاع اتصال: نعرض النسخة المحلية
       return _customerDao.getByFarm(farmId);
     }
+    final local = await _customerDao.getByFarm(farmId);
+    final remoteIds = remote.map((c) => c.id).whereType<String>().toSet();
+    final merged = <CustomerModel>[
+      ...remote,
+      ...local.where((c) => c.id == null || !remoteIds.contains(c.id)),
+    ];
+    merged.sort((a, b) => a.name.compareTo(b.name));
+    return merged;
   }
 
   @override

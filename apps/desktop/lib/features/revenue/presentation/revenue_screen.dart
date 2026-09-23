@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:core/core.dart';
 import '../../../core/providers.dart';
+import '../../../core/shell_state.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class RevenueScreen extends ConsumerStatefulWidget {
@@ -15,8 +16,10 @@ class RevenueScreen extends ConsumerStatefulWidget {
 
 class _RevenueScreenState extends ConsumerState<RevenueScreen> {
   List<RevenueModel> _revenues = [];
+  List<RevenueModel> _eggRevenues = [];
   bool _loading = true;
-  DateTime _fromDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  // نفس نطاق شاشة الدفعات (كل الفترات) حتى تظهر مقبوضات البيض المسجلة سابقاً
+  DateTime _fromDate = DateTime(2020);
   DateTime _toDate = DateTime.now();
   RevenueCategory? _categoryFilter;
 
@@ -28,7 +31,7 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
     _load();
   }
 
-  double get _total => _revenues.fold(0, (s, r) => s + r.amount);
+  double get _total => _visible.fold(0, (s, r) => s + r.amount);
 
   /// عرض المبلغ محوّلاً من الدولار (عملة التخزين) إلى عملة السجل الأصلية
   String _displayAmount(RevenueModel r) {
@@ -46,11 +49,46 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
             fromDate: _fromDate,
             toDate: _toDate,
           );
+
+      // مقبوضات بيع البيض (جدول payments) تُدمج هنا كإيراد "مبيعات البيض"
+      // حتى تظهر في صفحة الإيرادات دون تكرار بالمجموع (الجدول منفصل).
+      List<PaymentModel> payments = [];
+      Map<String, CustomerModel> customers = {};
+      try {
+        payments = await ref.read(paymentRepositoryProvider).getAll(
+              farmId: _farmId,
+              fromDate: _fromDate,
+              toDate: _toDate,
+            );
+      } catch (_) {}
+      try {
+        final list =
+            await ref.read(dispatchRepositoryProvider).getCustomers(_farmId);
+        customers = {for (final c in list) c.id! : c};
+      } catch (_) {}
+
+      final eggRows = payments.where((p) => p.amountPaid > 0).map((p) {
+        final name = customers[p.customerId]?.name;
+        return RevenueModel(
+          id: 'pay_${p.id}',
+          farmId: p.farmId,
+          date: p.date,
+          category: RevenueCategory.eggSales,
+          description: [
+            if (name != null && name.isNotEmpty) 'بيع بيض - $name',
+            if (p.notes != null && p.notes!.isNotEmpty) p.notes!,
+          ].join('\n'),
+          amount: p.amountPaid,
+          currency: p.currency,
+          exchangeRate: p.exchangeRate,
+          referenceId: p.id,
+        );
+      }).toList();
+
       if (!mounted) return;
       setState(() {
-        _revenues = _categoryFilter == null
-            ? revenues
-            : revenues.where((r) => r.category == _categoryFilter).toList();
+        _revenues = revenues;
+        _eggRevenues = eggRows;
       });
     } catch (e) {
       if (!mounted) return;
@@ -60,6 +98,17 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  /// السطور المعروضة (إيرادات يدوية + مقبوضات بيع البيض) بعد فلتر الفئة
+  List<RevenueModel> get _visible {
+    final combined = [..._eggRevenues, ..._revenues]
+      ..sort((a, b) => b.date.compareTo(a.date));
+    if (_categoryFilter == null) return combined;
+    return combined.where((r) => r.category == _categoryFilter).toList();
+  }
+
+  /// هل هذا السطر مستمد من قبض بيع بيض (يُدار من شاشة الدفعات)؟
+  bool _isEggRow(RevenueModel r) => r.id?.startsWith('pay_') ?? false;
 
   void _error(Object e) {
     if (!mounted) return;
@@ -88,6 +137,11 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
   }
 
   Future<void> _showRevenueDialog({RevenueModel? revenue}) async {
+    if (revenue != null && _isEggRow(revenue)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('مبيعات البيض تُدار من شاشة الدفعات')));
+      return;
+    }
     final descCtrl = TextEditingController(text: revenue?.description ?? '');
     final amountCtrl = TextEditingController(
         text: revenue != null ? revenue.amount.toString() : '');
@@ -543,6 +597,11 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
   }
 
   Future<void> _delete(RevenueModel revenue) async {
+    if (_isEggRow(revenue)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('مبيعات البيض تُدار من شاشة الدفعات')));
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -569,10 +628,10 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
   }
 
   Future<void> _exportCsv() async {
-    if (_revenues.isEmpty) return;
+    if (_visible.isEmpty) return;
     final buffer = StringBuffer();
     buffer.writeln('التاريخ,الفئة,الوصف,المبلغ,العملة,الكمية,الوحدة');
-    for (final r in _revenues) {
+    for (final r in _visible) {
       buffer.writeln(
         '${DateFormat('yyyy/MM/dd').format(r.date)},'
         '${r.category.label},'
@@ -596,9 +655,10 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
   @override
   Widget build(BuildContext context) {
     final currency = ref.watch(currencyProvider).value ?? '';
+    ref.listen(dataRefreshTickProvider, (_, _) => _load());
 
     final byCategory = <RevenueCategory, double>{};
-    for (final r in _revenues) {
+    for (final r in _visible) {
       byCategory[r.category] = (byCategory[r.category] ?? 0) + r.amount;
     }
 
@@ -680,7 +740,7 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
                   ),
                 );
               }),
-              Chip(label: Text('عدد السجلات: ${_revenues.length}')),
+              Chip(label: Text('عدد السجلات: ${_visible.length}')),
               ...byCategory.entries.map((e) => Chip(
                     label: Text(
                         '${e.key.label}: ${NumberFormat('#,##0.##').format(e.value)}'),
@@ -691,7 +751,7 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
           if (_loading)
             const Expanded(
                 child: Center(child: CircularProgressIndicator()))
-          else if (_revenues.isEmpty)
+          else if (_visible.isEmpty)
             const Expanded(child: Center(child: Text('لا توجد إيرادات')))
           else
             Expanded(
@@ -705,29 +765,42 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
                     DataColumn(label: Text('المبلغ')),
                     DataColumn(label: Text('إجراءات')),
                   ],
-                  rows: _revenues.map((r) {
+                  rows: _visible.map((r) {
                     return DataRow(cells: [
                       DataCell(Text(
                           DateFormat('yyyy/MM/dd').format(r.date))),
-                      DataCell(Text(r.category.label)),
+                      DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text(r.category.label),
+                        if (_isEggRow(r))
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: Icon(Icons.payments_outlined,
+                                size: 14,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primary),
+                          ),
+                      ])),
                       DataCell(Text(r.description ?? '-')),
                       DataCell(Text(r.quantity != null
                           ? '${Formatters.formatNumber(r.quantity!)} ${r.unit ?? ''}'
                           : '-')),
                       DataCell(Text(_displayAmount(r))),
                       DataCell(Row(children: [
-                        IconButton(
-                          tooltip: 'تعديل',
-                          icon: const Icon(Icons.edit_outlined),
-                          onPressed: () =>
-                              _showRevenueDialog(revenue: r),
-                        ),
-                        IconButton(
-                          tooltip: 'حذف',
-                          icon: const Icon(Icons.delete_outline,
-                              color: Colors.red),
-                          onPressed: () => _delete(r),
-                        ),
+                        if (!_isEggRow(r))
+                          IconButton(
+                            tooltip: 'تعديل',
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () =>
+                                _showRevenueDialog(revenue: r),
+                          ),
+                        if (!_isEggRow(r))
+                          IconButton(
+                            tooltip: 'حذف',
+                            icon: const Icon(Icons.delete_outline,
+                                color: Colors.red),
+                            onPressed: () => _delete(r),
+                          ),
                       ])),
                     ]);
                   }).toList(),

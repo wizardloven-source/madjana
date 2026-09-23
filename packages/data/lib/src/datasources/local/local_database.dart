@@ -14,7 +14,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 24;
+  static const int _dbVersion = 28;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -259,6 +259,7 @@ class LocalDatabase {
         phone TEXT NOT NULL,
         notes TEXT,
         total_debt REAL DEFAULT 0,
+        is_global INTEGER DEFAULT 0,
         sync_status TEXT DEFAULT 'synced',
         version INTEGER DEFAULT 1,
         deleted_at TEXT,
@@ -374,6 +375,44 @@ class LocalDatabase {
         quantity REAL NOT NULL,
         note TEXT,
         user_id TEXT
+      )
+    ''');
+
+    // جدول تسويات رصيد المخزون (تعديل يدوي للمدير - مزامن مع الخادم)
+    await db.execute('''
+      CREATE TABLE stock_adjustments (
+        id TEXT PRIMARY KEY,
+        farm_id TEXT NOT NULL,
+        stock_type TEXT NOT NULL,
+        delta_qty REAL NOT NULL,
+        reason TEXT,
+        notes TEXT,
+        date TEXT NOT NULL,
+        manager_id TEXT NOT NULL,
+        sync_status TEXT DEFAULT 'synced',
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
+    // v26: جدول تسويات المخزون (تعديل رصيد يدوي) - يُزامن كباقي الجداول
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS stock_adjustments (
+        id TEXT PRIMARY KEY,
+        farm_id TEXT NOT NULL,
+        stock_type TEXT NOT NULL CHECK (stock_type IN ('eggs', 'cartons', 'feed')),
+        delta_qty REAL NOT NULL,
+        reason TEXT,
+        notes TEXT,
+        date TEXT NOT NULL,
+        manager_id TEXT NOT NULL,
+        sync_status TEXT DEFAULT 'synced',
+        version INTEGER DEFAULT 1,
+        deleted_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       )
     ''');
 
@@ -1015,6 +1054,36 @@ class LocalDatabase {
             )
           ''');
         }
+
+        // v25: is_global للزبائن المشتركين بين المداجن
+        if (oldVersion < 25) {
+          if (!await _columnExists(db, 'customers', 'is_global')) {
+            await db.execute(
+                'ALTER TABLE customers ADD COLUMN is_global INTEGER DEFAULT 0');
+          }
+        }
+
+        // v27: جدول تسويات رصيد المخزون (مزامن مع الخادم - للمدير)
+        if (oldVersion < 27) {
+          if (!await _tableExists(db, 'stock_adjustments')) {
+            await db.execute('''
+              CREATE TABLE IF NOT EXISTS stock_adjustments (
+              id TEXT PRIMARY KEY,
+              farm_id TEXT NOT NULL,
+              stock_type TEXT NOT NULL,
+              delta_qty REAL NOT NULL,
+              reason TEXT,
+              notes TEXT,
+              date TEXT NOT NULL,
+              manager_id TEXT NOT NULL,
+              sync_status TEXT DEFAULT 'synced',
+              version INTEGER DEFAULT 1,
+              deleted_at TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+          ''');
+        }
   }
 
   /// يتحقق من وجود عمود في جدول (بدلاً من إخفاء أخطاء migration عبر catch عام)
@@ -1042,6 +1111,7 @@ class LocalDatabase {
       'revenue',
       'inventory_items',
       'inventory_transactions',
+      'stock_adjustments',
       'app_settings',
       'sync_queue',
       'session',
@@ -1053,7 +1123,6 @@ class LocalDatabase {
       'sync_state',
       'conflicts',
     ];
-    for (final table in tables) {
       await db.delete(table);
     }
   }

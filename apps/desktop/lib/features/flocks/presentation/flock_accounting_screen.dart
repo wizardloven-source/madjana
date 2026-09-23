@@ -120,6 +120,7 @@ class _FlockAccountingScreenState
   Widget build(BuildContext context) {
     final flockId = widget.flock.id;
     final currency = ref.watch(currencyProvider).value ?? '\$';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // ── تصفية حسب القطيع ──
     final flockEggs =
@@ -294,14 +295,22 @@ class _FlockAccountingScreenState
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [
-                            Colors.green.shade50,
-                            Colors.green.shade100,
-                          ],
+                          colors: isDark
+                              ? const [
+                                  Color(0xFF1E2A1C),
+                                  Color(0xFF22391F),
+                                ]
+                              : [
+                                  Colors.green.shade50,
+                                  Colors.green.shade100,
+                                ],
                         ),
                         borderRadius: BorderRadius.circular(12),
-                        border:
-                            Border.all(color: Colors.green.shade300),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.green.shade800
+                              : Colors.green.shade300,
+                        ),
                       ),
                       child: Column(
                         children: [
@@ -397,11 +406,20 @@ class _FlockAccountingScreenState
                               DataCell(Chip(
                                 label: Text(
                                   payment.isPaid ? 'مسدّد' : 'مستحق',
-                                  style: const TextStyle(fontSize: 11),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
                                 ),
                                 backgroundColor: payment.isPaid
-                                    ? Colors.green.shade100
-                                    : Colors.orange.shade100,
+                                    ? (isDark
+                                        ? Colors.green.shade800
+                                        : Colors.green.shade100)
+                                    : (isDark
+                                        ? Colors.orange.shade800
+                                        : Colors.orange.shade100),
                                 padding: EdgeInsets.zero,
                                 materialTapTargetSize:
                                     MaterialTapTargetSize.shrinkWrap,
@@ -427,6 +445,7 @@ class _InfoHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final ended = flock.status == FlockStatus.depleted;
     return Card(
       child: Padding(
@@ -454,15 +473,25 @@ class _InfoHeader extends StatelessWidget {
                   'الحالي: $effectiveCount  |  '
                   'العنابر: ${flock.sectionsCount}',
                   style: TextStyle(
-                      fontSize: 12, color: Colors.grey.shade600),
+                      fontSize: 12,
+                      color: isDark
+                          ? theme.colorScheme.onSurfaceVariant
+                          : Colors.grey.shade600),
                 ),
               ],
             ),
             const Spacer(),
             Chip(
-              label: Text(ended ? 'منتهي' : 'نشط'),
-              backgroundColor:
-                  ended ? Colors.grey.shade200 : Colors.green.shade100,
+              label: Text(
+                ended ? 'منتهي' : 'نشط',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+              backgroundColor: ended
+                  ? (isDark ? Colors.grey.shade800 : Colors.grey.shade200)
+                  : (isDark ? Colors.green.shade800 : Colors.green.shade100),
             ),
           ],
         ),
@@ -514,6 +543,7 @@ class _StatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Card(
       child: Container(
         width: 140,
@@ -534,7 +564,12 @@ class _StatTile extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               label,
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark
+                    ? Theme.of(context).colorScheme.onSurfaceVariant
+                    : Colors.grey.shade600,
+              ),
             ),
           ],
         ),
@@ -552,14 +587,19 @@ class _OpeningBalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Card(
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.orange.shade50,
+          color: isDark
+              ? const Color(0xFF2A2113)
+              : Colors.orange.shade50,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.orange.shade300),
+          border: Border.all(
+            color: isDark ? Colors.orange.shade800 : Colors.orange.shade300,
+          ),
         ),
         child: Wrap(
           spacing: 16,
@@ -591,6 +631,7 @@ class _OBItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -602,7 +643,12 @@ class _OBItem extends StatelessWidget {
         ),
         Text(
           label,
-          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          style: TextStyle(
+            fontSize: 11,
+            color: isDark
+                ? Theme.of(context).colorScheme.onSurfaceVariant
+                : Colors.grey.shade600,
+          ),
         ),
       ],
     );

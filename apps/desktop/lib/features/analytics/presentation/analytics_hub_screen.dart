@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
-import '../../../core/providers.dart';
 import '../../../core/analytics_providers.dart';
 import '../../auth/providers/auth_provider.dart';
 
@@ -182,6 +181,15 @@ class _ProductionTab extends ConsumerWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              Text(
+                'الإجمالي = مجموع إنتاج الفترة المحددة فقط (غير تراكمي)، '
+                'ويُضاف رصيد "التجهيز" القديم في النطاقات التي تشمل تاريخ تجهيزه.\n'
+                'المعدل = إنتاج الفترة ÷ (عدد الطيور × أيام الفترة) × 100',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
               const SizedBox(height: 24),
               _SectionTitle('مقارنة مع الفترة السابقة'),
               const SizedBox(height: 8),
@@ -306,14 +314,9 @@ class _FeedTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final feedStockAsync = ref.watch(feedRepositoryProvider).getCurrentFeedStock(farmId);
-
-    return FutureBuilder<double>(
-      future: feedStockAsync,
-      builder: (context, stockSnap) {
-        final stock = stockSnap.data ?? 0;
-        final async = ref.watch(feedKpiProvider(
-            (farmId: farmId, range: range, stockKg: stock)));
+    final stock = ref.watch(feedStockProvider(farmId)).valueOrNull ?? 0;
+    final async = ref.watch(feedKpiProvider(
+        (farmId: farmId, range: range, stockKg: stock)));
 
         return async.when(
           loading: () => const Center(child: CircularProgressIndicator()),
@@ -379,14 +382,8 @@ class _FeedTab extends ConsumerWidget {
             );
           },
         );
-      },
-    );
   }
 }
-
-// ═══════════════════════════════════════════════════════════════
-// Flock Performance Tab
-// ═══════════════════════════════════════════════════════════════
 
 class _FlockTab extends ConsumerWidget {
   final String farmId;
@@ -396,16 +393,35 @@ class _FlockTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final flocksAsync = ref.watch(flockRepositoryProvider).getFlocks(farmId);
+    final flocksAsync = ref.watch(flocksListProvider(farmId));
 
-    return FutureBuilder<List<FlockModel>>(
-      future: flocksAsync,
-      builder: (context, snap) {
-        if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final flocks = snap.data!;
-        final activeFlocks = flocks.where((f) => f.status == FlockStatus.active).toList();
+    return flocksAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off, size: 40),
+            const SizedBox(height: 8),
+            const Text('تعذّر تحميل القطعان'),
+            const SizedBox(height: 4),
+            Text(
+              'لا توجد قطعان نشطة محلياً أو تعذّر الوصول للسحابة.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            FilledButton.tonalIcon(
+              onPressed: () => ref.invalidate(flocksListProvider(farmId)),
+              icon: const Icon(Icons.refresh),
+              label: const Text('إعادة المحاولة'),
+            ),
+          ],
+        ),
+      ),
+      data: (flocks) {
+        final activeFlocks =
+            flocks.where((f) => f.status == FlockStatus.active).toList();
 
         if (activeFlocks.isEmpty) {
           return const Center(child: Text('لا توجد قطعان نشطة'));
@@ -717,7 +733,7 @@ class _ProfitabilityTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final farmAsync =
         ref.watch(farmProfitabilityProvider((farmId: farmId, range: range)));
-    final flocksAsync = ref.watch(flockRepositoryProvider).getFlocks(farmId);
+    final flocksAsync = ref.watch(flocksListProvider(farmId));
 
     return farmAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -730,11 +746,11 @@ class _ProfitabilityTab extends ConsumerWidget {
             children: [
               _FarmProfitSummary(farm: farm, range: range),
               const SizedBox(height: 20),
-              FutureBuilder<List<FlockModel>>(
-                future: flocksAsync,
-                builder: (context, snap) {
-                  if (!snap.hasData) return const SizedBox.shrink();
-                  final active = snap.data!
+              flocksAsync.when(
+                loading: () => const SizedBox.shrink(),
+                error: (e, _) => const SizedBox.shrink(),
+                data: (flocks) {
+                  final active = flocks
                       .where((f) => f.status == FlockStatus.active)
                       .toList();
                   if (active.isEmpty) return const SizedBox.shrink();

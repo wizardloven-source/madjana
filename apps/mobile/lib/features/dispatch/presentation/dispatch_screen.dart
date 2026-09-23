@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
@@ -10,6 +11,7 @@ import '../../../shared/widgets/modern_ui.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../egg_production/providers/egg_production_provider.dart';
 import '../../reference_data/providers/reference_data_provider.dart';
+import '../../sync/providers/sync_provider.dart';
 import '../providers/dispatch_provider.dart';
 
 /// شاشة تخريج البيض (للبيع)
@@ -213,9 +215,8 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
         createdAt: DateTime.now(),
       );
       await ref.read(dispatchRequestDaoProvider).insert(request     );
-      // دفع غير متزامن — يبقى في الطابور عند انقطاع الاتصال ويُزامَن لاحقاً
-      final sync = ref.read(syncRepositoryProvider);
-      unawaited(sync.syncPendingRecords());
+      // مزامنة غير متزامنة — يبقى في الطابور عند انقطاع الاتصال ويُزامَن لاحقاً
+      unawaited(ref.read(syncProvider.notifier).syncNow());
       if (!mounted) return;
       _showSuccess('تم إرسال الطلب إلى المدير (يُزامَن تلقائياً)');
       setState(() {

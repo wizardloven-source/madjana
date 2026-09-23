@@ -147,6 +147,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       );
 
       await ref.read(paymentRepositoryProvider).save(payment);
+      ref.read(dataRefreshTickProvider.notifier).state++;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -614,17 +615,34 @@ class _PaymentDialogState extends State<_PaymentDialog> {
   @override
   void initState() {
     super.initState();
-    _currency = widget.defaultCurrency;
-    // تعبئة السعر من قبض سابق إن وجد — القيمة المخزنة بالدولار تُحوَّل
-    // إلى عملة الإدخال الحالية حتى لا يُعاد تطبيق التحويل عند الحفظ (تحويل مزدوج).
+    // تعبئة من قبض سابق إن وجد: استعادة العملة وسعر الصرف والسعر
+    // حتى لا تظهر مبالغ الليرة خطأً وكأنها دولار عند إعادة الفتح
+    // (السبب المُبلَّغ: "إجمالي المستحق 9750000 دولار" وهي ليرات).
     if (widget.existingPayments.isNotEmpty) {
       final last = widget.existingPayments.last;
+      _currency = last.currency;
+      _exchangeRate =
+          last.currency == AppCurrency.lira ? last.exchangeRate : null;
+      if (_currency == AppCurrency.lira && (_exchangeRate ?? 0) > 0) {
+        _rateController.text = _trimZeros(last.exchangeRate!);
+      }
+      // القيمة المخزنة بالدولار تُحوَّل إلى عملة الإدخال الحالية حتى لا
+      // يُعاد تطبيق التحويل عند الحفظ (تحويل مزدوج).
       final inInputCurrency =
           last.currency == AppCurrency.lira && (last.exchangeRate ?? 0) > 0
               ? last.pricePerCarton * last.exchangeRate!
               : last.pricePerCarton;
-      _priceController.text = inInputCurrency.toStringAsFixed(0);
+      // حفظ الكسور العشرية كما هي (505.6 وليس 505/506)
+      _priceController.text = _trimZeros(inInputCurrency);
+    } else {
+      _currency = widget.defaultCurrency;
     }
+  }
+
+  /// عرض رقم بلا قيود: يحذف الأصفار الزائدة بعد الفاصلة دون تقريب القيمة
+  static String _trimZeros(double v) {
+    if (v == v.roundToDouble()) return v.toStringAsFixed(0);
+    return v.toStringAsFixed(3).replaceFirst(RegExp(r'0+$'), '');
   }
 
   @override

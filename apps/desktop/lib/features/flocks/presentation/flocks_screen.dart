@@ -748,18 +748,18 @@ class _EnhancedFlockCard extends StatelessWidget {
                 if (data.totalDue > 0)
                   _FlockInfoChip(
                     label: 'المستحق',
-                    value: '\$${data.totalDue.toStringAsFixed(0)}',
+                    value: Formatters.formatCurrency(data.totalDue),
                     color: Colors.indigo,
                   ),
                 if (data.paymentsCollected > 0)
                   _FlockInfoChip(
                     label: 'المحصّل',
-                    value: '\$${data.paymentsCollected.toStringAsFixed(0)}',
+                    value: Formatters.formatCurrency(data.paymentsCollected),
                     color: Colors.green,
                   ),
                 _FlockInfoChip(
                   label: 'المستحق (غير المحصّل)',
-                  value: '\$${profitLoss.toStringAsFixed(0)}',
+                  value: Formatters.formatCurrency(profitLoss),
                   color: profitColor,
                 ),
               ],

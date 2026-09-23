@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:core/core.dart';
 import '../../../core/providers.dart';
+import '../../reference_data/providers/reference_data_provider.dart';
 import '../data/connectivity_service.dart';
 
 /// حالة المزامنة
@@ -48,6 +49,9 @@ enum SyncConnectionStatus { connected, disconnected, unknown }
 class SyncNotifier extends StateNotifier<SyncState> {
   final SyncRepository repository;
   final ConnectivityService connectivity;
+  /// يُستدعى بعد كل مزامنة ناجحة لتحديث البيانات المرجعية المخزّنة مؤقتاً
+  /// (إعدادات المدجنة مثل وزن الكيس، والزبائن) القادمة من سطح المكتب.
+  final void Function()? onSynced;
 
   StreamSubscription<bool>? _connectivitySub;
   Timer? _syncTimer;
@@ -60,8 +64,11 @@ class SyncNotifier extends StateNotifier<SyncState> {
   static const int _maxBackoffMinutes = 30;
   bool autoSyncEnabled = true;
 
-  SyncNotifier({required this.repository, required this.connectivity})
-      : super(const SyncState()) {
+  SyncNotifier({
+    required this.repository,
+    required this.connectivity,
+    this.onSynced,
+  }) : super(const SyncState()) {
     _init();
   }
 
@@ -153,6 +160,10 @@ class SyncNotifier extends StateNotifier<SyncState> {
         _consecutiveFailures = 0;
         _backoffMinutes = 0;
         _backoffTimer?.cancel();
+        // حدّث البيانات المرجعية المخزّنة مؤقتاً بعد نجاح السحب.
+        try {
+          onSynced?.call();
+        } catch (_) {}
       }
       await _refreshCounts();
       // ═══ H-4 FIX: لا تُحدّث lastSyncAt إلا عند نجاح المزامنة الكاملة ═══
@@ -217,5 +228,9 @@ final syncProvider = StateNotifierProvider<SyncNotifier, SyncState>((ref) {
   return SyncNotifier(
     repository: ref.watch(syncRepositoryProvider),
     connectivity: ref.watch(connectivityServiceProvider),
+    onSynced: () {
+      ref.invalidate(farmSettingsProvider);
+      ref.invalidate(customersProvider);
+    },
   );
 });

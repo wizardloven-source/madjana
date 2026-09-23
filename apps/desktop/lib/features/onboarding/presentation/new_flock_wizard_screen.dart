@@ -140,6 +140,13 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
                 name: _farmNameCtrl.text.trim(),
                 location: farm.location,
                 ownerId: farm.ownerId,
+                createdAt: farm.createdAt,
+                // نُبقي إعدادات المدجنة كما هي حتى لا تُصفَّر (وزن الكيس...)
+                feedBagWeightKg: farm.feedBagWeightKg,
+                eggsPerCarton: farm.eggsPerCarton,
+                eggsPerTray: farm.eggsPerTray,
+                defaultMortalityRate: farm.defaultMortalityRate,
+                cartonLowThreshold: farm.cartonLowThreshold,
               ));
         }
       } catch (_) {}

@@ -14,9 +14,10 @@ class Formatters {
     return '${formatDate(date)} - $dayName';
   }
 
-  /// تنسيق الأرقام بفاصل الآلاف
+  /// تنسيق الأرقام بفاصل الآلاف مع إبقاء الكسور العشرية
+  /// (505.6 ← "505.6" وليس "505" أو "506") وصولاً إلى 3 خانات بعد الفاصلة.
   static String formatNumber(num value) {
-    return NumberFormat('#,###').format(value);
+    return NumberFormat('#,##0.###').format(value);
   }
 
   /// تنسيق الوزن

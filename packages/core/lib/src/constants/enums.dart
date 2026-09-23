@@ -96,6 +96,7 @@ enum SyncStatus { pending, synced, failed, processing, conflict }
 /// فئات الإيرادات
 enum RevenueCategory {
   liveChicken('بيع دجاج حي'),
+  eggSales('مبيعات البيض'),
   building('بيع عمارة/مساحة'),
   equipment('بيع عدة/تجهيزات'),
   other('أشياء أخرى');

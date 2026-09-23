@@ -146,6 +146,11 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
         try {
           await ref.read(revenueRepositoryProvider).syncPendingRecords();
         } catch (_) {}
+        // إعدادات المدجنة (وزن الكيس...) لا تمرّ بطابور المزامنة العام؛
+        // نعيد رفعها إن كان تعديل سابق لم يصل للخادم.
+        try {
+          await ref.read(farmRepositoryProvider).pushPendingSettings(farmId);
+        } catch (_) {}
 
         final pulled = await ref.read(syncRepositoryProvider).syncNow(farmId);
         if (pulled.uploadedCount > 0 || (pulled.downloadedCount > 0 && mounted)) {

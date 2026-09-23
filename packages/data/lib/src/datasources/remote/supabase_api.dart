@@ -68,6 +68,11 @@ abstract interface class SupabaseStorageApi {
 class SupabaseClientApiAdapter implements SupabaseApi {
   final SupabaseClient? _client;
 
+  /// مهلة طلب الشبكة: أي طلب معلّق (شبكة مقطوعة/بطيئة) يفشل بعدها
+  /// بدلاً من ترك الشاشات على مؤشر الانتظار للأبد، وتنزلق المصادر
+  /// تلقائياً إلى النسخة المحلية (انقطاع اتصال).
+  static const Duration requestTimeout = Duration(seconds: 15);
+
   SupabaseClientApiAdapter(SupabaseClient client) : _client = client;
 
   /// ═══ CR-4 FIX: محوّل فارغ لوضع عدم الاتصال ═══
@@ -90,7 +95,7 @@ class SupabaseClientApiAdapter implements SupabaseApi {
   @override
   Future<dynamic> rpc(String name, {Map<String, dynamic>? params}) {
     _throwIfOffline();
-    return _client!.rpc(name, params: params);
+    return _client!.rpc(name, params: params).timeout(requestTimeout);
   }
 
   @override
@@ -174,7 +179,7 @@ class _ReadAdapter implements RemoteRead {
 
   @override
   Future<List<Map<String, dynamic>>> get() async {
-    final result = await _builder;
+    final result = await _builder.timeout(SupabaseClientApiAdapter.requestTimeout);
     if (result == null) return [];
     return (result as List)
         .map((e) => Map<String, dynamic>.from(e as Map))
@@ -183,14 +188,18 @@ class _ReadAdapter implements RemoteRead {
 
   @override
   Future<Map<String, dynamic>?> maybeSingle() async {
-    final result = await _builder.maybeSingle();
+    final result = await _builder
+        .maybeSingle()
+        .timeout(SupabaseClientApiAdapter.requestTimeout);
     if (result == null) return null;
     return Map<String, dynamic>.from(result as Map);
   }
 
   @override
   Future<Map<String, dynamic>> single() async {
-    final result = await _builder.single();
+    final result = await _builder
+        .single()
+        .timeout(SupabaseClientApiAdapter.requestTimeout);
     return Map<String, dynamic>.from(result as Map);
   }
 }
@@ -208,7 +217,7 @@ class _MutationAdapter implements RemoteMutation {
 
   @override
   Future<void> run() async {
-    await _builder;
+    await _builder.timeout(SupabaseClientApiAdapter.requestTimeout);
   }
 
   @override

@@ -93,6 +93,10 @@ abstract class FarmRepository {
   /// في السحابة مع تحديث الكاش المحلي - المصدر: إعدادات سطح مكتب المدير.
   Future<void> updateSettings(FarmModel farm);
 
+  /// يعيد رفع إعدادات المدجنة إن كانت لم تصل للخادم (فشل سابق/انقطاع).
+  /// يُستدعى من المزامنة الدورية. يُعيد true إن لم يبقَ شيء معلّق.
+  Future<bool> pushPendingSettings(String farmId);
+
   /// عملة الإدخال للقبض والمصروفات (دولار/ليرة) - الدولار أساسي للعرض
   Future<AppCurrency> getInputCurrency();
 

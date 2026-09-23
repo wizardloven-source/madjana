@@ -51,6 +51,7 @@ class SupabaseDispatchDatasource {
           'name': customer.name,
           'phone': customer.phone,
           'notes': customer.notes,
+          'is_global': customer.isGlobal,
         })
         .eq('id', id)
         .run();

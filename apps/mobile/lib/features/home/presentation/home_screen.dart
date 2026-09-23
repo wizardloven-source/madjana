@@ -617,7 +617,7 @@ class _TodaySummaryCardState extends ConsumerState<_TodaySummaryCard> {
     _pendingSub ??= ref.listenManual<int>(
       syncProvider.select((s) => s.pendingCount),
       (prev, next) {
-        if (next > prev) _load();
+        if (next > (prev ?? 0)) _load();
       },
     );
   }

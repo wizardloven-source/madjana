@@ -23,6 +23,7 @@ class CustomerDao {
       'phone': customer.phone,
       'notes': customer.notes,
       'total_debt': customer.totalDebt,
+      'is_global': customer.isGlobal ? 1 : 0,
       'sync_status': SyncStatus.pending.name,
       // ═══ C1 FIX: كتابة الإصدار ═══
       'version': customer.version,
@@ -38,17 +39,19 @@ class CustomerDao {
         'name': customer.name,
         'phone': customer.phone,
         'notes': customer.notes,
+        'is_global': customer.isGlobal,
       },
     );
 
     return id;
   }
 
+  /// زبائن مدجنة + الزبائن المشتركون (is_global) بين كل المداجن
   Future<List<CustomerModel>> getByFarm(String farmId) async {
     final db = await LocalDatabase.database;
     final maps = await db.query(
       _table,
-      where: 'farm_id = ?',
+      where: 'farm_id = ? OR is_global = 1',
       whereArgs: [farmId],
       orderBy: 'name ASC',
     );
@@ -99,6 +102,7 @@ class CustomerDao {
         'phone': customer.phone,
         'notes': customer.notes,
         'total_debt': customer.totalDebt,
+        'is_global': customer.isGlobal ? 1 : 0,
         'sync_status': SyncStatus.synced.name,
         // ═══ C1 FIX: حفظ إصدار النسخة السحابية ═══
         'version': customer.version,
@@ -120,6 +124,7 @@ class CustomerDao {
         'phone': customer.phone,
         'notes': customer.notes,
         'total_debt': customer.totalDebt,
+        'is_global': customer.isGlobal ? 1 : 0,
         'updated_at': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
@@ -134,6 +139,7 @@ class CustomerDao {
         'name': customer.name,
         'phone': customer.phone,
         'notes': customer.notes,
+        'is_global': customer.isGlobal,
       },
     );
   }
@@ -162,6 +168,7 @@ class CustomerDao {
       totalDebt: (map['total_debt'] as num?)?.toDouble() ?? 0,
       // ═══ C1 FIX: قراءة الإصدار من قاعدة البيانات ═══
       version: (map['version'] as int?) ?? 1,
+      isGlobal: (map['is_global'] as int?) == 1,
     );
   }
 }
