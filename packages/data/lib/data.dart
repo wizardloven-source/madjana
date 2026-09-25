@@ -17,6 +17,7 @@ export 'src/datasources/local/daos/settings_dao.dart';
 export 'src/datasources/local/daos/expense_dao.dart';
 export 'src/datasources/local/daos/revenue_dao.dart';
 export 'src/datasources/local/daos/inventory_dao.dart';
+export 'src/datasources/local/daos/stock_adjustments_dao.dart';
 export 'src/datasources/local/daos/notes_dao.dart';
 export 'src/datasources/local/daos/reminders_dao.dart';
 export 'src/datasources/local/daos/emergency_alert_dao.dart';

@@ -92,6 +92,7 @@ class _AnalyticsHubScreenState extends ConsumerState<AnalyticsHubScreen>
       DateRange.last30Days(),
       DateRange.thisMonth(),
       DateRange.previousMonth(),
+      DateRange.all(),
     ];
 
     return Container(
@@ -372,7 +373,7 @@ class _FeedTab extends ConsumerWidget {
                       _KpiData(
                         icon: Icons.pets,
                         label: 'علف/طائر',
-                        value: '${Formatters.formatWeight(kpi.feedPerBird)}',
+                        value: '${Formatters.formatPerBird(kpi.feedPerBird)}',
                         color: Colors.teal,
                       ),
                     ],
@@ -506,7 +507,7 @@ class _FlockPerformanceCard extends ConsumerWidget {
                       _KpiData(
                         icon: Icons.grass,
                         label: 'علف/طائر',
-                        value: '${Formatters.formatWeight(perf.feedPerBird)}',
+                        value: '${Formatters.formatPerBird(perf.feedPerBird)}',
                         color: Colors.brown,
                       ),
                     ]),

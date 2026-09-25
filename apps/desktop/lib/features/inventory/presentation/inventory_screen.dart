@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:core/core.dart';
 import '../../../core/providers.dart';
+import '../../../core/shell_state.dart';
 import '../../auth/providers/auth_provider.dart';
+import 'package:data/data.dart';
 
 /// شاشة إدارة المخزون (أدوية ومستلزمات) - للمدير
 class InventoryScreen extends ConsumerStatefulWidget {
@@ -24,6 +26,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   double _bagWeightKg = 50;
   int _eggsProduced = 0;
   int _eggsDispatched = 0;
+  int _eggSettlement = 0;
   int _eggStock = 0;
 
   // مخزون صحون الكرتون (صحن): المشترى (ربطات × 100) - المستهلك (كراتين×12 + أطباق)
@@ -72,10 +75,22 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
           dispatches.fold<int>(0, (s, d) => s + d.totalEggs);
 
       // صافي رصيد القطعان القديمة (opening balances) للإبقاء على اتساق لوحة التحكم
-      final openingNet = (await ref
-              .read(openingBalanceRepositoryProvider)
-              .getForFarm(_farmId))
-          .fold<int>(0, (s, b) => s + b.eggsProduced - b.eggsDispatched);
+      final openings = await ref
+          .read(openingBalanceRepositoryProvider)
+          .getForFarm(_farmId);
+      final openingProduced =
+          openings.fold<int>(0, (s, b) => s + b.eggsProduced);
+      final openingDispatched =
+          openings.fold<int>(0, (s, b) => s + b.eggsDispatched);
+
+      // كمية التسوية اليدوية (بيض فقط): إضافة (+) أو صرف (-)
+      final eggSettlement =
+          (await StockAdjustmentsDao().getAll(farmId: _farmId))
+              .where((r) => r['stock_type'] == 'eggs')
+              .fold<int>(
+                  0,
+                  (s, r) =>
+                      s + ((r['delta_qty'] as num?) ?? 0).round());
 
       // مخزون صحون الكرتون: المشترى (ربطات × 100 صحن) - المستهلك (كراتين×12 + أطباق)
       final cartonExpenses = await expenseRepo.getExpenses(farmId: _farmId);
@@ -104,9 +119,12 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         _feedReceivedKg = receivedIl;
         _feedConsumedKg = consumedIl;
         _bagWeightKg = bagWeight;
-        _eggsProduced = producedIl;
-        _eggsDispatched = dispatchedIl;
-        _eggStock = producedIl - dispatchedIl + openingNet;
+        _eggsProduced = producedIl + openingProduced;
+        _eggsDispatched = dispatchedIl + openingDispatched;
+        _eggSettlement = eggSettlement;
+        _eggStock = producedIl - dispatchedIl +
+            (openingProduced - openingDispatched) +
+            eggSettlement;
         _cartonPurchasedTrays = purchasedTrays;
         _cartonConsumedTrays = consumedTrays;
         _cartonStockTrays = purchasedTrays - consumedTrays;
@@ -126,6 +144,90 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
     );
+  }
+
+  /// حوار تسوية رصيد المخزون (إدخال أو إخراج يدوي للمدير)
+  Future<void> _showStockAdjustmentDialog() async {
+    final qtyCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    var stockType = 'eggs';
+    var deltaSign = 1;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          title: const Text('تسوية رصيد المخزون'),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: true, label: Text('إضافة (+)')),
+                    ButtonSegment(value: false, label: Text('صرف (-)')),
+                  ],
+                  selected: {deltaSign > 0},
+                  onSelectionChanged: (s) =>
+                      setDialog(() => deltaSign = s.first ? 1 : -1),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: stockType,
+                  decoration: const InputDecoration(labelText: 'نوع المخزون'),
+                  items: const [
+                    DropdownMenuItem(value: 'eggs', child: Text('بيض')),
+                    DropdownMenuItem(value: 'cartons', child: Text('صحون كرتون')),
+                    DropdownMenuItem(value: 'feed', child: Text('علف')),
+                  ],
+                  onChanged: (v) => setDialog(() => stockType = v ?? 'eggs'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: qtyCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'الكمية'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reasonCtrl,
+                  decoration: const InputDecoration(labelText: 'السبب'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final qty = double.tryParse(qtyCtrl.text.trim());
+                if (qty == null || qty <= 0) return;
+                final dao = StockAdjustmentsDao();
+                final managerId =
+                    ref.read(authProvider).currentUser?.uid ?? '';
+                await dao.insert({
+                  'farm_id': _farmId,
+                  'stock_type': stockType,
+                  'delta_qty': qty * deltaSign,
+                  'reason': reasonCtrl.text.trim().isEmpty
+                      ? 'تسوية يدوية'
+                      : reasonCtrl.text.trim(),
+                  'notes': '',
+                  'date': DateTime.now().toIso8601String().split('T').first,
+                  'manager_id': managerId,
+                });
+                if (ctx.mounted) Navigator.pop(ctx, true);
+              },
+              child: const Text('حفظ التسوية'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved == true) _load();
   }
 
   /// إنشاء أو تعديل عنصر
@@ -320,6 +422,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // إعادة تحميل المخزون تلقائياً عند وصول بيانات جديدة من المزامنة
+    ref.listen(dataRefreshTickProvider, (_, __) => _load());
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -341,6 +445,12 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 onPressed: () => _showItemDialog(),
                 icon: const Icon(Icons.add),
                 label: const Text('عنصر جديد'),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: () => _showStockAdjustmentDialog(),
+                icon: const Icon(Icons.balance),
+                label: const Text('تسوية رصيد'),
               ),
             ],
           ),
@@ -539,13 +649,22 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'الإنتاج: ${NumberFormat('#,##0').format(_eggsProduced)} بيضة  ·  '
-                    'التخريج: ${NumberFormat('#,##0').format(_eggsDispatched)} بيضة',
+                    'الإنتاج الكامل: ${NumberFormat('#,##0').format(_eggsProduced)} بيضة',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'التخريج الكامل: ${NumberFormat('#,##0').format(_eggsDispatched)} بيضة',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'كمية التسوية: ${NumberFormat('#,##0').format(_eggSettlement)} بيضة',
                     style: TextStyle(color: Colors.grey.shade700),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'الرصيد: ${NumberFormat('#,##0').format(_eggStock)} بيضة',
+                    'الباقي: ${NumberFormat('#,##0').format(_eggStock)} بيضة',
                     style: TextStyle(
                         fontSize: 12, color: Colors.grey.shade500),
                   ),

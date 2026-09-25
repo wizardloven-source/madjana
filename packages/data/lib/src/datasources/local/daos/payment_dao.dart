@@ -124,7 +124,9 @@ class PaymentDao {
     DateTime? toDate,
   }) async {
     final db = await LocalDatabase.database;
-    final where = <String>[];
+    // الصفوف المحذوفة ناعماً (deleted_at) غير صالحة للإجماليات —
+    // بقاءها كان يُضخّم المقبوضات/الذمم في لوحة التحكم وأرشيف التخريج.
+    final where = <String>['deleted_at IS NULL'];
     final args = <dynamic>[];
 
     if (farmId != null) {
@@ -192,24 +194,92 @@ class PaymentDao {
 
     // الذمم تُحسب لكل فاتورة (dispatch) بتجميع المدفوعات، لا لكل سجل دفع —
     // وإلا تتضاعف عند الدفع بالتقسيط. سجلات بلا فاتورة (قديمة) تُحسب كلٌّ على حدة.
+    // المحذوفة ناعماً تبقى خارج الحساب حتى لا تضخّم الذمم بعد مطابقة الخادم.
     final farmWhere = farmId != null ? ' AND farm_id = ?' : '';
+    final deletedWhere = ' AND deleted_at IS NULL';
     if (farmId != null) args..add(farmId)..add(farmId);
 
     final result = await db.rawQuery(
       'SELECT SUM(t.due - t.paid) as total FROM ('
       '  SELECT dispatch_id, MAX(total_due) as due, SUM(amount_paid) as paid '
       '  FROM $_table '
-      '  WHERE dispatch_id IS NOT NULL$farmWhere '
+      '  WHERE dispatch_id IS NOT NULL$farmWhere$deletedWhere '
       '  GROUP BY dispatch_id '
       '  HAVING SUM(amount_paid) < MAX(total_due)'
       '  UNION ALL '
       '  SELECT id, total_due as due, amount_paid as paid '
       '  FROM $_table '
-      '  WHERE dispatch_id IS NULL AND amount_paid < total_due$farmWhere'
+      '  WHERE dispatch_id IS NULL AND amount_paid < total_due$farmWhere$deletedWhere'
       ') t',
       args,
     );
     return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+  }
+
+  /// مدفوعات فاتورة تخريج واحدة (للتعديل)
+  Future<List<PaymentModel>> getByDispatch(String dispatchId) async {
+    final db = await LocalDatabase.database;
+    final maps = await db.query(
+      _table,
+      where: 'dispatch_id = ? AND deleted_at IS NULL',
+      whereArgs: [dispatchId],
+      orderBy: 'date ASC, created_at ASC',
+    );
+    return maps.map(_fromMap).toList();
+  }
+
+  /// تعديل بنود الفاتورة لكل سجلات القبض المرتبطة بالتخريج.
+  /// يُحدّث السجلات الموجودة (UPDATE) بدل إضافة سجل جديد، حتى لا تتضاعف
+  /// السجلات عند تعديل السعر/سعر الصرف، وينعكس الفرق على ذمة الزبون.
+  /// يُرجع عدد السجلات المحدّثة.
+  Future<int> updateInvoiceForDispatch({
+    required String dispatchId,
+    required double pricePerCarton,
+    required double totalDue,
+    required String currency,
+    double? exchangeRate,
+  }) async {
+    final db = await LocalDatabase.database;
+    final existing = await db.query(
+      _table,
+      columns: ['id', 'version'],
+      where: 'dispatch_id = ? AND deleted_at IS NULL',
+      whereArgs: [dispatchId],
+    );
+    if (existing.isEmpty) return 0;
+    final now = DateTime.now().toIso8601String();
+    var count = 0;
+    for (final row in existing) {
+      final id = row['id'] as String;
+      final ver = (row['version'] as int?) ?? 1;
+      await db.update(
+        _table,
+        {
+          'price_per_carton': pricePerCarton,
+          'total_due': totalDue,
+          'currency': currency,
+          'exchange_rate': exchangeRate,
+          'sync_status': SyncStatus.pending.name,
+          'updated_at': now,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      await LocalDatabase.enqueueChange(
+        tableName: _table,
+        recordId: id,
+        action: 'UPDATE',
+        previousVersion: ver,
+        payload: {
+          'price_per_carton': pricePerCarton,
+          'total_due': totalDue,
+          'currency': currency,
+          if (exchangeRate != null) 'exchange_rate': exchangeRate,
+        },
+      );
+      count++;
+    }
+    return count;
   }
 
   /// إجمالي المدفوعات المسجلة لفاتورة واحدة (لتحديد هل اكتمل السداد)
@@ -228,7 +298,7 @@ class PaymentDao {
     DateTime? toDate,
   }) async {
     final db = await LocalDatabase.database;
-    final where = <String>[];
+    final where = <String>['deleted_at IS NULL'];
     final args = <dynamic>[];
 
     if (farmId != null) {

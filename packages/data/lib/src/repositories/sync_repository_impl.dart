@@ -761,20 +761,45 @@ class SyncRepositoryImpl implements SyncRepository {
 
         final localRows = await db.query(
           tableName,
-          columns: ['id'],
-          where: 'sync_status = ? AND farm_id = ?',
-          whereArgs: [SyncStatus.synced.name, farmId],
+          columns: ['id', 'sync_status'],
+          where: 'farm_id = ? AND deleted_at IS NULL',
+          whereArgs: [farmId],
         );
+
+        // هل هذه المزرعة لديها عمليات رفضها الخادم (conflict) لهذا الجدول؟
+        // سجلاتها عالقة pending رغم وجودها على الخادم — يجب تطهيرها أيضاً
+        // عندما تختفي من قائمة الحيّ. أما السجلات الجديدة دون اتصال (منتظرة
+        // الرفع لأول مرة) فلا تلمس: هي غير حاضرة في live_ids أصلاً.
+        final conflictOps = await db.query(
+          'sync_queue',
+          columns: ['record_id'],
+          where: "table_name = ? AND status = 'conflict' AND farm_id = ?",
+          whereArgs: [tableName, farmId],
+        );
+        final conflictedRecordIds =
+            conflictOps.map((r) => r['record_id']?.toString() ?? '').toSet();
+
         final stale = localRows
-            .map((r) => r['id']?.toString() ?? '')
-            .where((id) => id.isNotEmpty && !ids.contains(id))
+            .map((r) => (r['id']?.toString() ?? '', r['sync_status']?.toString()))
+            .where((e) {
+              if (e.$1.isEmpty || ids.contains(e.$1)) return false;
+              final status = e.$2;
+              // محذوفة ناعماً أو صراع رفض — تُطهر. المعلّقة الجديدة فقط تبقي.
+              if (conflictedRecordIds.contains(e.$1)) return true;
+              if (status == SyncStatus.synced.name ||
+                  status == SyncStatus.failed.name) {
+                return true;
+              }
+              return false;
+            })
+            .map((e) => e.$1)
             .toList();
         if (stale.isEmpty) continue;
 
         for (final id in stale) {
           await db.delete(
             tableName,
-            where: "id = ? AND sync_status = 'synced'",
+            where: 'id = ?',
             whereArgs: [id],
           );
         }

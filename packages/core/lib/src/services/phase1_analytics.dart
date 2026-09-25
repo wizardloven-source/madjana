@@ -82,6 +82,15 @@ class DateRange {
     final end = DateTime(now.year, now.month, 0);
     return DateRange(from: start, to: end, label: 'الشهر السابق');
   }
+
+  /// النطاق الكامل من بداية السجلات حتى الآن
+  static DateRange all() {
+    return DateRange(
+      from: DateTime(2020, 1, 1),
+      to: DateTime.now(),
+      label: 'كامل',
+    );
+  }
 }
 
 // ─── Comparison Result ───
@@ -403,9 +412,23 @@ class FinancialKpi {
     required List<ExpenseModel> expenses,
     required DateRange range,
   }) {
-    final sales = payments
-        .where((p) => range.contains(p.date))
-        .fold<double>(0, (s, p) => s + p.totalDue);
+    // كل فاتورة تُحتسب مرة واحدة (أقصى totalDue) حتى لا يتضاعف الإيراد
+    // عند الدفع بالتقسيط أو عند تعديل السعر/سعر الصرف.
+    final invoiceByDispatch = <String, double>{};
+    var salesNoDispatch = 0.0;
+    for (final p in payments.where((p) => range.contains(p.date))) {
+      final did = p.dispatchId;
+      if (did == null) {
+        salesNoDispatch += p.totalDue;
+        continue;
+      }
+      if (p.totalDue > (invoiceByDispatch[did] ?? 0)) {
+        invoiceByDispatch[did] = p.totalDue;
+      }
+    }
+    final sales =
+        invoiceByDispatch.values.fold<double>(0, (s, v) => s + v) +
+            salesNoDispatch;
 
     final collected = payments
         .where((p) => range.contains(p.date))
@@ -415,9 +438,28 @@ class FinancialKpi {
         .where((e) => range.contains(e.date))
         .fold<double>(0, (s, e) => s + e.amount);
 
-    final outstanding = payments
-        .where((p) => !p.isPaid)
-        .fold<double>(0, (s, p) => s + (p.totalDue - p.amountPaid));
+    // المستحق = مجموع (أقصى فاتورة − مجموع مدفوعاتها) لكل فاتورة
+    final paidByDispatch = <String, double>{};
+    for (final p in payments) {
+      final did = p.dispatchId;
+      if (did == null) continue;
+      paidByDispatch[did] = (paidByDispatch[did] ?? 0) + p.amountPaid;
+    }
+    final invoiceAll = <String, double>{};
+    for (final p in payments) {
+      final did = p.dispatchId;
+      if (did == null) continue;
+      if (p.totalDue > (invoiceAll[did] ?? 0)) invoiceAll[did] = p.totalDue;
+    }
+    var outstanding = 0.0;
+    for (final entry in invoiceAll.entries) {
+      final due = entry.value - (paidByDispatch[entry.key] ?? 0);
+      if (due > 0) outstanding += due;
+    }
+    for (final p in payments.where((p) => p.dispatchId == null)) {
+      final due = p.totalDue - p.amountPaid;
+      if (due > 0) outstanding += due;
+    }
 
     return FinancialKpi(
       totalSales: sales,
@@ -603,8 +645,25 @@ class CustomerAnalytics {
         .where((p) => p.customerId == customer.id)
         .toList();
 
+    // كل فاتورة مرة واحدة (أقصى totalDue) — وإلا يتضاعف إجمالي المبيعات
+    // عند التقسيط أو تعديل السعر/سعر الصرف.
+    final invoiceByDispatch = <String, double>{};
+    final paidByDispatch = <String, double>{};
+    var salesNoDispatch = 0.0;
+    for (final p in custPayments) {
+      final did = p.dispatchId;
+      if (did == null) {
+        salesNoDispatch += p.totalDue;
+        continue;
+      }
+      if (p.totalDue > (invoiceByDispatch[did] ?? 0)) {
+        invoiceByDispatch[did] = p.totalDue;
+      }
+      paidByDispatch[did] = (paidByDispatch[did] ?? 0) + p.amountPaid;
+    }
     final totalSales =
-        custPayments.fold<double>(0, (s, p) => s + p.totalDue);
+        invoiceByDispatch.values.fold<double>(0, (s, v) => s + v) +
+            salesNoDispatch;
     final totalPaid =
         custPayments.fold<double>(0, (s, p) => s + p.amountPaid);
     final totalEggs =
@@ -621,7 +680,17 @@ class CustomerAnalytics {
     final avgTx =
         custDispatches.isNotEmpty ? totalSales / custDispatches.length : 0.0;
 
-    final outstanding = customer.totalDebt;
+    // المستحق: قيمة كل فاتورة ناقص ما دُفع لها — يُحسب ديناميكياً من
+    // المدفوعات ولا يُعتمد على customers.total_debt المخزّن (قد يكون قديماً).
+    var outstanding = 0.0;
+    for (final e in invoiceByDispatch.entries) {
+      final due = e.value - (paidByDispatch[e.key] ?? 0);
+      if (due > 0) outstanding += due;
+    }
+    for (final p in custPayments.where((p) => p.dispatchId == null)) {
+      final due = p.totalDue - p.amountPaid;
+      if (due > 0) outstanding += due;
+    }
     final classification = outstanding > 1000
         ? 'attention'
         : (totalPaid > 0 ? 'good' : 'normal');

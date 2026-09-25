@@ -247,12 +247,22 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
     final totalCartons = filtered.fold<int>(0, (s, r) => s + r.cartons);
     final totalBroken = filtered.fold<int>(0, (s, r) => s + r.brokenEggs);
 
-    // معدل الإنتاج % للفترة المعروضة
+    // معدل الإنتاج % للفترة المعروضة — على القطعان المنتجة فقط، لأن إدراج
+    // قطيع بلا إنتاج (مرحلة تربية) في المقام يُنزّل المعدل ظلماً.
     final days = _toDate.difference(_fromDate).inDays + 1;
     final counts = ref.watch(effectiveFlockCountsProvider(_farmId));
-    final birds = _flocks
-        .where((f) => f.status == FlockStatus.active)
-        .fold<int>(0, (s, f) => s + (counts.value?[f.id] ?? f.currentCount));
+    final activeFlocks =
+        _flocks.where((f) => f.status == FlockStatus.active).toList();
+    final producingIds =
+        filtered.map((r) => r.flockId).toSet();
+    final producingFlocks =
+        activeFlocks.where((f) => producingIds.contains(f.id)).toList();
+    final allBirds = activeFlocks.fold<int>(
+        0, (s, f) => s + (counts.value?[f.id] ?? f.currentCount));
+    final birds = producingFlocks.isNotEmpty
+        ? producingFlocks.fold<int>(
+            0, (s, f) => s + (counts.value?[f.id] ?? f.currentCount))
+        : allBirds;
     final prodRate = FarmAnalytics.avgProductionRate(
       totalEggs: totalEggs,
       birdCount: birds,

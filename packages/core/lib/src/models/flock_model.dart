@@ -119,4 +119,23 @@ class FlockModel {
 
   /// اسم مختصر للعرض
   String get displayName => '$breed (${currentCount} طائر)';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FlockModel &&
+          id == other.id &&
+          farmId == other.farmId &&
+          breed == other.breed &&
+          startDate == other.startDate &&
+          initialCount == other.initialCount &&
+          currentCount == other.currentCount &&
+          status == other.status &&
+          sectionsCount == other.sectionsCount &&
+          version == other.version;
+
+  @override
+  int get hashCode => Object.hash(
+      id, farmId, breed, startDate, initialCount, currentCount, status,
+      sectionsCount, version);
 }

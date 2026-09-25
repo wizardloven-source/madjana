@@ -114,11 +114,22 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     // المؤشرات التحليلية
     final days = _toDate.difference(_fromDate).inDays + 1;
     final counts = ref.watch(effectiveFlockCountsProvider(_farmId));
+    // عدد الطيور المنتجة فقط ضمن النطاق — إدراج قطيع بلا إنتاج في المقام
+    // يُنزّل معدل الإنتاج ظلماً.
+    final activeFlocks =
+        _flocks.where((f) => f.status == FlockStatus.active).toList();
+    final producingIds = _eggs.map((e) => e.flockId).toSet();
+    final producingFlocks =
+        activeFlocks.where((f) => producingIds.contains(f.id)).toList();
+    final allBirds = activeFlocks.fold<int>(
+        0,
+        (s, f) => s + (counts.value?[f.id] ?? f.currentCount));
     final birds = counts.value == null
         ? _birds
-        : _flocks
-            .where((f) => f.status == FlockStatus.active)
-            .fold<int>(0, (s, f) => s + (counts.value![f.id] ?? f.currentCount));
+        : (producingFlocks.isNotEmpty
+            ? producingFlocks.fold<int>(
+                0, (s, f) => s + (counts.value![f.id] ?? f.currentCount))
+            : allBirds);
     final prodRate = FarmAnalytics.avgProductionRate(
         totalEggs: totalEggs, birdCount: birds, days: days);
 final mortDailyRate = FarmAnalytics.dailyMortalityRate(

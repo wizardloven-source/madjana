@@ -247,17 +247,31 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _mortalityRecords.fold<int>(0, (sum, m) => sum + m.count) +
             openingMortalityTotal;
 
-    final activeFlocks =
-        _flocks.where((f) => f.status == FlockStatus.active).toList();
-    final counts = ref.watch(effectiveFlockCountsProvider(_farmId));
-    final totalBirds =
-        activeFlocks.fold<int>(0, (sum, f) => sum + (counts.value?[f.id] ?? f.currentCount));
-
     // ---- المؤشرات التحليلية (معدل الإنتاج / النفوق / العلف) ----
     final weekStart = DateTime(now.year, now.month, now.day)
         .subtract(const Duration(days: 6));
     bool inLast7(DateTime d) =>
         !d.isBefore(weekStart) && !d.isAfter(now);
+
+    final activeFlocks =
+        _flocks.where((f) => f.status == FlockStatus.active).toList();
+    final counts = ref.watch(effectiveFlockCountsProvider(_farmId));
+    // عدد الطيور المنتجة فقط: القطعان النشطة التي لها سجلات إنتاج (خلال
+    // آخر 7 أيام على الأقل) — إدراج قطيع بلا إنتاج (مرحلة تربية مثلاً) في
+    // المقام يُنزّل معدل الإنتاج ظلماً.
+    final producingFlockIds = _eggRecords
+        .where((e) => inLast7(e.date))
+        .map((e) => e.flockId)
+        .toSet();
+    final producingFlocks = activeFlocks
+        .where((f) => producingFlockIds.contains(f.id))
+        .toList();
+    final baseBirds = activeFlocks
+        .fold<int>(0, (s, f) => s + (counts.value?[f.id] ?? f.currentCount));
+    final totalBirds = producingFlocks.isNotEmpty
+        ? producingFlocks.fold<int>(
+            0, (s, f) => s + (counts.value?[f.id] ?? f.currentCount))
+        : baseBirds;
 
     final eggs7 = _eggRecords
         .where((e) => inLast7(e.date))

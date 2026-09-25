@@ -420,6 +420,10 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
   @override
   Widget build(BuildContext context) {
     final active = _flocks.where((f) => f.status == FlockStatus.active);
+    // عدد الطيور المنتجة: القطعان النشطة التي لها بيانات أداء فقط — إدراج
+    // قطيع بلا إنتاج (مرحلة تربية) في المقام يُنزّل معدل الإنتاج ظلماً.
+    final producedFlocksCount = active.fold<int>(
+        0, (sum, f) => sum + (_flockDataMap.containsKey(f.id) ? f.currentCount : 0));
     final totalBirds =
         active.fold<int>(0, (sum, f) => sum + f.currentCount);
     final totalActiveFlocks = active.length;
@@ -444,8 +448,8 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
           totalEffectiveMortality / totalEffectiveInitial * 100;
     }
 
-    if (totalBirds > 0 && totalProducedEggs > 0) {
-      avgProductionRate = totalProducedEggs / totalBirds * 100;
+    if (producedFlocksCount > 0 && totalProducedEggs > 0) {
+      avgProductionRate = totalProducedEggs / producedFlocksCount * 100;
     }
 
     return Padding(

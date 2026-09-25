@@ -25,6 +25,12 @@ class Formatters {
     return '${kg.toStringAsFixed(2)} كغ';
   }
 
+  /// تنسيق الكمية لكل طائر: بالغرام عندما تقل عن الكيلو، وإلا بالكيلو
+  static String formatPerBird(double kg) {
+    if (kg < 1) return '${(kg * 1000).round()} غ';
+    return formatWeight(kg);
+  }
+
   /// تنسيق العملة (الدولار هو الأساسي)
   static String formatCurrency(double amount, {String symbol = '\$'}) {
     return '${formatNumber(amount)} $symbol';

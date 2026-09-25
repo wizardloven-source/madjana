@@ -113,9 +113,21 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
     return list;
   }
 
-  /// فتح نافذة تسجيل القبض لفاتورة
+  /// فتح نافذة تسجيل القبض / تعديل الفاتورة
+  ///
+  /// - أول مرة (لا توجد مدفوعات): إنشاء سجل جديد.
+  /// - تعديل السعر/سعر الصرف مع ترك المقبوض فارغاً: UPDATE للسجلات
+  ///   الموجودة فقط (لا سجل جديد) ويظهر الفرق زيادة/خصماً على ذمة الزبون.
+  /// - تعديل السعر + مبلغ مقبوض جديد: تحديث الفاتورة أولاً ثم إضافة دفعة.
+  /// - مبلغ جديد فقط: إضافة دفعة تقسيط جديدة.
   Future<void> _recordPayment(DispatchModel dispatch) async {
+    final paymentRepo = ref.read(paymentRepositoryProvider);
     final existing = _payments.where((p) => p.dispatchId == dispatch.id).toList();
+    final oldTotal = existing.isEmpty
+        ? 0.0
+        : existing.map((p) => p.totalDue).reduce((a, b) => a > b ? a : b);
+    final paidSoFar =
+        existing.fold<double>(0, (s, p) => s + p.amountPaid);
     final inputCurrency =
         await ref.read(farmRepositoryProvider).getInputCurrency();
     if (!mounted) return;
@@ -131,29 +143,103 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
     );
 
     if (result != null && mounted) {
+      final newTotal = result['totalDue'] as double;
+      final newPaid = result['amountPaid'] as double;
+      final newPrice = result['price'] as double;
+      final newCurrency = result['currency'] as AppCurrency;
+      final newRate = result['exchangeRate'] as double?;
+      final isPureEdit =
+          existing.isNotEmpty && newPaid <= 0.001;
+      // المرجع: سجل الفاتورة (أقصى إجمالي) — تُقارن بنوده مباشرة
+      // (السعر/العملة/الصرف) لا الإجمالي فقط، حتى لا تبتلع عتبة التقريب
+      // تصحيحات صغيرة مثل 389950 ← 390000.
+      final refPay = existing.isNotEmpty
+          ? existing.reduce((a, b) => a.totalDue >= b.totalDue ? a : b)
+          : null;
+      final priceChanged = refPay != null &&
+          ((newPrice - refPay.pricePerCarton).abs() > 1e-9 ||
+              newCurrency != refPay.currency ||
+              (newCurrency == AppCurrency.lira &&
+                  ((newRate ?? 0) - (refPay.exchangeRate ?? 0)).abs() >
+                      1e-9) ||
+              (newTotal - oldTotal).abs() > 0.001);
+
+      if (isPureEdit) {
+        // ─── تعديل فقط: لا سجل جديد ───
+        if (!priceChanged) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('لا يوجد أي تغيير للحفظ')),
+          );
+          return;
+        }
+        await paymentRepo.updateInvoiceForDispatch(
+          dispatchId: dispatch.id!,
+          pricePerCarton: newPrice,
+          totalDue: newTotal,
+          currency: newCurrency,
+          exchangeRate: newRate,
+        );
+        final diff = newTotal - oldTotal;
+        ref.read(dataRefreshTickProvider.notifier).state++;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                diff > 0
+                    ? 'تم تعديل الفاتورة: +${Formatters.formatCurrency(diff)} تُضاف لذمة الزبون'
+                    : 'تم تعديل الفاتورة: ${Formatters.formatCurrency(diff)} تُخصم من ذمة الزبون',
+              ),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        _load();
+        return;
+      }
+
+      if (priceChanged) {
+        // ─── تعديل السعر + دفعة جديدة: حدّث الفاتورة أولاً ───
+        await paymentRepo.updateInvoiceForDispatch(
+          dispatchId: dispatch.id!,
+          pricePerCarton: newPrice,
+          totalDue: newTotal,
+          currency: newCurrency,
+          exchangeRate: newRate,
+        );
+      }
+
       final payment = PaymentModel(
         farmId: _farmId,
         dispatchId: dispatch.id,
         customerId: dispatch.customerId,
         date: DateTime.now(),
-        pricePerCarton: result['price'] as double,
-        totalDue: result['totalDue'] as double,
-        amountPaid: result['amountPaid'] as double,
+        pricePerCarton: newPrice,
+        totalDue: newTotal,
+        amountPaid: newPaid,
         paymentMethod: result['method'] as PaymentMethod,
-        currency: result['currency'] as AppCurrency,
-        exchangeRate: result['exchangeRate'] as double?,
+        currency: newCurrency,
+        exchangeRate: newRate,
         notes: result['notes'] as String?,
         managerId: _managerId,
       );
 
-      await ref.read(paymentRepositoryProvider).save(payment);
+      await paymentRepo.save(payment);
       ref.read(dataRefreshTickProvider.notifier).state++;
       if (mounted) {
+        final diff = priceChanged ? newTotal - oldTotal : 0.0;
+        var msg = 'تم تسجيل القبض بنجاح';
+        if (priceChanged) {
+          msg += diff > 0
+              ? ' (تعديل الفاتورة: +${Formatters.formatCurrency(diff)} على ذمة الزبون)'
+              : ' (تعديل الفاتورة: ${Formatters.formatCurrency(diff)} خصم من الذمة)';
+        } else if (existing.isNotEmpty) {
+          final remaining = newTotal - (paidSoFar + newPaid);
+          msg += remaining > 0.001
+              ? ' (المتبقي: ${Formatters.formatCurrency(remaining)})'
+              : ' (اكتمل السداد)';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم تسجيل القبض بنجاح'),
-            behavior: SnackBarBehavior.floating,
-          ),
+          SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
         );
       }
       _load();
@@ -632,8 +718,12 @@ class _PaymentDialogState extends State<_PaymentDialog> {
           last.currency == AppCurrency.lira && (last.exchangeRate ?? 0) > 0
               ? last.pricePerCarton * last.exchangeRate!
               : last.pricePerCarton;
-      // حفظ الكسور العشرية كما هي (505.6 وليس 505/506)
-      _priceController.text = _trimZeros(inInputCurrency);
+      // الليرة تُعرض بلا كسور (390000 لا 389999.99): أي بقايا عشرية هي
+      // خطأ تقريب عائم/تخزين قديم، والليرة العملية بلا أجزاء.
+      // حفظ الكسور العشرية للدولار كما هي (505.6 وليس 505/506)
+      _priceController.text = last.currency == AppCurrency.lira
+          ? inInputCurrency.round().toString()
+          : _trimZeros(inInputCurrency);
     } else {
       _currency = widget.defaultCurrency;
     }
@@ -658,11 +748,24 @@ class _PaymentDialogState extends State<_PaymentDialog> {
   Widget build(BuildContext context) {
     final paidSoFar =
         widget.existingPayments.fold<double>(0, (s, p) => s + p.amountPaid);
-    final totalDueLira = _priceController.text.isNotEmpty
+    // الكراتين الفعلية = كراتين + كسر الأطباق (12 صحن = كرتون)
+    final effectiveCartons = widget.dispatch.cartons +
+        widget.dispatch.trays / AppConstants.traysPerCarton;
+    final oldTotal = widget.existingPayments.isEmpty
+        ? 0.0
+        : widget.existingPayments
+            .map((p) => p.totalDue)
+            .reduce((a, b) => a > b ? a : b);
+    final hasExisting = widget.existingPayments.isNotEmpty;
+    final priceInput = _priceController.text.isNotEmpty
         ? double.tryParse(_priceController.text) ?? 0.0
         : 0.0;
-    final totalDueDollar = _toDollar(totalDueLira * widget.dispatch.cartons);
-    final remaining = totalDueDollar - paidSoFar;
+    final newTotal = _toDollar(priceInput * effectiveCartons);
+    final diff = hasExisting ? newTotal - oldTotal : 0.0;
+    final priceChanged = hasExisting && diff.abs() > 0.001;
+    final amountInput = double.tryParse(_amountController.text) ?? 0.0;
+    final isPureEdit = hasExisting && amountInput <= 0.001;
+    final remaining = newTotal - paidSoFar - (isPureEdit ? 0 : amountInput);
 
     return AlertDialog(
       title: Text('قبض فاتورة - ${widget.customer?.name ?? ''}'),
@@ -674,7 +777,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text('التاريخ: ${Formatters.formatDate(widget.dispatch.date)}'),
-              Text('الكراتين: ${widget.dispatch.cartons}'),
+              Text('الكراتين: ${widget.dispatch.cartons} + ${widget.dispatch.trays} صحن'),
               const SizedBox(height: 8),
               // ─── عملة الإدخال ───
               Wrap(
@@ -717,13 +820,44 @@ class _PaymentDialogState extends State<_PaymentDialog> {
               ],
               const SizedBox(height: 12),
               Text(
-                'إجمالي المستحق: ${Formatters.formatCurrency(totalDueDollar)}',
+                'إجمالي المستحق: ${Formatters.formatCurrency(newTotal)}',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               if (_currency == AppCurrency.lira)
                 Text(
-                  '(${Formatters.formatNumber(totalDueLira * widget.dispatch.cartons)} ${_inputSymbol})',
+                  '(${Formatters.formatNumber(priceInput * effectiveCartons)} ${_inputSymbol})',
                   style: const TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+              // ─── أثر التعديل على ذمة الزبون ───
+              if (priceChanged)
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: (diff > 0 ? Colors.redAccent : Colors.green)
+                        .withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    diff > 0
+                        ? 'التعديل: +${Formatters.formatCurrency(diff)} تُضاف لذمة الزبون'
+                        : 'التعديل: ${Formatters.formatCurrency(diff)} تُخصم من ذمة الزبون',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: diff > 0
+                          ? Colors.redAccent
+                          : Colors.green,
+                    ),
+                  ),
+                ),
+              if (hasExisting)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'الفاتورة الحالية: ${Formatters.formatCurrency(oldTotal)}',
+                    style: const TextStyle(
+                        color: Colors.grey, fontSize: 12),
+                  ),
                 ),
               Text(
                 'المسدد سابقاً: ${Formatters.formatCurrency(paidSoFar)}',
@@ -733,6 +867,14 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                 'المتبقي: ${Formatters.formatCurrency(remaining < 0 ? 0 : remaining)}',
                 style: const TextStyle(color: Colors.redAccent),
               ),
+              if (hasExisting)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'لتعديل السعر/سعر الصرف فقط: عدّل السعر واترك المقبوض فارغاً ثم احفظ — لن يُضاف سجل جديد.',
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                ),
               const SizedBox(height: 12),
               TextField(
                 controller: _amountController,
@@ -813,9 +955,12 @@ class _PaymentDialogState extends State<_PaymentDialog> {
               return;
             }
             // تُخزَّن القيم بالدولار دائماً مع حفظ العملة وسعر الصرف
+            // الكراتين الفعلية تشمل كسر الأطباق (12 صحن = كرتون)
+            final effectiveCartons = widget.dispatch.cartons +
+                widget.dispatch.trays / AppConstants.traysPerCarton;
             Navigator.pop(context, {
               'price': _toDollar(price),
-              'totalDue': _toDollar(price * widget.dispatch.cartons),
+              'totalDue': _toDollar(price * effectiveCartons),
               'amountPaid': _toDollar(amount ?? 0),
               'method': _method,
               'currency': _currency,
@@ -825,7 +970,10 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                   : _notesController.text,
             });
           },
-          child: const Text('حفظ القبض'),
+          child: Text(widget.existingPayments.isNotEmpty &&
+                  (double.tryParse(_amountController.text) ?? 0) <= 0
+              ? 'حفظ التعديل'
+              : 'حفظ القبض'),
         ),
       ],
     );

@@ -1083,6 +1083,7 @@ class LocalDatabase {
               updated_at TEXT NOT NULL
             )
           ''');
+          }
         }
   }
 
@@ -1090,6 +1091,15 @@ class LocalDatabase {
   static Future<bool> _columnExists(Database db, String table, String column) async {
     final rows = await db.rawQuery('PRAGMA table_info($table)');
     return rows.any((r) => r['name'] == column);
+  }
+
+  /// يتحقق من وجود جدول
+  static Future<bool> _tableExists(Database db, String table) async {
+    final rows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+      [table],
+    );
+    return rows.isNotEmpty;
   }
 
   /// مسح قاعدة البيانات (عند تسجيل الخروج)
@@ -1123,6 +1133,7 @@ class LocalDatabase {
       'sync_state',
       'conflicts',
     ];
+    for (final table in tables) {
       await db.delete(table);
     }
   }

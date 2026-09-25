@@ -28,6 +28,7 @@ class _FlockAccountingScreenState
   List<DispatchModel> _dispatches = [];
   List<PaymentModel> _payments = [];
   List<MedicationModel> _medications = [];
+  List<CustomerModel> _customers = [];
   OpeningBalanceModel? _opening;
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
@@ -77,6 +78,7 @@ class _FlockAccountingScreenState
         ref
             .read(openingBalanceRepositoryProvider)
             .getForFlock(_farmId, widget.flock.id),
+        ref.read(dispatchRepositoryProvider).getCustomers(_farmId),
       ]);
       if (!mounted) return;
       setState(() {
@@ -87,6 +89,7 @@ class _FlockAccountingScreenState
         _payments = results[4] as List<PaymentModel>;
         _medications = results[5] as List<MedicationModel>;
         _opening = results[6] as OpeningBalanceModel?;
+        _customers = results[7] as List<CustomerModel>;
       });
     } catch (e) {
       if (!mounted) return;
@@ -95,6 +98,17 @@ class _FlockAccountingScreenState
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  String _customerName(String id) {
+    if (id.isEmpty) return '-';
+    for (final c in _customers) {
+      if (c.id == id) {
+        final n = c.name.trim();
+        return n.isEmpty ? '-' : n;
+      }
+    }
+    return id.length <= 8 ? id : id.substring(0, 8);
   }
 
   Future<void> _pickDate({required bool isFrom}) async {
@@ -148,7 +162,20 @@ class _FlockAccountingScreenState
     // ── حسابات التخريج والمبيعات ──
     final dispatchedCartons = flockDispatches.fold<int>(0, (s, d) => s + d.cartons);
     final dispatchedEggs = flockDispatches.fold<int>(0, (s, d) => s + d.totalEggs);
-    final totalDue = flockPayments.fold<double>(0, (s, p) => s + p.totalDue);
+
+    // قيمة كل تخريج = قيمة فاتورته (أقصى totalDue)، لا مجموع أقساط الدفعة،
+    // وإلا احتُسبت قيمة التخريج أكثر من مرة عند تسجيل أكثر من دفعة.
+    final invoiceByDispatch = <String, double>{};
+    for (final p in flockPayments) {
+      final did = p.dispatchId;
+      if (did == null) continue;
+      if (p.totalDue > (invoiceByDispatch[did] ?? 0)) {
+        invoiceByDispatch[did] = p.totalDue;
+      }
+    }
+    final totalDue = invoiceByDispatch.values.fold<double>(0, (s, v) => s + v);
+
+    // المدفوعات تُجمع من كل الدفعات (كل قسط يُحتسب مرة واحدة).
     final totalPaid = flockPayments.fold<double>(0, (s, p) => s + p.amountPaid);
     final outstanding = totalDue - totalPaid;
 
@@ -397,9 +424,7 @@ class _FlockAccountingScreenState
                               DataCell(Text(
                                   '${d.date.year}/${d.date.month}/${d.date.day}')),
                               DataCell(Text(
-                                d.customerId.length <= 8
-                                    ? d.customerId
-                                    : d.customerId.substring(0, 8),
+                                _customerName(d.customerId),
                               )),
                               DataCell(Text('${d.cartons}')),
                               DataCell(Text('${d.trays}')),
@@ -414,6 +439,87 @@ class _FlockAccountingScreenState
                                   ),
                                 ),
                                 backgroundColor: payment.isPaid
+                                    ? (isDark
+                                        ? Colors.green.shade800
+                                        : Colors.green.shade100)
+                                    : (isDark
+                                        ? Colors.orange.shade800
+                                        : Colors.orange.shade100),
+                                padding: EdgeInsets.zero,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                              )),
+                            ]);
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 24),
+                  _SectionTitle('المستحق والمدفوع لكل تخريج'),
+                  const SizedBox(height: 8),
+                  if (flockPayments.isEmpty)
+                    const Card(
+                        child: Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text('لا توجد فواتير مسجّلة لهذه الفترة'),
+                        ))
+                  else
+                    Card(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: DataTable(
+                          columns: const [
+                            DataColumn(label: Text('التاريخ')),
+                            DataColumn(label: Text('الزبون')),
+                            DataColumn(label: Text('قيمة الفاتورة')),
+                            DataColumn(label: Text('المدفوع')),
+                            DataColumn(label: Text('المتبقي')),
+                            DataColumn(label: Text('الحالة')),
+                          ],
+                          rows: invoiceByDispatch.entries.map((entry) {
+                            final matching = flockDispatches
+                                .where((d) => d.id == entry.key);
+                            final dispatch =
+                                matching.isEmpty ? null : matching.first;
+                            final dispDate = dispatch?.date ?? _toDate;
+                            final dispCustomer = dispatch?.customerId ?? '';
+                            final name = _customerName(dispCustomer);
+                            final due = entry.value;
+                            final paid = flockPayments
+                                .where((p) => p.dispatchId == entry.key)
+                                .fold<double>(0, (s, p) => s + p.amountPaid);
+                            final remaining = due - paid;
+                            final settled =
+                                (remaining.abs() < 0.01) || due <= 0;
+                            return DataRow(cells: [
+                              DataCell(Text(
+                                  '${dispDate.year}/${dispDate.month}/${dispDate.day}')),
+                              DataCell(Text(name)),
+                              DataCell(Text(
+                                  '$currency ${due.toStringAsFixed(2)}')),
+                              DataCell(Text(
+                                  '$currency ${paid.toStringAsFixed(2)}')),
+                              DataCell(Text(
+                                  '$currency ${remaining.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: remaining > 0.01
+                                        ? Colors.orange
+                                        : Colors.green,
+                                  ))),
+                              DataCell(Chip(
+                                label: Text(
+                                  settled
+                                      ? 'مسدّد'
+                                      : (due <= 0 ? 'غير مسعّر' : 'مستحق'),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
+                                ),
+                                backgroundColor: settled
                                     ? (isDark
                                         ? Colors.green.shade800
                                         : Colors.green.shade100)

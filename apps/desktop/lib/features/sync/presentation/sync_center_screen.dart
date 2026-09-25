@@ -77,6 +77,11 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
     try {
       final repo = ref.read(syncRepositoryProvider);
       final result = await repo.syncNow(farmId);
+      // تنبيه الشاشات (لوحة التحكم/المخزون/التخريج) لإعادة التحميل بعد
+      // السحب — بدونها تبقى الأرقام القديمة معروضة رغم وصول بيانات جديدة.
+      if (result.uploadedCount > 0 || result.downloadedCount > 0) {
+        ref.read(dataRefreshTickProvider.notifier).state++;
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

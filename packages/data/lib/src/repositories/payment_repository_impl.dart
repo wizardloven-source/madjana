@@ -38,6 +38,9 @@ class PaymentRepositoryImpl implements PaymentRepository {
       try {
         // إرسال نفس ID للخادم (يمنع تكرار السجل عند المزامنة)
         await _remoteDatasource.insert(localPayment);
+        // نجح الرفع المباشر — كافئ الصف محلياً حتى لا يبقى pending للأبد
+        // (والـ reconcile لن يحذف سوى synced، فيبقى محسوباً ويضخّم لوحة التحكم).
+        await _paymentDao.updateSyncStatus(localId, SyncStatus.synced);
       } catch (_) {
         // Offline: queued for next sync
       }
@@ -46,6 +49,7 @@ class PaymentRepositoryImpl implements PaymentRepository {
       await _paymentDao.update(payment.id!, localPayment);
       try {
         await _remoteDatasource.update(payment.id!, localPayment);
+        await _paymentDao.updateSyncStatus(payment.id!, SyncStatus.synced);
       } catch (_) {
         // Offline: queued for next sync
       }
@@ -66,6 +70,52 @@ class PaymentRepositoryImpl implements PaymentRepository {
     }
   }
 
+  @override
+  Future<List<PaymentModel>> getForDispatch(String dispatchId) {
+    return _paymentDao.getByDispatch(dispatchId);
+  }
+
+  @override
+  Future<void> updateInvoiceForDispatch({
+    required String dispatchId,
+    required double pricePerCarton,
+    required double totalDue,
+    required AppCurrency currency,
+    double? exchangeRate,
+  }) async {
+    // 1) تحديث محلي لكل سجلات الفاتورة (UPDATE لا INSERT)
+    final updated = await _paymentDao.updateInvoiceForDispatch(
+      dispatchId: dispatchId,
+      pricePerCarton: pricePerCarton,
+      totalDue: totalDue,
+      currency: currency.name,
+      exchangeRate: currency == AppCurrency.lira ? exchangeRate : null,
+    );
+    if (updated == 0) return;
+
+    // 2) رفع التعديل للخادم لكل سجل
+    try {
+      final rows = await _paymentDao.getByDispatch(dispatchId);
+      for (final row in rows) {
+        if (row.id == null) continue;
+        await _remoteDatasource.update(row.id!, row);
+        // نجح التحديث — خفف معلقة الصف محلياً للرفع المباشر
+        await _paymentDao.updateSyncStatus(row.id!, SyncStatus.synced);
+      }
+    } catch (_) {
+      // Offline: التعديل محفوظ محلياً ومؤجّل في طابور المزامنة
+    }
+
+    // 3) إعادة حساب حالة الدفع للفاتورة بعد التعديل
+    final cumulativePaid =
+        await _paymentDao.getTotalPaidForDispatch(dispatchId);
+    final isNowPaid =
+        cumulativePaid >= totalDue - 0.001 && totalDue > 0;
+    await _dispatchDao.updatePaymentStatus(
+      dispatchId,
+      isNowPaid ? PaymentStatus.paid : PaymentStatus.partial,
+    );
+  }
   @override
   Future<void> updateDispatchPaymentStatus(
     String dispatchId,

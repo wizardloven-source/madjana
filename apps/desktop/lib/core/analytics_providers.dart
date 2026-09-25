@@ -48,7 +48,20 @@ final productionKpiProvider = FutureProvider.autoDispose
       await ref.read(flockRepositoryProvider).getFlocks(params.farmId);
   final counts = await ref
       .watch(effectiveFlockCountsProvider(params.farmId).future);
-  final totalBirds = flocks
+
+  // عدد الطيور المنتجة فقط: القطعان النشطة التي لها سجلات إنتاج داخل
+  // النطاق. إدراج قطعان بلا إنتاج (قطع صغير/مرحلة تربية) في المقام
+  // يُخفض معدل الإنتاج ظلماً — مثال: 3217 بيضة ÷ 4861 طائر = 66% بينما
+  // الواقع 3217 ÷ 3820 ≈ 84% لأن القطيع الآخر لم يضع بيضاً أصلاً.
+  final producingFlockIds = eggs.map((e) => e.flockId).toSet();
+  final producingFlocks = flocks.where(
+    (f) =>
+        f.status == FlockStatus.active &&
+        producingFlockIds.contains(f.id),
+  );
+  final totalBirds = producingFlocks
+      .fold<int>(0, (s, f) => s + (counts[f.id] ?? f.currentCount));
+  final birdsForRate = totalBirds > 0 ? totalBirds : flocks
       .where((f) => f.status == FlockStatus.active)
       .fold<int>(0, (s, f) => s + (counts[f.id] ?? f.currentCount));
 
@@ -65,7 +78,7 @@ final productionKpiProvider = FutureProvider.autoDispose
   return ProductionKpi.calculate(
     records: eggs,
     range: params.range,
-    totalBirds: totalBirds,
+    totalBirds: birdsForRate,
     openingBalanceEggs: openingEggsTotal,
   );
 });
@@ -126,9 +139,19 @@ final feedKpiProvider = FutureProvider.autoDispose
       await ref.read(flockRepositoryProvider).getFlocks(params.farmId);
   final counts = await ref
       .watch(effectiveFlockCountsProvider(params.farmId).future);
-  final totalBirds = flocks
-      .where((f) => f.status == FlockStatus.active)
-      .fold<int>(0, (s, f) => s + (counts[f.id] ?? f.currentCount));
+
+  // عدد الطيور = القِطعان النشطة التي لها استهلاك في النطاق فقط،
+  // وإلا تُضخَّم القيمة بقطيع لا يستهلك (مثل قطيع غير منتج).
+  final activeFlocks =
+      flocks.where((f) => f.status == FlockStatus.active).toList();
+  final consumingFlocks = activeFlocks
+      .where((f) => consumption
+          .any((c) => c.flockId == f.id && params.range.contains(c.date)))
+      .toList();
+  final birdSource =
+      consumingFlocks.isNotEmpty ? consumingFlocks : activeFlocks;
+  final totalBirds = birdSource.fold<int>(
+      0, (s, f) => s + (counts[f.id] ?? f.currentCount));
 
   return FeedKpi.calculate(
     consumption: consumption,
