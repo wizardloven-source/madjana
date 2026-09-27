@@ -1,11 +1,22 @@
 import 'package:core/core.dart';
 
-/// حالة استخدام: حفظ تخريج البيض (بدون أي مبلغ مالي)
+/// حالة استخدام: حفظ تخريج البيض (بدون أي مبلغ مالي) + إنشاء فاتورته
+///
+/// لماذا يُنشأ سجل الفاتورة هنا لا عند القبض:
+///   كل تقارير الإيراد والربحية والمقبوضات تقرأ جدول `payments`. لو لم
+///   يوجد سجل لتخريج، اختفى من كل تلك التقارير — أي مخريج لم يُقبَض بعد
+///   كان يُحذف من الربحية. العامل لا يعرف السعر، لذلك الفاتورة تُفتح
+///   بقيمة صفر وتُسعَّر عند السداد من شاشة القبض.
 class SaveDispatchUseCase {
   final DispatchRepository repository;
   final MedicationRepository medicationRepository;
+  final PaymentRepository? paymentRepository;
 
-  const SaveDispatchUseCase(this.repository, this.medicationRepository);
+  const SaveDispatchUseCase(
+    this.repository,
+    this.medicationRepository, [
+    this.paymentRepository,
+  ]);
 
   Future<SaveDispatchResult> call(DispatchModel record) async {
     if (record.date.isAfter(DateTime.now())) {
@@ -22,10 +33,47 @@ class SaveDispatchUseCase {
     }
 
     try {
-      await repository.saveLocal(record);
+      final dispatchId = await repository.saveLocal(record);
+      await _openInvoice(dispatchId, record);
       return SaveDispatchResult.success();
     } catch (e) {
       return SaveDispatchResult.failure('فشل الحفظ: $e');
+    }
+  }
+
+  /// يفتح فاتورة بقيمة صفر مرتبطة بالتخريج.
+  ///
+  /// قيمة صفر لا قيمة عشوائية: `FinancialKpi` و`FlockProfitability` يأخذان
+  /// أقصى `totalDue` لكل فاتورة، فصفر = لا يساهم في الإيراد ولا يُنشئ
+  /// تضخيماً، بينما يبقى التخريج ظاهراً في "غير المسدَّد".
+  ///
+  /// `manager_id` NOT NULL في الخادم ⇒ نمرّر `workerId` (مستخدم صالح في
+  /// `users`) ويُستبدل به المدير عند التسديد.
+  ///
+  /// الفشل هنا لا يُسقط التخريج: التخريج حُفظ بالفعل، والفاتورة ستُفتح
+  /// عند أول تسديد من شاشة القبض.
+  Future<void> _openInvoice(String dispatchId, DispatchModel record) async {
+    final payments = paymentRepository;
+    if (payments == null) return;
+    try {
+      final existing = await payments.getForDispatch(dispatchId);
+      if (existing.isNotEmpty) return;
+      await payments.save(
+        PaymentModel(
+          farmId: record.farmId,
+          dispatchId: dispatchId,
+          customerId: record.customerId,
+          date: record.date,
+          pricePerCarton: 0,
+          totalDue: 0,
+          amountPaid: 0,
+          paymentMethod: PaymentMethod.credit,
+          notes: 'فاتورة تلقائية - بانتظار التسعير',
+          managerId: record.workerId,
+        ),
+      );
+    } catch (_) {
+      // best-effort: لا نمنع حفظ التخريج
     }
   }
 

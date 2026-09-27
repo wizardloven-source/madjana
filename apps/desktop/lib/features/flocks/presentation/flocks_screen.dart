@@ -189,8 +189,17 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
           .toList();
       final paymentsCollected =
           flockPayments.fold<double>(0, (s, p) => s + p.amountPaid);
+      // قيمة الفاتورة مرة واحدة لكل تخريج (أقصى totalDue)، لا لكل دفعة.
+      final invoiceByDispatch = <String, double>{};
+      for (final p in flockPayments) {
+        final did = p.dispatchId;
+        if (did == null) continue;
+        if (p.totalDue > (invoiceByDispatch[did] ?? 0)) {
+          invoiceByDispatch[did] = p.totalDue;
+        }
+      }
       final totalDue =
-          flockPayments.fold<double>(0, (s, p) => s + p.totalDue);
+          invoiceByDispatch.values.fold<double>(0, (s, v) => s + v);
 
       final opening = openingMap[flockId];
 

@@ -94,6 +94,7 @@ final dispatchProvider = StateNotifierProvider<DispatchNotifier, bool>((ref) {
     saveUseCase: SaveDispatchUseCase(
       ref.watch(dispatchRepositoryProvider),
       ref.watch(medicationRepositoryProvider),
+      ref.watch(paymentRepositoryProvider),
     ),
   );
 });

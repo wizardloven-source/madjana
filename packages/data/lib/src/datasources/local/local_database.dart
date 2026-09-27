@@ -445,6 +445,16 @@ class LocalDatabase {
       )
     ''');
 
+    // حالة آخر مصالحة حذف لكل مزرعة.
+    // منفصلة عن sync_state عمداً: sync_state هو watermark السحب، وكتب
+    // حالة المصالحة فيه كان يصفّر last_pulled_version في الدورة التالية.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sync_reconcile_state (
+        farm_id TEXT PRIMARY KEY,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
     // سجل عمليات المزامنة (مركز المزامنة - يعرض تاريخ كل مزامنة فعلية)
     await db.execute('''
       CREATE TABLE sync_history (
@@ -931,6 +941,14 @@ class LocalDatabase {
           CREATE TABLE IF NOT EXISTS sync_state (
             id TEXT PRIMARY KEY DEFAULT 'local',
             last_pulled_version INTEGER DEFAULT 0,
+            updated_at TEXT NOT NULL
+          )
+        ''');
+
+        // v28: حالة آخر مصالحة حذف — منفصلة عن sync_state (watermark السحب)
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS sync_reconcile_state (
+            farm_id TEXT PRIMARY KEY,
             updated_at TEXT NOT NULL
           )
         ''');

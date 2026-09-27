@@ -18,8 +18,8 @@ class DispatchRepositoryImpl implements DispatchRepository {
         _remoteDatasource = remoteDatasource;
 
   @override
-  Future<void> saveLocal(DispatchModel record) async {
-    await _localDao.insert(record);
+  Future<String> saveLocal(DispatchModel record) async {
+    return _localDao.insert(record);
   }
 
   @override

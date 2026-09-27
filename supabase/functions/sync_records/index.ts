@@ -243,6 +243,9 @@ Deno.serve(async (req) => {
       details?: Array<{
         record_id: string;
         status: 'ok' | 'conflict' | 'error' | 'skipped';
+        // operation_id إلزامي في العقد: العميل يطابق به ولا يعتمد على
+        // record_id وحده (تعديلات متتالية على نفس السجل لها نفس record_id).
+        operation_id?: string | null;
         new_version?: number;
         server_version?: number;
         client_version?: number;

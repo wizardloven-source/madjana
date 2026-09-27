@@ -261,7 +261,7 @@ void main() {
       expect(rows.first['status'], 'conflict');
     });
 
-    test('skipped → treated as synced (workplace reached server)', () async {
+    test('skipped → يبقى pending (الخادم لم يطبّع، فالعملية لم تُنفَّذ)', () async {
       await LocalDatabase.enqueueChange(
         tableName: 'mortality',
         recordId: 'm1',
@@ -288,10 +288,15 @@ void main() {
       final records = await repo.getPendingChanges();
       final result = await repo.uploadBatch(records);
 
+      // «skipped» تعني أن الخادم لم يطبّق العملية (السجل غير موجود أو
+      // لا ينتمي للمزرعة). اعتبارها نجاحاً يحذفها من الطابور نهائياً =
+      // فقدان تعديل محلي. تبقى pending مع رسالة صريحة.
+      expect(result.successIds, isEmpty);
       expect(result.failedIds, isEmpty);
-      expect(result.successIds, ['m1']);
       final rows = await queueRows();
-      expect(rows.first['status'], 'synced');
+      expect(rows.first['status'], 'pending');
+      expect(rows.first['last_error_code'], 'SKIPPED_NOT_FOUND');
+      expect(rows.first['last_error'], isNotNull);
     });
 
     test('سجل مرفوض (لا يوجد detail له) → يعامل كفشل', () async {

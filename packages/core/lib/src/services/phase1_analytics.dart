@@ -22,6 +22,45 @@ import '../utils/farm_analytics.dart';
 /// All metrics are documented in docs/production/PHASE_1_METRICS.md
 /// ═══════════════════════════════════════════════════════════════
 
+// ─── Feed cost helper ───
+
+/// تكلفة العلف.unknown-priced shipments
+///
+/// `[FeedReceivedModel.pricePerKg]` اختياري: قد تسجَّل شحنة علف بلا سعر.
+/// جمع `pricePerKg ?? 0` يعطي تكلفة صفر لتلك الشحنة، فتظهر الربحية
+/// أعلى من حقيقتها دون أي تنبيه. لذلك نُرجع الكمية غير المسعّرة صراحةً
+/// لتُعرض على المستخدم كتحذير بدل أن تضيع بصمت.
+class FeedCost {
+  /// تكلفة الشحنات التي يوجد سعر لها.
+  final double cost;
+
+  /// عدد الشحنات التي بلا سعر (لم تُحتسب في [cost]).
+  final int unpricedShipments;
+
+  /// كمية العلف (كغ) التي بلا سعر — لم تُحتسب في [cost].
+  final double unpricedKg;
+
+  const FeedCost(this.cost, this.unpricedShipments, this.unpricedKg);
+
+  bool get hasUnpriced => unpricedShipments > 0;
+}
+
+FeedCost feedCostOf(Iterable<FeedReceivedModel> shipments) {
+  var cost = 0.0;
+  var unpricedShipments = 0;
+  var unpricedKg = 0.0;
+  for (final r in shipments) {
+    final price = r.pricePerKg;
+    if (price == null) {
+      unpricedShipments++;
+      unpricedKg += r.quantityKg;
+    } else {
+      cost += price * r.quantityKg;
+    }
+  }
+  return FeedCost(cost, unpricedShipments, unpricedKg);
+}
+
 // ─── Date Range Utilities ───
 
 /// Represents a date range with a label
@@ -438,15 +477,17 @@ class FinancialKpi {
         .where((e) => range.contains(e.date))
         .fold<double>(0, (s, e) => s + e.amount);
 
-    // المستحق = مجموع (أقصى فاتورة − مجموع مدفوعاتها) لكل فاتورة
+    // المستحق = مجموع (أقصى فاتورة − مجموع مدفوعاتها) لكل فاتورة.
+    // يجب أن يطابق ترشيح الفترة نفسه المستخدَم في المبيعات والمقبوضات،
+    // وإلا ظهر مستحق كل التاريخ بجانب مبيعات شهر واحد.
     final paidByDispatch = <String, double>{};
-    for (final p in payments) {
+    for (final p in payments.where((p) => range.contains(p.date))) {
       final did = p.dispatchId;
       if (did == null) continue;
       paidByDispatch[did] = (paidByDispatch[did] ?? 0) + p.amountPaid;
     }
     final invoiceAll = <String, double>{};
-    for (final p in payments) {
+    for (final p in payments.where((p) => range.contains(p.date))) {
       final did = p.dispatchId;
       if (did == null) continue;
       if (p.totalDue > (invoiceAll[did] ?? 0)) invoiceAll[did] = p.totalDue;
@@ -456,7 +497,8 @@ class FinancialKpi {
       final due = entry.value - (paidByDispatch[entry.key] ?? 0);
       if (due > 0) outstanding += due;
     }
-    for (final p in payments.where((p) => p.dispatchId == null)) {
+    for (final p
+        in payments.where((p) => range.contains(p.date) && p.dispatchId == null)) {
       final due = p.totalDue - p.amountPaid;
       if (due > 0) outstanding += due;
     }
@@ -677,8 +719,13 @@ class CustomerAnalytics {
       if (lastTx == null || p.date.isAfter(lastTx)) lastTx = p.date;
     }
 
-    final avgTx =
-        custDispatches.isNotEmpty ? totalSales / custDispatches.length : 0.0;
+    // متوسط قيمة العملية = إجمالي المبيعات ÷ عدد الفواتير، لا ÷ عدد
+    // التخريجات: المبيعات مصدرها الفواتير، فتقسيمها على عدد آخر يقلّل
+    // المتوسط بلا سبب (بقض واحد مقابل ثلاث تخريجات ⇒ متوسط thirds).
+    final invoiceCount = invoiceByDispatch.length + custPayments
+        .where((p) => p.dispatchId == null)
+        .length;
+    final avgTx = invoiceCount > 0 ? totalSales / invoiceCount : 0.0;
 
     // المستحق: قيمة كل فاتورة ناقص ما دُفع لها — يُحسب ديناميكياً من
     // المدفوعات ولا يُعتمد على customers.total_debt المخزّن (قد يكون قديماً).
@@ -724,6 +771,9 @@ class SupplierAnalytics {
   final DateTime? lastShipment;
   final String feedType;
 
+  /// شحنات بلا سعر — لم تُحتسب في [totalCost].
+  final FeedCost feed;
+
   const SupplierAnalytics({
     required this.supplierName,
     required this.totalShipments,
@@ -732,6 +782,7 @@ class SupplierAnalytics {
     required this.avgPricePerKg,
     required this.lastShipment,
     required this.feedType,
+    this.feed = const FeedCost(0, 0, 0),
   });
 
   /// Aggregate feed_received by supplier
@@ -752,8 +803,8 @@ class SupplierAnalytics {
       final shipments = entry.value;
       final totalKg =
           shipments.fold<double>(0, (s, r) => s + r.quantityKg);
-      final totalCost = shipments.fold<double>(
-          0, (s, r) => s + (r.pricePerKg ?? 0) * r.quantityKg);
+      final feed = feedCostOf(shipments);
+      final totalCost = feed.cost;
       final pricesWithValues =
           shipments.where((r) => r.pricePerKg != null).toList();
       final avgPrice = pricesWithValues.isNotEmpty
@@ -775,6 +826,7 @@ class SupplierAnalytics {
         avgPricePerKg: avgPrice,
         lastShipment: last,
         feedType: shipments.first.feedType.name,
+        feed: feed,
       );
     }).toList()
       ..sort((a, b) => b.totalCost.compareTo(a.totalCost));
@@ -793,6 +845,9 @@ class CostPerEgg {
   final int totalEggs;
   final double costPerEgg;
 
+  /// شحنات علف بلا سعر — لم تُحتسب في [totalCost] ولا [costPerEgg].
+  final FeedCost feed;
+
   const CostPerEgg({
     required this.feedCost,
     required this.medicationCost,
@@ -800,6 +855,7 @@ class CostPerEgg {
     required this.totalCost,
     required this.totalEggs,
     required this.costPerEgg,
+    this.feed = const FeedCost(0, 0, 0),
   });
 
   factory CostPerEgg.empty() => const CostPerEgg(
@@ -825,9 +881,9 @@ class CostPerEgg {
     required List<EggProductionModel> eggs,
     required DateRange range,
   }) {
-    final feedCost = feedReceived
-        .where((r) => range.contains(r.date))
-        .fold<double>(0, (s, r) => s + (r.pricePerKg ?? 0) * r.quantityKg);
+    final feed =
+        feedCostOf(feedReceived.where((r) => range.contains(r.date)));
+    final feedCost = feed.cost;
 
     final expensesCost = expenses
         .where((e) => range.contains(e.date))
@@ -846,6 +902,7 @@ class CostPerEgg {
       totalCost: totalCost,
       totalEggs: totalEggs,
       costPerEgg: totalEggs > 0 ? totalCost / totalEggs : 0,
+      feed: feed,
     );
   }
 
@@ -858,9 +915,9 @@ class CostPerEgg {
     required String flockId,
     required double flockShareRatio,
   }) {
-    final flockFeedCost = feedReceived
-        .where((r) => range.contains(r.date) && r.flockId == flockId)
-        .fold<double>(0, (s, r) => s + (r.pricePerKg ?? 0) * r.quantityKg);
+    final feed = feedCostOf(feedReceived
+        .where((r) => range.contains(r.date) && r.flockId == flockId));
+    final flockFeedCost = feed.cost;
 
     // Shared expenses proportional to flock's egg production
     final totalFarmEggs = eggs
@@ -886,6 +943,7 @@ class CostPerEgg {
       totalCost: totalCost,
       totalEggs: flockEggs,
       costPerEgg: flockEggs > 0 ? totalCost / flockEggs : 0,
+      feed: feed,
     );
   }
 }
@@ -909,6 +967,10 @@ class FlockProfitability {
   final int totalEggs;
   final String classification; // 'profitable', 'breakeven', 'loss'
 
+  /// شحنات علف بلا سعر — لم تُحتسب في [feedCost]/[totalCost]، فـ
+  /// [estimatedMargin] و[marginPercent] أعلى من الواقع عند وجودها.
+  final FeedCost feed;
+
   const FlockProfitability({
     required this.flockId,
     required this.breed,
@@ -923,6 +985,7 @@ class FlockProfitability {
     required this.marginPercent,
     required this.totalEggs,
     required this.classification,
+    this.feed = const FeedCost(0, 0, 0),
   });
 
   factory FlockProfitability.empty() => const FlockProfitability(
@@ -959,8 +1022,14 @@ class FlockProfitability {
         dispatches.where((d) => d.flockId == flock.id).toList();
     final dispatchIds =
         flockDispatches.map((d) => d.id).whereType<String>().toSet();
+    // ملاحظة: يجب أن تُرشَّح المدفوعات بنفس `range` الذي تُرشَّح به التكاليف،
+    // وإلا قُسِم إيرادٌ تراكمي على تكاليف شهر واحد فظهرت الهامشوة ضخمة.
+    // FarmProfitability.calculate يطبّق هذا الترشيح أصلاً.
     final flockPayments = payments
-        .where((p) => p.dispatchId != null && dispatchIds.contains(p.dispatchId))
+        .where((p) =>
+            p.dispatchId != null &&
+            dispatchIds.contains(p.dispatchId) &&
+            range.contains(p.date))
         .toList();
 
     final invoiceByDispatch = <String, double>{};
@@ -976,9 +1045,9 @@ class FlockProfitability {
     final outstanding = revenue - collectedTotal;
 
     // Feed cost: direct + shared
-    final directFeedCost = feedReceived
-        .where((r) => range.contains(r.date) && r.flockId == flock.id)
-        .fold<double>(0, (s, r) => s + (r.pricePerKg ?? 0) * r.quantityKg);
+    final feed = feedCostOf(feedReceived
+        .where((r) => range.contains(r.date) && r.flockId == flock.id));
+    final directFeedCost = feed.cost;
 
     // Shared expenses proportional to egg production
     final flockEggs = eggs
@@ -1020,6 +1089,7 @@ class FlockProfitability {
       marginPercent: marginPercent,
       totalEggs: flockEggs,
       classification: classification,
+      feed: feed,
     );
   }
 
@@ -1070,6 +1140,10 @@ class FarmProfitability {
   final double margin; // الربح = الإيرادات − المصاريف
   final double marginPercent;
 
+  /// شحنات علف بلا سعر — لم تُحتسب في [feedCost]/[totalCost]، فـ
+  /// [margin] و[marginPercent] أعلى من الواقع عند وجودها.
+  final FeedCost feed;
+
   const FarmProfitability({
     required this.revenue,
     required this.invoicedDispatches,
@@ -1080,6 +1154,7 @@ class FarmProfitability {
     required this.totalCost,
     required this.margin,
     required this.marginPercent,
+    this.feed = const FeedCost(0, 0, 0),
   });
 
   factory FarmProfitability.empty() => const FarmProfitability(
@@ -1116,9 +1191,9 @@ class FarmProfitability {
     final revenue = invoiceByDispatch.values.fold<double>(0, (s, v) => s + v);
     final outstanding = revenue - collected;
 
-    final feedCost = feedReceived
-        .where((r) => range.contains(r.date))
-        .fold<double>(0, (s, r) => s + (r.pricePerKg ?? 0) * r.quantityKg);
+    final feed =
+        feedCostOf(feedReceived.where((r) => range.contains(r.date)));
+    final feedCost = feed.cost;
 
     final expensesCost = expenses
         .where((e) => range.contains(e.date))
@@ -1137,6 +1212,7 @@ class FarmProfitability {
       expensesCost: expensesCost,
       totalCost: totalCost,
       margin: margin,
+      feed: feed,
       marginPercent: marginPercent,
     );
   }

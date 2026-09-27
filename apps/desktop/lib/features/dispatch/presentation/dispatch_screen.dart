@@ -340,13 +340,26 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
           }
         }
       }
-      await ref.read(dispatchRepositoryProvider).saveLocal(record);
-      if (mounted) {
+      // الحفظ يمرّ على حالة الاستخدام ليُنشئ سجل الفاتورة (بقيمة صفر) الذي
+      // تعتمد عليه تقارير الإيراد والربحية. الفحص أعلاه يبقى كطبقة أولى
+      // ورسالته أدق للمستخدم.
+      final saveResult =
+          await ref.read(dispatchSaveUseCaseProvider).call(record);
+      if (!mounted) return;
+      if (!saveResult.success) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم حفظ التخريج بنجاح')),
+          SnackBar(
+            content: Text(saveResult.error ?? 'فشل الحفظ'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
         );
-        _load();
+        return;
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم حفظ التخريج بنجاح')),
+      );
+      _load();
     }
   }
 

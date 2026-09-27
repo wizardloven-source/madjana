@@ -645,6 +645,44 @@ class _SupplierTab extends ConsumerWidget {
 // Cost Per Egg Tab
 // ═══════════════════════════════════════════════════════════════
 
+/// تنبيه: شحنة علف مسجّلة بلا سعر لكل كغ. الكمية لم تُحتسب في تكلفة
+/// العلف ولا في تكلفة البيضة، فالأرقام المعروضة **أقل** من الواقع ولا
+/// تُظهر ذلك. نُظهره صراحةً بدل ترك المستخدم يقرأ تكلفة ناقصة كأنها كاملة.
+class _IncompleteCostBanner extends StatelessWidget {
+  final FeedCost feed;
+
+  const _IncompleteCostBanner({required this.feed});
+
+  @override
+  Widget build(BuildContext context) {
+    final kg = feed.unpricedKg.toStringAsFixed(1);
+    final noun = feed.unpricedShipments == 1 ? 'شحنة واحدة' : '${feed.unpricedShipments} شحنات';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.amber.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.amber.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline, color: Colors.amber, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'تكلفة العلف أدناه ناقصة: $noun ($kg كغ) بلا سعر مسجّل، '
+              'لذا لم تُحتسب في التكلفة ولا في تكلفة البيضة.',
+              style: const TextStyle(fontSize: 12.5, height: 1.5),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CostTab extends ConsumerWidget {
   final String farmId;
   final DateRange range;
@@ -693,6 +731,13 @@ class _CostTab extends ConsumerWidget {
                 ),
               ]),
               const SizedBox(height: 16),
+              if (cost.feed.hasUnpriced)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: _IncompleteCostBanner(
+                    feed: cost.feed,
+                  ),
+                ),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -746,6 +791,10 @@ class _ProfitabilityTab extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _FarmProfitSummary(farm: farm, range: range),
+              if (farm.feed.hasUnpriced) ...[
+                const SizedBox(height: 12),
+                _IncompleteCostBanner(feed: farm.feed),
+              ],
               const SizedBox(height: 20),
               flocksAsync.when(
                 loading: () => const SizedBox.shrink(),

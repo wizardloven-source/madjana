@@ -3,7 +3,8 @@ import 'package:core/core.dart';
 /// واجهة مستودع التخريج والزبائن
 abstract class DispatchRepository {
   /// حفظ تخريج محلياً (Offline-first)
-  Future<void> saveLocal(DispatchModel record);
+  /// يُرجع معرّف التخريج المُولَّد محلياً، ليُربط به سجل الفاتورة.
+  Future<String> saveLocal(DispatchModel record);
 
   /// إضافة زبون جديد (Offline-first: محلياً أولاً ثم يرفع للبعيد)
   Future<String> addCustomer(CustomerModel customer);

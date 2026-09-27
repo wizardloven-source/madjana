@@ -93,7 +93,22 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final totalCartons = _eggs.fold<int>(0, (s, r) => s + r.cartons);
     final totalMortality = _mortality.fold<int>(0, (s, r) => s + r.count);
     final totalFeed = _consumption.fold<double>(0, (s, r) => s + r.quantityKg);
-    final totalDue = _payments.fold<double>(0, (s, p) => s + p.totalDue);
+    // قيمة البيع مرة واحدة لكل تخريج (أقصى totalDue) — لا مجموع أقساط
+    // الدفعة، وإلا تضاعفت المبيعات بعدد الدفعات على نفس الفاتورة.
+    final invoiceByDispatch = <String, double>{};
+    var dueWithoutDispatch = 0.0;
+    for (final p in _payments) {
+      final did = p.dispatchId;
+      if (did == null) {
+        dueWithoutDispatch += p.totalDue;
+        continue;
+      }
+      if (p.totalDue > (invoiceByDispatch[did] ?? 0)) {
+        invoiceByDispatch[did] = p.totalDue;
+      }
+    }
+    final totalDue = invoiceByDispatch.values.fold<double>(0, (s, v) => s + v) +
+        dueWithoutDispatch;
     final totalCollected = _payments.fold<double>(0, (s, p) => s + p.amountPaid);
     final outstanding = totalDue - totalCollected;
     final avgPerDay = _eggs.isEmpty

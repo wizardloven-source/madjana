@@ -332,7 +332,24 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final totalDispatchedEggs = dispatchedEggs + openingDispatched;
 
     // تفصيل المال: مبيعات / مقبوض / مصاريف / صافي
-    final salesTotal = _payments.fold<double>(0, (s, p) => s + p.totalDue);
+    // قيمة البيع تُحسب مرة واحدة لكل تخريج (أقصى totalDue)، لا لكل دفعة:
+    // كل دفعة من نفس الفاتورة تحمل totalDue الكامل، فالجمع المباشر
+    // يضخّم المبيعات بعدد الدفعات. الدفعات بلا تخريج تُحتسب كلٌّ منها.
+    final invoiceByDispatch = <String, double>{};
+    var salesWithoutDispatch = 0.0;
+    for (final p in _payments) {
+      final did = p.dispatchId;
+      if (did == null) {
+        salesWithoutDispatch += p.totalDue;
+        continue;
+      }
+      if (p.totalDue > (invoiceByDispatch[did] ?? 0)) {
+        invoiceByDispatch[did] = p.totalDue;
+      }
+    }
+    final salesTotal = invoiceByDispatch.values.fold<double>(
+            0, (s, v) => s + v) +
+        salesWithoutDispatch;
     final net30 = _collected - _expenses30;
 
     // تنبيهات ذكية (مصنّفة حسب الخطورة)
@@ -395,12 +412,39 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         severity: _AlertSeverity.warning,
       ));
     }
-    final overdueCount = _payments
-        .where((p) =>
-            !p.isPaid &&
-            p.dueDate != null &&
-            p.dueDate!.isBefore(DateTime.now()))
-        .length;
+    // `p.isPaid` خاص بسجل القبض الواحد، والفاتورة قد تكون مقسّطة على عدة
+    // سجلات ⇒ عدّ السجلات يضاعف عدد "الفواتير المتأخرة". نعدّ الفواتير
+    // (أعما�� الـ dispatch) مرة واحدة: مدفوعة كلياً أو فيها قسط متأخر.
+    final nowTs = DateTime.now();
+    final invoicePaid = <String, double>{};
+    final invoiceDue = <String, double>{};
+    final invoiceDates = <String, DateTime>{};
+    final standaloneOverdue = <bool>[];
+    for (final p in _payments) {
+      final did = p.dispatchId;
+      if (did == null) {
+        standaloneOverdue.add(
+            !p.isPaid && p.dueDate != null && p.dueDate!.isBefore(nowTs));
+        continue;
+      }
+      invoicePaid[did] = (invoicePaid[did] ?? 0) + p.amountPaid;
+      if (p.totalDue > (invoiceDue[did] ?? 0)) invoiceDue[did] = p.totalDue;
+      final d = p.dueDate;
+      if (d != null && (invoiceDates[did] == null || d.isBefore(invoiceDates[did]!))) {
+        invoiceDates[did] = d;
+      }
+    }
+    final overdueInvoices = <String>{};
+    for (final entry in invoiceDue.entries) {
+      final did = entry.key;
+      final paid = invoicePaid[did] ?? 0;
+      final date = invoiceDates[did];
+      if (paid < entry.value - 0.009 && date != null && date.isBefore(nowTs)) {
+        overdueInvoices.add(did);
+      }
+    }
+    final overdueCount =
+        overdueInvoices.length + standaloneOverdue.where((b) => b).length;
     if (overdueCount > 0) {
       alerts.add(_Alert(
         icon: Icons.pending_actions,

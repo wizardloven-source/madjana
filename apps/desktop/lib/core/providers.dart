@@ -121,6 +121,15 @@ final dispatchRepositoryProvider = Provider<DispatchRepository>(
   ),
 );
 
+/// حالة استخدام حفظ التخريج — تفتح الفاتورة تلقائياً بجانب كل تخريج.
+final dispatchSaveUseCaseProvider = Provider<SaveDispatchUseCase>(
+  (ref) => SaveDispatchUseCase(
+    ref.watch(dispatchRepositoryProvider),
+    ref.watch(medicationRepositoryProvider),
+    ref.watch(paymentRepositoryProvider),
+  ),
+);
+
 final medicationRepositoryProvider = Provider<MedicationRepository>(
   (ref) => MedicationRepositoryImpl(
     localDao: ref.watch(medicationDaoProvider),

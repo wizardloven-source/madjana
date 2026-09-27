@@ -172,6 +172,22 @@ class SyncRepositoryImpl implements SyncRepository {
     ''', [DateTime.now().toIso8601String(), id]);
   }
 
+  /// «متخطّى» في الخادم تعني: السجل غير موجود أو لا ينتمي لهذه المزرعة،
+  /// أي أن العملية **لم تُطبَّق**. لا يجوز اعتبارها نجاحاً ثم حذفها من
+  /// الطابور — تفقد العملية نهائياً. نُبقيها `pending` مع رمز خطأ ظاهر
+  /// للمستخدم ليقرر: هل السجل حُذف على الخادم عمداً، أم 有的 خطأ في المزرعة؟
+  Future<void> markAsSkipped(String id, String reason) async {
+    final db = await LocalDatabase.database;
+    await db.rawUpdate('''
+      UPDATE sync_queue
+      SET status = 'pending',
+          last_error = ?,
+          last_error_code = 'SKIPPED_NOT_FOUND',
+          updated_at = ?
+      WHERE id = ?
+    ''', [reason, DateTime.now().toIso8601String(), id]);
+  }
+
   @override
   Future<void> cleanupOldSyncedRecords({int daysToKeep = 30}) async {
     try {
@@ -377,10 +393,12 @@ class SyncRepositoryImpl implements SyncRepository {
         final successOps = <String>[];
         final failedOps = <String>[];
         final conflictOps = <String>[];
+        final skippedOps = <String>[];
         final successRecordIds = <String>[];
         final failedRecordIds = <String>[];
         final conflictRecordIds = <String>[];
         final failedMessageById = <String, String>{};
+        final skippedMessageById = <String, String>{};
 
         // عندما يعيد خادم النشر "نجاح كلي" دون تفاصيل لكل سجل، نعتبر كل
         // العملية نجحت (الخادم التزم بها ورفعها لقاعدة البيانات).
@@ -464,15 +482,16 @@ class SyncRepositoryImpl implements SyncRepository {
               conflictRecordIds.add(r.recordId);
               break;
             case 'skipped':
-              // «مُتخطّى»: الخادم لم يجد الصف (/e.g. update أو delete لسجل
-              // غير موجود أو لا ينتمي لهذه المزرعة). ليست فشلاً يعرقل
-              // المزامنة — العملية وصلت للخادم وتُعامَل كناجحة.
-              successOps.add(queueKey);
-              successRecordIds.add(r.recordId);
-              final skippedVersion = detail['new_version'] as int?;
-              if (skippedVersion != null && tableName != null) {
-                await _updateLocalVersion(r.recordId, tableName, skippedVersion);
-              }
+              // الخادم لم يطبّق العملية: السجل غير موجود، أو لا ينتمي لهذه
+              // المزرعة، أو (للإيرادات) مسجّل مسبقاً. ليست نجاحاً — بقاؤها
+              // في الطابور تحمي من حذف تعديل محلي لم يُرفع. نُبقيها pending
+              // مع رسالة صريحة بدل ابتلاعها.
+              skippedOps.add(queueKey);
+              skippedMessageById[queueKey] =
+                  (detail['message'] as String?) ??
+                  'الخادم لم يطبّع العملية (السجل غير موجود على الخادم '
+                      'أو لا ينتمي لهذه المزرعة) — لم تُحذف بياناتك محلياً، '
+                      'راجع السجل قبل إعادة المحاولة';
               break;
             case 'error':
               failedOps.add(queueKey);
@@ -489,6 +508,10 @@ class SyncRepositoryImpl implements SyncRepository {
         }
         for (var id in conflictOps) {
           await markAsConflict(id);
+        }
+        for (var id in skippedOps) {
+          await markAsSkipped(
+              id, skippedMessageById[id] ?? 'الخادم لم يطبّع العملية');
         }
 
         return BatchSyncResult(
@@ -720,8 +743,8 @@ class SyncRepositoryImpl implements SyncRepository {
   Future<void> _reconcileServerDeleted(Database db, String farmId) async {
     try {
       final stateRows = await db.query(
-        'sync_state',
-        where: 'id = ?',
+        'sync_reconcile_state',
+        where: 'farm_id = ?',
         whereArgs: [farmId],
         limit: 1,
       );
@@ -746,9 +769,23 @@ class SyncRepositoryImpl implements SyncRepository {
       final live = response as Map<String, dynamic>;
       for (final entry in live.entries) {
         final tableName = entry.key;
-        final ids = (entry.value as List? ?? const [])
-            .map((e) => e.toString())
-            .toSet();
+
+        // مفاتيح نظامية لا تمثّل جداول: تحذيرات أخطاء + علم إعادة مزامنة.
+        if (tableName == 'resync_required' ||
+            tableName == '_warning' ||
+            tableName.startsWith('_')) {
+          continue;
+        }
+
+        // قيمة غير قائمة (رقم/نص) تعني استجابة غير متوقعة ⇒ نتخطاها
+        // بأمان بدل رمي استع-cast يبتلع الصيانة كاملة.
+        final rawValue = entry.value;
+        if (rawValue is! List) {
+          debugPrint('reconcile: unexpected sync_live_ids shape for '
+              '$tableName (${rawValue.runtimeType}) — skipped');
+          continue;
+        }
+        final ids = rawValue.map((e) => e.toString()).toSet();
 
         // الجداول المحلية بلا عمود sync_status (مثل opening_balances)
         // لا تأتي من مسار المزامنة — لا نلمسها.
@@ -761,46 +798,56 @@ class SyncRepositoryImpl implements SyncRepository {
 
         final localRows = await db.query(
           tableName,
-          columns: ['id', 'sync_status'],
+          columns: ['id', 'sync_status', 'version'],
           where: 'farm_id = ? AND deleted_at IS NULL',
           whereArgs: [farmId],
         );
 
-        // هل هذه المزرعة لديها عمليات رفضها الخادم (conflict) لهذا الجدول؟
-        // سجلاتها عالقة pending رغم وجودها على الخادم — يجب تطهيرها أيضاً
-        // عندما تختفي من قائمة الحيّ. أما السجلات الجديدة دون اتصال (منتظرة
-        // الرفع لأول مرة) فلا تلمس: هي غير حاضرة في live_ids أصلاً.
-        final conflictOps = await db.query(
+        // هل هذه المزرعة لديها عمليات لم تكتمل بعد لهذا الجدول؟
+        // صفٌّ في الطابور لم يُرفع بعد (pending/failed/conflict) يعني أن
+        // غيابه عن قائمة الحيّة **لا يعني** أنه محذوف على الخادم: غالباً
+        // لم يُرفع أصلاً. حذفه الآن = فقدان تعديل محلي نهائي.
+        final outstandingOps = await db.query(
           'sync_queue',
           columns: ['record_id'],
-          where: "table_name = ? AND status = 'conflict' AND farm_id = ?",
+          where: "table_name = ? AND status IN ('pending', 'failed', 'conflict')"
+              ' AND farm_id = ?',
           whereArgs: [tableName, farmId],
         );
-        final conflictedRecordIds =
-            conflictOps.map((r) => r['record_id']?.toString() ?? '').toSet();
+        final outstandingRecordIds =
+            outstandingOps.map((r) => r['record_id']?.toString() ?? '').toSet();
 
         final stale = localRows
-            .map((r) => (r['id']?.toString() ?? '', r['sync_status']?.toString()))
+            .map((r) => (
+                  id: r['id']?.toString() ?? '',
+                  syncStatus: r['sync_status']?.toString(),
+                  version: (r['version'] as int?) ?? 1,
+                ))
             .where((e) {
-              if (e.$1.isEmpty || ids.contains(e.$1)) return false;
-              final status = e.$2;
-              // محذوفة ناعماً أو صراع رفض — تُطهر. المعلّقة الجديدة فقط تبقي.
-              if (conflictedRecordIds.contains(e.$1)) return true;
-              if (status == SyncStatus.synced.name ||
-                  status == SyncStatus.failed.name) {
-                return true;
-              }
-              return false;
+              if (e.id.isEmpty || ids.contains(e.id)) return false;
+              // أي عملية معلّقة على هذا السجل ⇒ لا نلمسه أبداً.
+              if (outstandingRecordIds.contains(e.id)) return false;
+              // محذوف ناعماً على الخادم ⇒ نطهّر السجل المحلي.
+              return e.syncStatus == SyncStatus.synced.name;
             })
-            .map((e) => e.$1)
             .toList();
         if (stale.isEmpty) continue;
 
-        for (final id in stale) {
+        for (final row in stale) {
           await db.delete(
             tableName,
             where: 'id = ?',
-            whereArgs: [id],
+            whereArgs: [row.id],
+          );
+          // purge يجب أن يُبثّ لبقية الأجهزة كـ tombstone، وإلا سحبته
+          // الأجهزة الأخرى من جديد في الدورة القادمة. version الحالية
+          // مطلوبة لـ OCC حتى يقبل الخادم الحذف.
+          await LocalDatabase.enqueueChange(
+            tableName: tableName,
+            recordId: row.id,
+            action: 'DELETE',
+            previousVersion: row.version,
+            payload: const {},
           );
         }
         debugPrint(
@@ -808,17 +855,22 @@ class SyncRepositoryImpl implements SyncRepository {
         );
       }
 
-      // ختم وقت المصالحة لهذه المزرعة — قبل نجاح استدعاء RPC فقط، حتى
-      // يُعاد في الدورة التالية على فشل الشبكة.
+      // ختم وقت المصالحة.
+      //
+      // ملاحظة مهمة: كان يُكتب في `sync_state` — وهو جدول **watermark السحب**
+      // لا جدول حالة المصالحة. إنشاء صف لمزرعة لم تسحب بعد كان يكسر
+      // `expect(sync_state, isEmpty)`، والأسوأ: INSERT OR REPLACE كان
+      // يصفّر last_pulled_version في الدورة التالية فيجبر الجهاز على
+      // إعادة سحب كامل التاريخ. نستعمل جدولاً منفصلاً للمصالحة فقط.
       final now = DateTime.now().toIso8601String();
       final updated = await db.rawUpdate(
-        'UPDATE sync_state SET updated_at = ? WHERE id = ?',
+        'UPDATE sync_reconcile_state SET updated_at = ? WHERE farm_id = ?',
         [now, farmId],
       );
       if (updated == 0) {
         await db.rawInsert(
-          '''INSERT OR REPLACE INTO sync_state (id, last_pulled_version, updated_at)
-             VALUES (?, 0, ?)''',
+          'INSERT OR IGNORE INTO sync_reconcile_state (farm_id, updated_at)'
+          ' VALUES (?, ?)',
           [farmId, now],
         );
       }
