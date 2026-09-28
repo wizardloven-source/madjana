@@ -9,6 +9,10 @@ class InventoryItemModel {
   final double quantity;
   final double lowStockThreshold;
   final String? notes;
+
+  /// القطيع المُسند إليه هذا الصنف. مرجع فقط: الكمية تبقى في المخزون العام
+  /// ولا تُقسَّم بين القطعان، فيجب ألا يُستخدم للحساب — للعرض والربط فقط.
+  final String? flockId;
   final DateTime? updatedAt;
   final int? version;
 
@@ -20,6 +24,7 @@ class InventoryItemModel {
     this.quantity = 0,
     this.lowStockThreshold = 5,
     this.notes,
+    this.flockId,
     this.updatedAt,
     this.version,
   });
@@ -40,6 +45,7 @@ class InventoryItemModel {
       lowStockThreshold:
           (json['low_stock_threshold'] as num?)?.toDouble() ?? 5,
       notes: json['notes'] as String?,
+      flockId: json['flock_id'] as String?,
       updatedAt: json['updated_at'] != null
           ? DateTime.tryParse(json['updated_at'] as String)
           : null,
@@ -57,6 +63,7 @@ class InventoryItemModel {
         'quantity': quantity,
         'low_stock_threshold': lowStockThreshold,
         'notes': notes,
+        'flock_id': flockId,
         if (version != null) 'version': version,
       };
 
@@ -68,6 +75,8 @@ class InventoryItemModel {
     double? quantity,
     double? lowStockThreshold,
     String? notes,
+    String? flockId,
+    bool clearFlock = false,
     int? version,
   }) {
     return InventoryItemModel(
@@ -78,6 +87,7 @@ class InventoryItemModel {
       quantity: quantity ?? this.quantity,
       lowStockThreshold: lowStockThreshold ?? this.lowStockThreshold,
       notes: notes ?? this.notes,
+      flockId: clearFlock ? null : (flockId ?? this.flockId),
       updatedAt: updatedAt,
       version: version ?? this.version,
     );

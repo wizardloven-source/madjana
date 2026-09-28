@@ -26,6 +26,10 @@ class _FlockData {
   final double totalDue;
   final List<EggProductionModel> eggRecords;
 
+  /// عناصر العدة المسنَدة للقطيع. الكمية رصيد المخزون العام وليست حصة له،
+  /// لأن `flock_id` في `inventory_items` مرجع عرض فقط بلا توزيع.
+  final List<InventoryItemModel> equipment;
+
   const _FlockData({
     required this.flock,
     this.opening,
@@ -35,10 +39,12 @@ class _FlockData {
     required this.paymentsCollected,
     required this.totalDue,
     required this.eggRecords,
+    this.equipment = const [],
   });
 
-  int get effectiveMortality =>
-      mortalityCount + (opening?.mortalityCount ?? 0);
+  int get equipmentCount => equipment.length;
+
+  int get effectiveMortality => mortalityCount + (opening?.mortalityCount ?? 0);
 
   /// العدد الأولي هو ما خُزِّن في القطيع فقط؛ `opening.initialBirds` يحمل
   /// نفس القيمة (في المعالج القديم) ولا يُضاف حتى لا يُحتسب مزدوجاً.
@@ -46,9 +52,9 @@ class _FlockData {
 
   /// العدد الفعلي المعروض بعد تلافي القيم القديمة/الفاسدة المخزنة.
   int get effectiveCurrent => flock.effectiveCurrentCount(
-        openingMortality: opening?.mortalityCount ?? 0,
-        dailyMortality: mortalityCount,
-      );
+    openingMortality: opening?.mortalityCount ?? 0,
+    dailyMortality: mortalityCount,
+  );
 
   double get mortalityRate =>
       effectiveInitial == 0 ? 0 : (effectiveMortality / effectiveInitial * 100);
@@ -102,9 +108,9 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
       await _loadFlockData(flocks);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('خطأ في التحميل: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('خطأ في التحميل: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -115,32 +121,23 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
     final farmStart = DateTime(2020, 1, 1);
 
     final results = await Future.wait([
-      ref.read(eggProductionRepositoryProvider).getAllRecords(
-            farmId: _farmId,
-            fromDate: farmStart,
-            toDate: now,
-          ),
-      ref.read(mortalityRepositoryProvider).getAllRecords(
-            farmId: _farmId,
-            fromDate: farmStart,
-            toDate: now,
-          ),
-      ref.read(feedRepositoryProvider).getAllConsumption(
-            farmId: _farmId,
-            fromDate: farmStart,
-            toDate: now,
-          ),
-      ref.read(dispatchRepositoryProvider).getAll(
-            farmId: _farmId,
-            fromDate: farmStart,
-            toDate: now,
-          ),
-      ref.read(paymentRepositoryProvider).getAll(
-            farmId: _farmId,
-            fromDate: farmStart,
-            toDate: now,
-          ),
+      ref
+          .read(eggProductionRepositoryProvider)
+          .getAllRecords(farmId: _farmId, fromDate: farmStart, toDate: now),
+      ref
+          .read(mortalityRepositoryProvider)
+          .getAllRecords(farmId: _farmId, fromDate: farmStart, toDate: now),
+      ref
+          .read(feedRepositoryProvider)
+          .getAllConsumption(farmId: _farmId, fromDate: farmStart, toDate: now),
+      ref
+          .read(dispatchRepositoryProvider)
+          .getAll(farmId: _farmId, fromDate: farmStart, toDate: now),
+      ref
+          .read(paymentRepositoryProvider)
+          .getAll(farmId: _farmId, fromDate: farmStart, toDate: now),
       ref.read(openingBalanceRepositoryProvider).getForFarm(_farmId),
+      ref.read(inventoryRepositoryProvider).getItems(_farmId),
     ]);
 
     final allEggs = results[0] as List<EggProductionModel>;
@@ -149,6 +146,14 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
     final allDispatches = results[3] as List<DispatchModel>;
     final allPayments = results[4] as List<PaymentModel>;
     final allOpenings = results[5] as List<OpeningBalanceModel>;
+    final allInventory = results[6] as List<InventoryItemModel>;
+
+    final equipmentMap = <String, List<InventoryItemModel>>{};
+    for (final item in allInventory) {
+      final fid = item.flockId;
+      if (fid == null) continue;
+      equipmentMap.putIfAbsent(fid, () => <InventoryItemModel>[]).add(item);
+    }
 
     final openingMap = <String, OpeningBalanceModel>{};
     for (final ob in allOpenings) {
@@ -167,28 +172,27 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
     for (final flock in flocks) {
       final flockId = flock.id;
 
-      final flockMortality =
-          allMortality.where((m) => m.flockId == flockId).toList();
-      final mortalityCount =
-          flockMortality.fold<int>(0, (s, m) => s + m.count);
+      final flockMortality = allMortality
+          .where((m) => m.flockId == flockId)
+          .toList();
+      final mortalityCount = flockMortality.fold<int>(0, (s, m) => s + m.count);
 
-      final flockEggs =
-          allEggs.where((e) => e.flockId == flockId).toList();
-      final totalEggs =
-          flockEggs.fold<int>(0, (s, e) => s + e.totalEggs);
+      final flockEggs = allEggs.where((e) => e.flockId == flockId).toList();
+      final totalEggs = flockEggs.fold<int>(0, (s, e) => s + e.totalEggs);
 
-      final flockFeed =
-          allFeed.where((f) => f.flockId == flockId).toList();
-      final feedKg =
-          flockFeed.fold<double>(0, (s, f) => s + f.quantityKg);
+      final flockFeed = allFeed.where((f) => f.flockId == flockId).toList();
+      final feedKg = flockFeed.fold<double>(0, (s, f) => s + f.quantityKg);
 
       final dispatchIds = dispatchIdMap[flockId] ?? <String>{};
       final flockPayments = allPayments
-          .where((p) =>
-              p.dispatchId != null && dispatchIds.contains(p.dispatchId))
+          .where(
+            (p) => p.dispatchId != null && dispatchIds.contains(p.dispatchId),
+          )
           .toList();
-      final paymentsCollected =
-          flockPayments.fold<double>(0, (s, p) => s + p.amountPaid);
+      final paymentsCollected = flockPayments.fold<double>(
+        0,
+        (s, p) => s + p.amountPaid,
+      );
       // قيمة الفاتورة مرة واحدة لكل تخريج (أقصى totalDue)، لا لكل دفعة.
       final invoiceByDispatch = <String, double>{};
       for (final p in flockPayments) {
@@ -198,8 +202,10 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
           invoiceByDispatch[did] = p.totalDue;
         }
       }
-      final totalDue =
-          invoiceByDispatch.values.fold<double>(0, (s, v) => s + v);
+      final totalDue = invoiceByDispatch.values.fold<double>(
+        0,
+        (s, v) => s + v,
+      );
 
       final opening = openingMap[flockId];
 
@@ -212,6 +218,7 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
         paymentsCollected: paymentsCollected,
         totalDue: totalDue,
         eggRecords: flockEggs,
+        equipment: equipmentMap[flockId] ?? const [],
       );
     }
 
@@ -225,14 +232,17 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('إنهاء الدورة'),
         content: Text(
-            'هل تريد إنهاء دورة قطيع "${flock.breed}"؟ لن يستقبل التطبيق تسجيلات جديدة له.'),
+          'هل تريد إنهاء دورة قطيع "${flock.breed}"؟ لن يستقبل التطبيق تسجيلات جديدة له.',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('إلغاء')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('إنهاء الدورة')),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('إنهاء الدورة'),
+          ),
         ],
       ),
     );
@@ -305,10 +315,9 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .primaryContainer
-                              .withValues(alpha: 0.3),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primaryContainer.withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(
@@ -432,9 +441,10 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
     // عدد الطيور المنتجة: القطعان النشطة التي لها بيانات أداء فقط — إدراج
     // قطيع بلا إنتاج (مرحلة تربية) في المقام يُنزّل معدل الإنتاج ظلماً.
     final producedFlocksCount = active.fold<int>(
-        0, (sum, f) => sum + (_flockDataMap.containsKey(f.id) ? f.currentCount : 0));
-    final totalBirds =
-        active.fold<int>(0, (sum, f) => sum + f.currentCount);
+      0,
+      (sum, f) => sum + (_flockDataMap.containsKey(f.id) ? f.currentCount : 0),
+    );
+    final totalBirds = active.fold<int>(0, (sum, f) => sum + f.currentCount);
     final totalActiveFlocks = active.length;
 
     double avgProductionRate = 0;
@@ -523,11 +533,9 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
           ),
           const SizedBox(height: 16),
           if (_loading)
-            const Expanded(
-                child: Center(child: CircularProgressIndicator()))
+            const Expanded(child: Center(child: CircularProgressIndicator()))
           else if (_flocks.isEmpty)
-            const Expanded(
-                child: Center(child: Text('لا توجد قطعان مسجلة')))
+            const Expanded(child: Center(child: Text('لا توجد قطعان مسجلة')))
           else
             Expanded(
               child: ListView.builder(
@@ -544,12 +552,14 @@ class _FlocksScreenState extends ConsumerState<FlocksScreen> {
                     onViewBarn: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                          builder: (_) => BarnRecordScreen(flock: flock)),
+                        builder: (_) => BarnRecordScreen(flock: flock),
+                      ),
                     ),
                     onAccounting: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                          builder: (_) => FlockAccountingScreen(flock: flock)),
+                        builder: (_) => FlockAccountingScreen(flock: flock),
+                      ),
                     ),
                   );
                 },
@@ -653,17 +663,18 @@ class _EnhancedFlockCard extends StatelessWidget {
     final flock = data.flock;
     final ended = flock.status == FlockStatus.depleted;
     final theme = Theme.of(context);
-    final mortalityColor =
-        data.mortalityRate > 5 ? Colors.red : Colors.green;
-    final productionColor =
-        data.eggProductionRate > 80
-            ? Colors.green
-            : data.eggProductionRate > 60
-                ? Colors.orange
-                : Colors.red;
+    final mortalityColor = data.mortalityRate > 5 ? Colors.red : Colors.green;
+    final productionColor = data.eggProductionRate > 80
+        ? Colors.green
+        : data.eggProductionRate > 60
+        ? Colors.orange
+        : Colors.red;
     final profitLoss = data.profitLoss;
-    final profitColor =
-        profitLoss > 0 ? Colors.green : profitLoss < 0 ? Colors.red : Colors.grey;
+    final profitColor = profitLoss > 0
+        ? Colors.green
+        : profitLoss < 0
+        ? Colors.red
+        : Colors.grey;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -677,8 +688,7 @@ class _EnhancedFlockCard extends StatelessWidget {
                 Icon(
                   ended ? Icons.history : Icons.pets,
                   size: 28,
-                  color:
-                      ended ? Colors.orange : theme.colorScheme.primary,
+                  color: ended ? Colors.orange : theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -694,8 +704,10 @@ class _EnhancedFlockCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         '${DateFormat('yyyy/MM/dd').format(flock.startDate)}  |  ${flock.ageLabel}',
-                        style:
-                            TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
                       ),
                     ],
                   ),
@@ -804,6 +816,8 @@ class _EnhancedFlockCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
+            _EquipmentStrip(equipment: data.equipment),
+            const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
@@ -814,8 +828,10 @@ class _EnhancedFlockCard extends StatelessWidget {
                 ),
                 IconButton(
                   tooltip: 'محاسبة الفوج',
-                  icon: const Icon(Icons.account_balance_wallet_outlined,
-                      size: 20),
+                  icon: const Icon(
+                    Icons.account_balance_wallet_outlined,
+                    size: 20,
+                  ),
                   onPressed: onAccounting,
                 ),
                 if (!ended)
@@ -867,9 +883,94 @@ class _FlockInfoChip extends StatelessWidget {
           ),
           Text(
             label,
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// شريط العدة والأجهزة داخل بطاقة القطيع.
+///
+/// يظهر فقط عند وجود عناصر مسنَدة للقطيع حتى لا يزحم البطاقات الفارغة.
+/// الكمية المعروضة رصيد المخزون العام للصنف، وليست حصة القطيع.
+class _EquipmentStrip extends StatelessWidget {
+  final List<InventoryItemModel> equipment;
+
+  const _EquipmentStrip({required this.equipment});
+
+  @override
+  Widget build(BuildContext context) {
+    if (equipment.isEmpty) return const SizedBox.shrink();
+    final nf = NumberFormat('#,##0.##');
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.blueGrey.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blueGrey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.handyman_outlined,
+                size: 15,
+                color: Colors.blueGrey,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'العدة والأجهزة (${equipment.length})',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.blueGrey,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              for (final item in equipment)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: item.isLowStock ? Colors.red.shade50 : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: item.isLowStock
+                          ? Colors.red.shade300
+                          : Colors.blueGrey.shade200,
+                    ),
+                  ),
+                  child: Text(
+                    '${item.name} — ${nf.format(item.quantity)} ${item.unit.label}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: item.isLowStock ? Colors.red.shade800 : null,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'الكمية رصيد المخزون العام — الإسناد للعرض فقط ولا يُحسب كحصة للقطيع.',
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 9,
               color: Colors.grey.shade600,
+              fontStyle: FontStyle.italic,
             ),
           ),
         ],

@@ -180,12 +180,18 @@ final financialKpiProvider = FutureProvider.autoDispose
     fromDate: params.range.from,
     toDate: params.range.to,
   );
+  final otherRevenue = await ref.read(revenueRepositoryProvider).getRevenues(
+        farmId: params.farmId,
+        fromDate: params.range.from,
+        toDate: params.range.to,
+      );
 
   return FinancialKpi.calculate(
     dispatches: dispatches,
     payments: payments,
     expenses: expenses,
     range: params.range,
+    otherRevenue: otherRevenue,
   );
 });
 
@@ -408,6 +414,11 @@ final farmProfitabilityProvider = FutureProvider.autoDispose
     fromDate: params.range.from,
     toDate: params.range.to,
   );
+  final otherRevenue = await ref.read(revenueRepositoryProvider).getRevenues(
+        farmId: params.farmId,
+        fromDate: params.range.from,
+        toDate: params.range.to,
+      );
 
   return FarmProfitability.calculate(
     dispatches: dispatches,
@@ -415,5 +426,6 @@ final farmProfitabilityProvider = FutureProvider.autoDispose
     feedReceived: feedReceived,
     expenses: expenses,
     range: params.range,
+    otherRevenue: otherRevenue,
   );
 });

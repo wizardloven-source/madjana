@@ -17,6 +17,8 @@ class InventoryScreen extends ConsumerStatefulWidget {
 
 class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   List<InventoryItemModel> _items = [];
+  List<FlockModel> _flocks = [];
+  String? _flockFilter;
   bool _loading = true;
 
   // الرصيد التلقائي (يحسب من السجلات: علف وبيض)
@@ -43,13 +45,30 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     _load();
   }
 
-  int get _lowStockCount => _items.where((i) => i.isLowStock).length;
+  int get _lowStockCount => _visibleItems.where((i) => i.isLowStock).length;
+
+  /// الطبقات: كل العناصر، أو المسندة لقطيع بعينه.
+  List<InventoryItemModel> get _visibleItems => _flockFilter == null
+      ? _items
+      : _items.where((i) => i.flockId == _flockFilter).toList();
+
+  String _flockName(String? id) {
+    if (id == null) return 'مشترك';
+    for (final f in _flocks) {
+      if (f.id == id) return f.displayName;
+    }
+    return 'قطيع محذوف';
+  }
 
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final items =
-          await ref.read(inventoryRepositoryProvider).getItems(_farmId);
+      final items = await ref
+          .read(inventoryRepositoryProvider)
+          .getItems(_farmId);
+      final flocks = await ref
+          .read(flockRepositoryProvider)
+          .getFlocks(_farmId, includeEnded: true);
       final feedRepo = ref.read(feedRepositoryProvider);
       final eggRepo = ref.read(eggProductionRepositoryProvider);
       final dispatchRepo = ref.read(dispatchRepositoryProvider);
@@ -61,48 +80,54 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       final consumed = await feedRepo.getAllConsumption(farmId: _farmId);
       final stockIl = await feedRepo.getCurrentFeedStock(_farmId);
       final receivedIl = received.fold<double>(0, (s, r) => s + r.quantityKg);
-      final consumedIl =
-          consumed.fold<double>(0, (s, r) => s + r.quantityKg);
+      final consumedIl = consumed.fold<double>(0, (s, r) => s + r.quantityKg);
 
       // رصيد البيض: الإنتاج (صالح للبيع) - التخريج
       final production = await eggRepo.getAllRecords(farmId: _farmId);
       final dispatches = await dispatchRepo.getAll(farmId: _farmId);
       final producedIl = production.fold<int>(
-          0,
-          (s, e) =>
-              s + (e.totalEggs - e.brokenEggs - e.dirtyEggs));
-      final dispatchedIl =
-          dispatches.fold<int>(0, (s, d) => s + d.totalEggs);
+        0,
+        (s, e) => s + (e.totalEggs - e.brokenEggs - e.dirtyEggs),
+      );
+      final dispatchedIl = dispatches.fold<int>(0, (s, d) => s + d.totalEggs);
 
       // صافي رصيد القطعان القديمة (opening balances) للإبقاء على اتساق لوحة التحكم
       final openings = await ref
           .read(openingBalanceRepositoryProvider)
           .getForFarm(_farmId);
-      final openingProduced =
-          openings.fold<int>(0, (s, b) => s + b.eggsProduced);
-      final openingDispatched =
-          openings.fold<int>(0, (s, b) => s + b.eggsDispatched);
+      final openingProduced = openings.fold<int>(
+        0,
+        (s, b) => s + b.eggsProduced,
+      );
+      final openingDispatched = openings.fold<int>(
+        0,
+        (s, b) => s + b.eggsDispatched,
+      );
 
       // كمية التسوية اليدوية (بيض فقط): إضافة (+) أو صرف (-)
       final eggSettlement =
           (await StockAdjustmentsDao().getAll(farmId: _farmId))
               .where((r) => r['stock_type'] == 'eggs')
               .fold<int>(
-                  0,
-                  (s, r) =>
-                      s + ((r['delta_qty'] as num?) ?? 0).round());
+                0,
+                (s, r) => s + ((r['delta_qty'] as num?) ?? 0).round(),
+              );
 
       // مخزون صحون الكرتون: المشترى (ربطات × 100 صحن) - المستهلك (كراتين×12 + أطباق)
       final cartonExpenses = await expenseRepo.getExpenses(farmId: _farmId);
       final purchasedTrays = cartonExpenses
-          .where((e) =>
-              e.category == ExpenseCategory.carton &&
-              e.cartonBundles != null)
-          .fold<int>(0, (s, e) => s + (e.cartonBundles ?? 0) * AppConstants.traysPerBundle);
+          .where(
+            (e) =>
+                e.category == ExpenseCategory.carton && e.cartonBundles != null,
+          )
+          .fold<int>(
+            0,
+            (s, e) => s + (e.cartonBundles ?? 0) * AppConstants.traysPerBundle,
+          );
       final consumedTrays = dispatches.fold<int>(
-          0,
-          (s, d) =>
-              s + d.cartons * AppConstants.traysPerCarton + d.trays);
+        0,
+        (s, d) => s + d.cartons * AppConstants.traysPerCarton + d.trays,
+      );
 
       double bagWeight = 50;
       int cartonThreshold = 100;
@@ -115,6 +140,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       if (!mounted) return;
       setState(() {
         _items = items;
+        _flocks = flocks;
         _feedStockKg = stockIl;
         _feedReceivedKg = receivedIl;
         _feedConsumedKg = consumedIl;
@@ -122,7 +148,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         _eggsProduced = producedIl + openingProduced;
         _eggsDispatched = dispatchedIl + openingDispatched;
         _eggSettlement = eggSettlement;
-        _eggStock = producedIl - dispatchedIl +
+        _eggStock =
+            producedIl -
+            dispatchedIl +
             (openingProduced - openingDispatched) +
             eggSettlement;
         _cartonPurchasedTrays = purchasedTrays;
@@ -132,8 +160,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -177,7 +204,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                   decoration: const InputDecoration(labelText: 'نوع المخزون'),
                   items: const [
                     DropdownMenuItem(value: 'eggs', child: Text('بيض')),
-                    DropdownMenuItem(value: 'cartons', child: Text('صحون كرتون')),
+                    DropdownMenuItem(
+                      value: 'cartons',
+                      child: Text('صحون كرتون'),
+                    ),
                     DropdownMenuItem(value: 'feed', child: Text('علف')),
                   ],
                   onChanged: (v) => setDialog(() => stockType = v ?? 'eggs'),
@@ -185,7 +215,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: qtyCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   decoration: const InputDecoration(labelText: 'الكمية'),
                 ),
                 const SizedBox(height: 12),
@@ -206,8 +238,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 final qty = double.tryParse(qtyCtrl.text.trim());
                 if (qty == null || qty <= 0) return;
                 final dao = StockAdjustmentsDao();
-                final managerId =
-                    ref.read(authProvider).currentUser?.uid ?? '';
+                final managerId = ref.read(authProvider).currentUser?.uid ?? '';
                 await dao.insert({
                   'farm_id': _farmId,
                   'stock_type': stockType,
@@ -233,10 +264,12 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   /// إنشاء أو تعديل عنصر
   Future<void> _showItemDialog({InventoryItemModel? item}) async {
     final nameCtrl = TextEditingController(text: item?.name ?? '');
-    final qtyCtrl =
-        TextEditingController(text: item?.quantity.toString() ?? '0');
-    final thresholdCtrl =
-        TextEditingController(text: item?.lowStockThreshold.toString() ?? '5');
+    final qtyCtrl = TextEditingController(
+      text: item?.quantity.toString() ?? '0',
+    );
+    final thresholdCtrl = TextEditingController(
+      text: item?.lowStockThreshold.toString() ?? '5',
+    );
     final notesCtrl = TextEditingController(text: item?.notes ?? '');
     var unit = item?.unit ?? InventoryUnit.piece;
 
@@ -252,56 +285,64 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
               children: [
                 TextField(
                   controller: nameCtrl,
-                  decoration:
-                      const InputDecoration(labelText: 'اسم العنصر'),
+                  decoration: const InputDecoration(labelText: 'اسم العنصر'),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<InventoryUnit>(
                   value: unit,
                   decoration: const InputDecoration(labelText: 'الوحدة'),
                   items: InventoryUnit.values
-                      .map((u) => DropdownMenuItem(
-                          value: u, child: Text(u.label)))
+                      .map(
+                        (u) => DropdownMenuItem(value: u, child: Text(u.label)),
+                      )
                       .toList(),
                   onChanged: (v) {
                     if (v != null) setDialog(() => unit = v);
                   },
                 ),
                 const SizedBox(height: 12),
-                Row(children: [
-                  Expanded(
-                    child: TextField(
-                      controller: qtyCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true),
-                      decoration:
-                          const InputDecoration(labelText: 'الكمية الحالية'),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: qtyCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'الكمية الحالية',
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: thresholdCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true),
-                      decoration:
-                          const InputDecoration(labelText: 'حد التنبيه'),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: thresholdCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'حد التنبيه',
+                        ),
+                      ),
                     ),
-                  ),
-                ]),
+                  ],
+                ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: notesCtrl,
-                  decoration:
-                      const InputDecoration(labelText: 'ملاحظات (اختياري)'),
+                  decoration: const InputDecoration(
+                    labelText: 'ملاحظات (اختياري)',
+                  ),
                 ),
               ],
             ),
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('إلغاء')),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('إلغاء'),
+            ),
             FilledButton(
               onPressed: () {
                 if (nameCtrl.text.trim().isEmpty ||
@@ -320,16 +361,21 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     if (ok != true) return;
 
     try {
-      await ref.read(inventoryRepositoryProvider).saveItem(InventoryItemModel(
-            id: item?.id,
-            farmId: _farmId,
-            name: nameCtrl.text.trim(),
-            unit: unit,
-            quantity: double.parse(qtyCtrl.text.trim()),
-            lowStockThreshold: double.parse(thresholdCtrl.text.trim()),
-            notes:
-                notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
-          ));
+      await ref
+          .read(inventoryRepositoryProvider)
+          .saveItem(
+            InventoryItemModel(
+              id: item?.id,
+              farmId: _farmId,
+              name: nameCtrl.text.trim(),
+              unit: unit,
+              quantity: double.parse(qtyCtrl.text.trim()),
+              lowStockThreshold: double.parse(thresholdCtrl.text.trim()),
+              notes: notesCtrl.text.trim().isEmpty
+                  ? null
+                  : notesCtrl.text.trim(),
+            ),
+          );
       _load();
     } catch (e) {
       _error(e);
@@ -347,28 +393,36 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         title: Text(isInput ? 'إدخال إلى المخزون' : 'إخراج من المخزون'),
         content: SizedBox(
           width: 340,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('${item.name} — المتوفر: ${item.quantity} ${item.unit.label}'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: qtyCtrl,
-              autofocus: true,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'الكمية'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: noteCtrl,
-              decoration:
-                  const InputDecoration(labelText: 'ملاحظة (اختياري)'),
-            ),
-          ]),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${item.name} — المتوفر: ${item.quantity} ${item.unit.label}',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: qtyCtrl,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: 'الكمية'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: noteCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'ملاحظة (اختياري)',
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('إلغاء')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
           FilledButton(
             onPressed: () {
               final q = double.tryParse(qtyCtrl.text.trim());
@@ -383,7 +437,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     if (ok != true) return;
 
     try {
-      await ref.read(inventoryRepositoryProvider).adjustStock(
+      await ref
+          .read(inventoryRepositoryProvider)
+          .adjustStock(
             itemId: item.id!,
             isInput: isInput,
             quantity: double.parse(qtyCtrl.text.trim()),
@@ -403,11 +459,13 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         content: Text('حذف "${item.name}" وكل حركاته؟'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('إلغاء')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('حذف')),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('حذف'),
+          ),
         ],
       ),
     );
@@ -421,6 +479,76 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   }
 
   @override
+  /// مرشّح سريع: يعرض عدة قطيع واحد أو كل العناصر.
+  Widget _buildFlockFilter() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          FilterChip(
+            label: const Text('كل العناصر'),
+            selected: _flockFilter == null,
+            onSelected: (_) => setState(() => _flockFilter = null),
+          ),
+          const SizedBox(width: 8),
+          ..._flocks.map(
+            (f) => Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: FilterChip(
+                label: Text(f.displayName),
+                selected: _flockFilter == f.id,
+                onSelected: (sel) =>
+                    setState(() => _flockFilter = sel ? f.id : null),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// إسناد صنف إلى قطيع، أو فكّه ليكون مشتركاً على المزرعة كلها.
+  Future<void> _assignFlock(InventoryItemModel item) async {
+    final picked = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text('إسناد "${item.name}"'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, '__shared__'),
+            child: const ListTile(
+              leading: Icon(Icons.public),
+              title: Text('مشترك — كل المزارع'),
+            ),
+          ),
+          ..._flocks.map(
+            (f) => SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, f.id),
+              child: ListTile(
+                leading: const Icon(Icons.egg_alt),
+                title: Text(f.displayName),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    final target = picked == '__shared__' ? null : picked;
+    await ref.read(inventoryRepositoryProvider).assignToFlock(item.id!, target);
+    await _load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          target == null
+              ? 'أصبح "${item.name}" مشتركاً على المزرعة'
+              : 'تم إسناد "${item.name}" إلى $_flockName(target)',
+        ),
+      ),
+    );
+  }
+
   Widget build(BuildContext context) {
     // إعادة تحميل المخزون تلقائياً عند وصول بيانات جديدة من المزامنة
     ref.listen(dataRefreshTickProvider, (_, __) => _load());
@@ -433,14 +561,17 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             spacing: 8,
             alignment: WrapAlignment.spaceBetween,
             children: [
-              Wrap(spacing: 8, children: [
-                Chip(label: Text('عدد العناصر: ${_items.length}')),
-                if (_lowStockCount > 0)
-                  Chip(
-                    label: Text('تنبيه: $_lowStockCount عنصر منخفض!'),
-                    backgroundColor: Colors.red.shade100,
-                  ),
-              ]),
+              Wrap(
+                spacing: 8,
+                children: [
+                  Chip(label: Text('عدد العناصر: ${_visibleItems.length}')),
+                  if (_lowStockCount > 0)
+                    Chip(
+                      label: Text('تنبيه: $_lowStockCount عنصر منخفض!'),
+                      backgroundColor: Colors.red.shade100,
+                    ),
+                ],
+              ),
               FilledButton.icon(
                 onPressed: () => _showItemDialog(),
                 icon: const Icon(Icons.add),
@@ -455,13 +586,18 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             ],
           ),
           const SizedBox(height: 16),
+          _buildFlockFilter(),
+          const SizedBox(height: 16),
           _buildAutoStockSection(),
           const SizedBox(height: 16),
           if (_loading)
-            const Expanded(
-                child: Center(child: CircularProgressIndicator()))
+            const Expanded(child: Center(child: CircularProgressIndicator()))
           else if (_items.isEmpty)
             const Expanded(child: Center(child: Text('المخزون فارغ')))
+          else if (_visibleItems.isEmpty)
+            const Expanded(
+              child: Center(child: Text('لا توجد عناصر لهذا القطيع')),
+            )
           else
             Expanded(
               child: SingleChildScrollView(
@@ -469,59 +605,117 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
-                  columns: const [
-                    DataColumn(label: Text('العنصر')),
-                    DataColumn(label: Text('الكمية')),
-                    DataColumn(label: Text('حد التنبيه')),
-                    DataColumn(label: Text('الحالة')),
-                    DataColumn(label: Text('آخر تحديث')),
-                    DataColumn(label: Text('إجراءات')),
-                  ],
-                  rows: _items.map((i) {
-                    return DataRow(cells: [
-                      DataCell(Text(i.name)),
-                      DataCell(Text(
-                          '${NumberFormat('#,##0.##').format(i.quantity)} ${i.unit.label}')),
-                      DataCell(Text(NumberFormat('#,##0.##').format(i.lowStockThreshold))),
-                      DataCell(i.isLowStock
-                          ? Tooltip(
-                              message: 'الكمية منخفضة - أعد الطلب',
-                              child: Chip(
-                                label: const Text('منخفض'),
-                                backgroundColor: Colors.red.shade100,
+                    columns: const [
+                      DataColumn(label: Text('العنصر')),
+                      DataColumn(label: Text('الكمية')),
+                      DataColumn(label: Text('حد التنبيه')),
+                      DataColumn(label: Text('القطيع')),
+                      DataColumn(label: Text('الحالة')),
+                      DataColumn(label: Text('آخر تحديث')),
+                      DataColumn(label: Text('إجراءات')),
+                    ],
+                    rows: _visibleItems.map((i) {
+                      return DataRow(
+                        cells: [
+                          DataCell(Text(i.name)),
+                          DataCell(
+                            Text(
+                              '${NumberFormat('#,##0.##').format(i.quantity)} ${i.unit.label}',
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              NumberFormat(
+                                '#,##0.##',
+                              ).format(i.lowStockThreshold),
+                            ),
+                          ),
+                          DataCell(
+                            InkWell(
+                              onTap: () => _assignFlock(i),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: 2,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        _flockName(i.flockId),
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: i.flockId == null
+                                              ? Colors.grey
+                                              : Colors.blueGrey,
+                                        ),
+                                      ),
+                                    ),
+                                    const Icon(Icons.arrow_drop_down, size: 18),
+                                  ],
+                                ),
                               ),
-                            )
-                          : const Chip(label: Text('جيد'))),
-                      DataCell(Text(i.updatedAt != null
-                          ? DateFormat('yyyy/MM/dd').format(i.updatedAt!)
-                          : '-')),
-                      DataCell(Row(children: [
-                        IconButton(
-                          tooltip: 'إدخال',
-                          icon: const Icon(Icons.add_circle_outline,
-                              color: Colors.green),
-                          onPressed: () => _adjust(i, isInput: true),
-                        ),
-                        IconButton(
-                          tooltip: 'إخراج',
-                          icon: const Icon(Icons.remove_circle_outline,
-                              color: Colors.orange),
-                          onPressed: () => _adjust(i, isInput: false),
-                        ),
-                        IconButton(
-                          tooltip: 'تعديل',
-                          icon: const Icon(Icons.edit_outlined),
-                          onPressed: () => _showItemDialog(item: i),
-                        ),
-                        IconButton(
-                          tooltip: 'حذف',
-                          icon: const Icon(Icons.delete_outline,
-                              color: Colors.red),
-                          onPressed: () => _delete(i),
-                        ),
-                      ])),
-                    ]);
-                  }).toList(),
+                            ),
+                          ),
+                          DataCell(
+                            i.isLowStock
+                                ? Tooltip(
+                                    message: 'الكمية منخفضة - أعد الطلب',
+                                    child: Chip(
+                                      label: const Text('منخفض'),
+                                      backgroundColor: Colors.red.shade100,
+                                    ),
+                                  )
+                                : const Chip(label: Text('جيد')),
+                          ),
+                          DataCell(
+                            Text(
+                              i.updatedAt != null
+                                  ? DateFormat(
+                                      'yyyy/MM/dd',
+                                    ).format(i.updatedAt!)
+                                  : '-',
+                            ),
+                          ),
+                          DataCell(
+                            Row(
+                              children: [
+                                IconButton(
+                                  tooltip: 'إدخال',
+                                  icon: const Icon(
+                                    Icons.add_circle_outline,
+                                    color: Colors.green,
+                                  ),
+                                  onPressed: () => _adjust(i, isInput: true),
+                                ),
+                                IconButton(
+                                  tooltip: 'إخراج',
+                                  icon: const Icon(
+                                    Icons.remove_circle_outline,
+                                    color: Colors.orange,
+                                  ),
+                                  onPressed: () => _adjust(i, isInput: false),
+                                ),
+                                IconButton(
+                                  tooltip: 'تعديل',
+                                  icon: const Icon(Icons.edit_outlined),
+                                  onPressed: () => _showItemDialog(item: i),
+                                ),
+                                IconButton(
+                                  tooltip: 'حذف',
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    color: Colors.red,
+                                  ),
+                                  onPressed: () => _delete(i),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
                   ),
                 ),
               ),
@@ -574,12 +768,19 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.grain_rounded,
-                          color: Colors.orange.shade700, size: 28),
+                      Icon(
+                        Icons.grain_rounded,
+                        color: Colors.orange.shade700,
+                        size: 28,
+                      ),
                       const SizedBox(width: 8),
-                      const Text('رصيد العلف',
-                          style: TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.bold)),
+                      const Text(
+                        'رصيد العلف',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -601,8 +802,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                   const SizedBox(height: 4),
                   Text(
                     'وزن الكيس: ${NumberFormat('#,##0.#').format(_bagWeightKg)} كغ',
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade500),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                   ),
                 ],
               ),
@@ -628,12 +828,19 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.egg_alt_rounded,
-                          color: Colors.amber.shade800, size: 28),
+                      Icon(
+                        Icons.egg_alt_rounded,
+                        color: Colors.amber.shade800,
+                        size: 28,
+                      ),
                       const SizedBox(width: 8),
-                      const Text('رصيد البيض',
-                          style: TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.bold)),
+                      const Text(
+                        'رصيد البيض',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -665,8 +872,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                   const SizedBox(height: 4),
                   Text(
                     'الباقي: ${NumberFormat('#,##0').format(_eggStock)} بيضة',
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade500),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                   ),
                 ],
               ),
@@ -712,12 +918,16 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.inventory_2_outlined,
-                      color: Colors.teal.shade700, size: 28),
+                  Icon(
+                    Icons.inventory_2_outlined,
+                    color: Colors.teal.shade700,
+                    size: 28,
+                  ),
                   const SizedBox(width: 8),
-                  const Text('مخزون صحون الكرتون',
-                      style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'مخزون صحون الكرتون',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),

@@ -113,4 +113,17 @@ class InventoryRepositoryImpl implements InventoryRepository {
       return _localDao.getTransactions(itemId);
     }
   }
+
+  @override
+  Future<List<InventoryItemModel>> getEquipmentForFlock(String flockId) async {
+    // الترشيح محلي فقط: `flock_id` عمود مرجع محلي، والمسار العادي
+    // (sync) هو ما يجلب الأعمدة الجديدة من الخادم. الاستدعاء الفوري للسحابة
+    // هنا كان سيُظهر قائمة فارغة على أي عميل لم تُطبَّق عليه الترحيلات بعد.
+    return _localDao.getByFlock(flockId);
+  }
+
+  @override
+  Future<void> assignToFlock(String itemId, String? flockId) async {
+    await _localDao.setFlock(itemId, flockId);
+  }
 }

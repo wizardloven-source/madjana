@@ -14,7 +14,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 28;
+  static const int _dbVersion = 29;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -352,18 +352,19 @@ class LocalDatabase {
 
     // جدول عناصر المخزون (للمدير فقط)
     await db.execute('''
-      CREATE TABLE inventory_items (
-        id TEXT PRIMARY KEY,
-        farm_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        unit TEXT NOT NULL DEFAULT 'piece',
-        quantity REAL NOT NULL DEFAULT 0,
-        low_stock_threshold REAL NOT NULL DEFAULT 5,
-        notes TEXT,
-        version INTEGER DEFAULT 1,
-        updated_at TEXT
-      )
-    ''');
+CREATE TABLE inventory_items (
+  id TEXT PRIMARY KEY,
+  farm_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  unit TEXT NOT NULL DEFAULT 'piece',
+  quantity REAL NOT NULL DEFAULT 0,
+  low_stock_threshold REAL NOT NULL DEFAULT 5,
+  notes TEXT,
+  flock_id TEXT,
+  version INTEGER DEFAULT 1,
+  updated_at TEXT
+  )
+  ''');
 
     // جدول حركات المخزون (للمدير فقط)
     await db.execute('''
@@ -1102,6 +1103,19 @@ class LocalDatabase {
             )
           ''');
           }
+        }
+
+        // v29: العدة والأجهزة per-flock. مرجع فقط — الكمية تبقى في المخزون
+        // العام ولا تُقسَّم بين القطعان (قرار المستخدم: مرجع بلا حصر).
+        if (oldVersion < 29) {
+          if (!await _columnExists(db, 'inventory_items', 'flock_id')) {
+            await db.execute(
+                'ALTER TABLE inventory_items ADD COLUMN flock_id TEXT');
+          }
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_inventory_items_flock '
+            'ON inventory_items(flock_id)',
+          );
         }
   }
 

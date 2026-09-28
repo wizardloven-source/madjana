@@ -42,6 +42,12 @@ abstract class InventoryRepository {
   });
 
   Future<List<InventoryTransactionModel>> getTransactions(String itemId);
+
+  /// عدة قطيع معيّن (مرجع فقط — الكمية إجمالية للمزرعة).
+  Future<List<InventoryItemModel>> getEquipmentForFlock(String flockId);
+
+  /// ربط صنف بقطيع، أو فكّه بـ`null`.
+  Future<void> assignToFlock(String itemId, String? flockId);
 }
 
 /// مستودع الإيرادات - للمدير فقط

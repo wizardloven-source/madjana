@@ -9,6 +9,8 @@ import '../models/flock_model.dart';
 import '../models/customer_model.dart';
 import '../models/inventory_model.dart';
 import '../models/opening_balance_model.dart';
+import '../models/revenue_model.dart';
+import '../constants/enums.dart';
 import '../utils/farm_analytics.dart';
 
 
@@ -423,7 +425,8 @@ class FeedKpi {
 // ═══════════════════════════════════════════════════════════════
 
 class FinancialKpi {
-  final double totalSales; // totalDue from dispatches
+  final double totalSales; // فواتير البيض من payments
+  final double otherRevenue; // إيراد غير البيض من جدول revenue
   final double totalCollected; // amountPaid from payments
   final double totalExpenses;
   final double outstanding; // totalDue - totalPaid
@@ -431,6 +434,7 @@ class FinancialKpi {
 
   const FinancialKpi({
     required this.totalSales,
+    this.otherRevenue = 0,
     required this.totalCollected,
     required this.totalExpenses,
     required this.outstanding,
@@ -439,6 +443,7 @@ class FinancialKpi {
 
   factory FinancialKpi.empty() => const FinancialKpi(
         totalSales: 0,
+        otherRevenue: 0,
         totalCollected: 0,
         totalExpenses: 0,
         outstanding: 0,
@@ -450,6 +455,7 @@ class FinancialKpi {
     required List<PaymentModel> payments,
     required List<ExpenseModel> expenses,
     required DateRange range,
+    List<RevenueModel> otherRevenue = const [],
   }) {
     // كل فاتورة تُحتسب مرة واحدة (أقصى totalDue) حتى لا يتضاعف الإيراد
     // عند الدفع بالتقسيط أو عند تعديل السعر/سعر الصرف.
@@ -468,6 +474,13 @@ class FinancialKpi {
     final sales =
         invoiceByDispatch.values.fold<double>(0, (s, v) => s + v) +
             salesNoDispatch;
+
+    // إيراد غير البيض (دجاج حي، أبنية، معدات) — `eggSales` مستثناة لأن مال
+    // البيض في `payments` أعلاه، ولو جمعناه لأُعيد أكبر سطر مرتين.
+    final nonEgg = otherRevenue
+        .where((r) =>
+            range.contains(r.date) && r.category != RevenueCategory.eggSales)
+        .fold<double>(0, (s, r) => s + r.amount);
 
     final collected = payments
         .where((p) => range.contains(p.date))
@@ -504,11 +517,12 @@ class FinancialKpi {
     }
 
     return FinancialKpi(
-      totalSales: sales,
+      totalSales: sales + nonEgg,
+      otherRevenue: nonEgg,
       totalCollected: collected,
       totalExpenses: exp,
       outstanding: outstanding,
-      estimatedMargin: collected - exp,
+      estimatedMargin: collected + nonEgg - exp,
     );
   }
 }
@@ -1130,7 +1144,8 @@ class FlockProfitability {
 // ═══════════════════════════════════════════════════════════════
 
 class FarmProfitability {
-  final double revenue; // إيرادات البيض (قيمة فواتير التخريج، كل فاتورة مرة واحدة)
+  final double revenue; // إيراد البيض (قيمة فواتير التخريج، كل فاتورة مرة واحدة)
+  final double otherRevenue; // إيراد غير البيض من جدول `revenue` (دجاج حي، أبنية، معدات…)
   final int invoicedDispatches; // عدد الفواتير المسعّرة
   final double collected; // المقبوضات
   final double outstanding; // المستحق
@@ -1146,6 +1161,7 @@ class FarmProfitability {
 
   const FarmProfitability({
     required this.revenue,
+    this.otherRevenue = 0,
     required this.invoicedDispatches,
     required this.collected,
     required this.outstanding,
@@ -1177,6 +1193,7 @@ class FarmProfitability {
     required List<FeedReceivedModel> feedReceived,
     required List<ExpenseModel> expenses,
     required DateRange range,
+    List<RevenueModel> otherRevenue = const [],
   }) {
     final invoiceByDispatch = <String, double>{};
     var collected = 0.0;
@@ -1188,8 +1205,18 @@ class FarmProfitability {
       }
       collected += p.amountPaid;
     }
-    final revenue = invoiceByDispatch.values.fold<double>(0, (s, v) => s + v);
-    final outstanding = revenue - collected;
+    final eggRevenue =
+        invoiceByDispatch.values.fold<double>(0, (s, v) => s + v);
+    final outstanding = eggRevenue - collected;
+
+    // إيراد غير البيض يأتي من جدول `revenue` (دجاج حي، أبنية، معدات).
+    // `eggSales` تُتجاهل عمداً: مال البيض موجود أصلاً في `payments`، وحساب
+    // الاثنين معاً يضاعف أكبر سطر إيراد.
+    final nonEgg = otherRevenue
+        .where((r) =>
+            range.contains(r.date) && r.category != RevenueCategory.eggSales)
+        .fold<double>(0, (s, r) => s + r.amount);
+    final revenue = eggRevenue + nonEgg;
 
     final feed =
         feedCostOf(feedReceived.where((r) => range.contains(r.date)));
@@ -1205,6 +1232,7 @@ class FarmProfitability {
 
     return FarmProfitability(
       revenue: revenue,
+      otherRevenue: nonEgg,
       invoicedDispatches: invoiceByDispatch.length,
       collected: collected,
       outstanding: outstanding,

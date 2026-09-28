@@ -863,9 +863,16 @@ class _FarmProfitSummary extends StatelessWidget {
             _ProfitLine(
               icon: Icons.egg_alt,
               label: 'إيرادات البيض',
-              value: Formatters.formatCurrency(farm.revenue),
+              value: Formatters.formatCurrency(farm.revenue - farm.otherRevenue),
               color: Colors.blue,
             ),
+            if (farm.otherRevenue > 0.001)
+              _ProfitLine(
+                icon: Icons.trending_up,
+                label: 'إيراد آخر (دجاج، أبنية، معدات)',
+                value: Formatters.formatCurrency(farm.otherRevenue),
+                color: Colors.teal,
+              ),
             _ProfitLine(
               icon: Icons.payments,
               label: 'المقبوضات',

@@ -22,6 +22,7 @@ class InventoryDao {
       'quantity': item.quantity,
       'low_stock_threshold': item.lowStockThreshold,
       'notes': item.notes,
+      'flock_id': item.flockId,
       'updated_at': now,
     };
 
@@ -44,6 +45,7 @@ class InventoryDao {
           'quantity': item.quantity,
           'low_stock_threshold': item.lowStockThreshold,
           'notes': item.notes,
+          'flock_id': item.flockId,
         },
       );
     } else {
@@ -69,6 +71,7 @@ class InventoryDao {
           'quantity': item.quantity,
           'low_stock_threshold': item.lowStockThreshold,
           'notes': item.notes,
+          'flock_id': item.flockId,
         },
       );
     }
@@ -84,6 +87,49 @@ class InventoryDao {
       orderBy: 'name ASC',
     );
     return maps.map(_fromMap).toList();
+  }
+
+  /// عدة قطيع معيّن. مرجع فقط — الكمية في [getItems] تبقى إجمالية للمزرعة،
+  /// فمجموع ما هنا قد يفوق المخزون إن أُسند الصنف لأكثر من قطيع.
+  Future<List<InventoryItemModel>> getByFlock(String flockId) async {
+    final db = await LocalDatabase.database;
+    final maps = await db.query(
+      _itemsTable,
+      where: 'flock_id = ?',
+      whereArgs: [flockId],
+      orderBy: 'name ASC',
+    );
+    return maps.map(_fromMap).toList();
+  }
+
+  /// الصنف مرتبط بقطيع واحد على الأكثر. تُستخدم للربط والفك.
+  Future<void> setFlock(String itemId, String? flockId) async {
+    final db = await LocalDatabase.database;
+    final rows = await db.query(
+      _itemsTable,
+      columns: ['version'],
+      where: 'id = ?',
+      whereArgs: [itemId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final ver = (rows.first['version'] as int?) ?? 1;
+    await db.update(
+      _itemsTable,
+      {
+        'flock_id': flockId,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [itemId],
+    );
+    await LocalDatabase.enqueueChange(
+      tableName: _itemsTable,
+      recordId: itemId,
+      action: 'UPDATE',
+      previousVersion: ver,
+      payload: {'flock_id': flockId},
+    );
   }
 
   /// الحصول على عنصر حسب المعرّف
@@ -185,6 +231,7 @@ class InventoryDao {
       lowStockThreshold:
           (map['low_stock_threshold'] as num?)?.toDouble() ?? 5,
       notes: map['notes'] as String?,
+      flockId: map['flock_id'] as String?,
       updatedAt: map['updated_at'] != null
           ? DateTime.tryParse(map['updated_at'] as String)
           : null,

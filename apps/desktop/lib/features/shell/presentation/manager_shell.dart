@@ -16,6 +16,7 @@ import '../../revenue/presentation/revenue_screen.dart';
 import '../../feed/presentation/feed_screen.dart';
 import '../../flocks/presentation/flocks_screen.dart';
 import '../../inventory/presentation/inventory_screen.dart';
+import '../../inventory/presentation/equipment_screen.dart';
 import '../../mortality/presentation/mortality_screen.dart';
 import '../../notifications/presentation/notifications_screen.dart';
 import '../../medicines/presentation/medicines_screen.dart';
@@ -52,6 +53,9 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     SyncCenterScreen(),
     SettingsScreen(),
     RevenueScreen(),
+    // مُضاف في نهاية القائمة عمداً: الإدراج في المنتصف يزيح كل الفهارس
+    // المستخدمة في _navGroups ويكسر مجموعات التنقّل.
+    EquipmentScreen(),
   ];
 
   static const _titles = [
@@ -73,6 +77,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     'المزامنة',
     'الإعدادات',
     'الإيرادات',
+    'العدة والأجهزة',
   ];
 
   static const _icons = [
@@ -94,6 +99,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     Icons.sync_rounded,
     Icons.settings_rounded,
     Icons.attach_money_rounded,
+    Icons.handyman_rounded,
   ];
 
   // Command Center: تنقّل مجمّع حسب المجالات
@@ -102,6 +108,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     ('الإنتاج', [1, 2, 3, 4]),
     ('المبيعات والمالية', [5, 12, 8, 17]),
     ('المخزون والعلاج', [9, 11]),
+    ('العدة', [18]),
     ('المتابعة والإدارة', [6, 7, 10, 13, 14, 15]),
     ('النظام', [16]),
   ];
