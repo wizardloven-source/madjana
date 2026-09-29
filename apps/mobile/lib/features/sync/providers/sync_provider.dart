@@ -49,6 +49,7 @@ enum SyncConnectionStatus { connected, disconnected, unknown }
 class SyncNotifier extends StateNotifier<SyncState> {
   final SyncRepository repository;
   final ConnectivityService connectivity;
+
   /// يُستدعى بعد كل مزامنة ناجحة لتحديث البيانات المرجعية المخزّنة مؤقتاً
   /// (إعدادات المدجنة مثل وزن الكيس، والزبائن) القادمة من سطح المكتب.
   final void Function()? onSynced;
@@ -73,9 +74,33 @@ class SyncNotifier extends StateNotifier<SyncState> {
   }
 
   Future<void> _init() async {
-    await _refreshCounts();
-    _watchConnectivity();
+    // ترتيب مهم: نقرأ الإعداد أولاً لأن _probeConnectivity يبدأ المؤقت
+    // شرطه autoSyncEnabled. كان يُقرأ بعد _watchConnectivity، فكان أول
+    // فحص 연결 يتم بقيمة default قبل تحميل الإعداد المحفوظ.
     await _loadAutoSyncPref();
+    await _refreshCounts();
+    await _probeConnectivity();
+    _watchConnectivity();
+  }
+
+  /// فحص الاتصال الابتدائي.
+  ///
+  /// `onConnectivityChanged` في connectivity_plus لا يُعيد الحالة الحالية
+  /// عند الاشتراك، فلا إطلاق لهذا التدفق قبل أول تغيّر فعلي. النتيجة: عند
+  /// فتح التطبيق على شبكة مستقرة لا يُطلق الحدث ولا يُشغَّل المؤقت ولا مرّة
+  /// واحدة — ولا مزامنة تلقائية إطلاقاً. هذا الفحص يسدّ تلك الفجوة.
+  Future<void> _probeConnectivity() async {
+    try {
+      final connected = await connectivity.isConnected();
+      state = state.copyWith(
+        connectionStatus: connected
+            ? SyncConnectionStatus.connected
+            : SyncConnectionStatus.disconnected,
+      );
+      if (connected && autoSyncEnabled) _startPeriodicSync();
+    } catch (_) {
+      // فحص فاشل = لا نعرف؛ نبقى على الحالة الافتراضية ولا نبدأ شيئاً.
+    }
   }
 
   /// قراءة إعداد المزامنة التلقائية المحفوظ (المفتاح الذي يكتبه المحول
@@ -190,6 +215,20 @@ class SyncNotifier extends StateNotifier<SyncState> {
     final changed = _farmId != farmId;
     _farmId = farmId;
     if (changed) syncNow();
+    // لا يكفي الإرسال الواحد: بلا مؤقت دوري لا تُرفع الكتابة التالية.
+    if (autoSyncEnabled &&
+        state.connectionStatus != SyncConnectionStatus.disconnected) {
+      _startPeriodicSync();
+    }
+  }
+
+  /// رفع فوري بعد كتابة محلية (حفظ مخزون، إنتاج، دفعة…).
+  ///
+  /// الاعتماد على المؤقت وحده يترك السجل «في الانتظار» حتى 30 ثانية، وهو ما
+  /// يقرأه العامل على أنه فشل. الاستدعاء بعد كل حفظ يزيل الغموض.
+  Future<FullSyncResult?> syncAfterWrite() async {
+    if (!autoSyncEnabled) return null;
+    return _syncOnce();
   }
 
   /// مزامنة يدوية — تُعيد النتيجة الفعلية (null عند الفشل)

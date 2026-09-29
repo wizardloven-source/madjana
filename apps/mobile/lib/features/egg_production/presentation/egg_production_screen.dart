@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
@@ -8,6 +9,7 @@ import '../../../shared/widgets/farm_selector.dart';
 import '../../../shared/widgets/modern_ui.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../reference_data/providers/reference_data_provider.dart';
+import '../../sync/providers/sync_provider.dart';
 import '../providers/egg_production_provider.dart';
 
 /// شاشة إدخال البيض
@@ -19,7 +21,8 @@ class EggProductionScreen extends ConsumerStatefulWidget {
   const EggProductionScreen({super.key});
 
   @override
-  ConsumerState<EggProductionScreen> createState() => _EggProductionScreenState();
+  ConsumerState<EggProductionScreen> createState() =>
+      _EggProductionScreenState();
 }
 
 class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
@@ -40,10 +43,10 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
   List<EggProductionModel> _todayRecords = [];
 
   int get _totalEggs => EggCalculator.calculateTotal(
-        cartons: _cartons,
-        trays: _trays,
-        looseEggs: _looseEggs,
-      );
+    cartons: _cartons,
+    trays: _trays,
+    looseEggs: _looseEggs,
+  );
 
   void _onNumpadKey(String key) {
     setState(() {
@@ -135,17 +138,19 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
     if (user == null || user.farmId == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: AppColors.danger),
+          const SnackBar(
+            content: Text('خطأ في بيانات المستخدم'),
+            backgroundColor: AppColors.danger,
+          ),
         );
       }
       return;
     }
     final farmId = user.farmId!;
 
-    final flocks = ref.read(flocksProvider(farmId)).value ??
-        const <FlockModel>[];
-    final flock =
-        flocks.where((f) => f.id == _selectedFlockId).firstOrNull;
+    final flocks =
+        ref.read(flocksProvider(farmId)).value ?? const <FlockModel>[];
+    final flock = flocks.where((f) => f.id == _selectedFlockId).firstOrNull;
     final needsSection = (flock?.sectionsCount ?? 1) > 1;
 
     if (needsSection && _selectedSection == null) {
@@ -167,9 +172,7 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
       sectionNo: needsSection ? _selectedSection : null,
     );
 
-    final result = await ref
-        .read(eggProductionProvider.notifier)
-        .save(record);
+    final result = await ref.read(eggProductionProvider.notifier).save(record);
 
     if (result.success) {
       if (mounted) {
@@ -177,6 +180,10 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
         _clearFields();
         _loadTodayRecords();
       }
+      // الرفع الفوري بعد الحفظ: الاعتماد على المؤقت الدوري وحده يترك
+      // السجل «في الانتظار» حتى 30 ثانية، فيقرأه العامل على أنه فشل.
+      // التخريج كان يفعل هذا (_syncNow) بينما الإنتاج لم يكن.
+      unawaited(ref.read(syncProvider.notifier).syncAfterWrite());
     } else {
       _showError(result.error ?? 'فشل الحفظ');
     }
@@ -187,7 +194,10 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
     if (user == null || user.farmId == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: AppColors.danger),
+          const SnackBar(
+            content: Text('خطأ في بيانات المستخدم'),
+            backgroundColor: AppColors.danger,
+          ),
         );
       }
       return;
@@ -278,20 +288,19 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
             // اختيار العنبر (يظهر إذا كانت المدجنة بها أكثر من عنبر)
             if (_selectedFlockId != null &&
                 (flocks
-                        .where((f) => f.id == _selectedFlockId)
-                        .firstOrNull
-                        ?.sectionsCount ??
-                    1) >
+                            .where((f) => f.id == _selectedFlockId)
+                            .firstOrNull
+                            ?.sectionsCount ??
+                        1) >
                     1) ...[
               DropdownButtonFormField<int>(
                 initialValue: _selectedSection,
-                decoration:
-                    const InputDecoration(labelText: 'العنبر *'),
+                decoration: const InputDecoration(labelText: 'العنبر *'),
                 items: List.generate(
                   flocks
-                          .where((f) => f.id == _selectedFlockId)
-                          .firstOrNull!
-                          .sectionsCount,
+                      .where((f) => f.id == _selectedFlockId)
+                      .firstOrNull!
+                      .sectionsCount,
                   (i) => DropdownMenuItem(
                     value: i + 1,
                     child: Text('عنبر ${i + 1}'),
@@ -326,7 +335,9 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(AppConstants.colorInfo).withValues(alpha: 0.1),
+                color: const Color(
+                  AppConstants.colorInfo,
+                ).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -400,67 +411,97 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
             // سجلات اليوم
             if (_todayRecords.isNotEmpty) ...[
               const SizedBox(height: 24),
-              const Text('سجلات اليوم', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                'سجلات اليوم',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
-              ..._todayRecords.map((record) => Dismissible(
-                key: ValueKey(record.id),
-                direction: DismissDirection.endToStart,
-                background: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(left: 20),
-                  color: Colors.red,
-                  child: const Icon(Icons.delete, color: Colors.white),
-                ),
-                confirmDismiss: (direction) async {
-                  return await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Text('حذف السجل'),
-                      content: const Text('هل تريد حذف سجل إنتاج البيض؟'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-                        FilledButton(
-                          onPressed: () => Navigator.pop(ctx, true),
-                          child: const Text('حذف'),
-                          style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+              ..._todayRecords.map(
+                (record) => Dismissible(
+                  key: ValueKey(record.id),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(left: 20),
+                    color: Colors.red,
+                    child: const Icon(Icons.delete, color: Colors.white),
+                  ),
+                  confirmDismiss: (direction) async {
+                    return await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('حذف السجل'),
+                        content: const Text('هل تريد حذف سجل إنتاج البيض؟'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('إلغاء'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('حذف'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.danger,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  onDismissed: (direction) async {
+                    if (record.id != null) {
+                      await ref
+                          .read(eggProductionProvider.notifier)
+                          .deleteRecord(record.id!);
+                      _loadTodayRecords();
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      color: AppStatusColors.info(
+                        context,
+                      ).withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                      border: Border.all(
+                        color: AppStatusColors.info(
+                          context,
+                        ).withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.egg_alt,
+                          color: AppStatusColors.info(context),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${Formatters.formatNumber(record.totalEggs)} بيضة',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                'كراتين: ${record.cartons} | صحون: ${record.trays} | منفردة: ${record.looseEggs}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                  );
-                },
-                onDismissed: (direction) async {
-                  if (record.id != null) {
-                    await ref.read(eggProductionProvider.notifier).deleteRecord(record.id!);
-                    _loadTodayRecords();
-                  }
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(
-                  color: AppStatusColors.info(context).withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                  border: Border.all(
-                      color: AppStatusColors.info(context).withValues(alpha: 0.2)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.egg_alt, color: AppStatusColors.info(context)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('${Formatters.formatNumber(record.totalEggs)} بيضة', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            Text('كراتين: ${record.cartons} | صحون: ${record.trays} | منفردة: ${record.looseEggs}',
-                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                          ],
-                        ),
-                      ),
-                    ],
                   ),
                 ),
-              )),
+              ),
             ],
           ],
         ),
