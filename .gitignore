@@ -19,6 +19,7 @@ build/
 **/build/
 .packages
 *.dill
+.kotlin/
 
 # Flutter test coverage output
 coverage/
