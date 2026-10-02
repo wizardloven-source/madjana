@@ -12,7 +12,7 @@ import '../../reference_data/providers/reference_data_provider.dart';
 import '../providers/feed_consumption_provider.dart';
 
 /// شاشة استهلاك العلف
-/// 
+///
 /// المميزات:
 /// - Toggle بين أكياس / كيلو
 /// - حساب quantity_kg = bags × 24 تلقائياً
@@ -60,7 +60,9 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
     if (farmId.isEmpty) return;
     setState(() => _stockLoading = true);
     try {
-      final stock = await ref.read(feedRepositoryProvider).getCurrentFeedStock(farmId);
+      final stock = await ref
+          .read(feedRepositoryProvider)
+          .getCurrentFeedStock(farmId);
       if (mounted) setState(() => _stockKg = stock);
     } catch (_) {
       if (mounted) setState(() => _stockKg = 0);
@@ -106,7 +108,8 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
           str = '0';
         } else {
           str = str.substring(0, str.length - 1);
-          if (str.endsWith('.') || str == '-0') str = str.substring(0, str.length - 1);
+          if (str.endsWith('.') || str == '-0')
+            str = str.substring(0, str.length - 1);
           if (str.isEmpty || str == '-') str = '0';
         }
       } else if (key == '.') {
@@ -146,7 +149,10 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
     if (user == null || user.farmId == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: AppColors.danger),
+          const SnackBar(
+            content: Text('خطأ في بيانات المستخدم'),
+            backgroundColor: AppColors.danger,
+          ),
         );
       }
       return;
@@ -190,7 +196,8 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
     final flocksAsync = ref.watch(flocksProvider(farmId));
     final flocks = flocksAsync.value ?? const <FlockModel>[];
     final farmSettingsAsync = ref.watch(farmSettingsProvider(farmId));
-    final farmSettings = farmSettingsAsync.value;
+    // .farm لأن الـ provider صار يُرجع FarmFetchResult (قيمة + مصدرها).
+    final farmSettings = farmSettingsAsync.value?.farm;
     final kgPerBag = farmSettings?.feedBagWeightKg ?? AppConstants.kgPerBag;
     if (_kgPerBag != kgPerBag) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -210,8 +217,7 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
               alignment: Alignment.centerRight,
               child: FarmSelector(
                 onChanged: () {
-                  final fid =
-                      ref.read(authProvider).currentUser?.farmId;
+                  final fid = ref.read(authProvider).currentUser?.farmId;
                   if (fid != null) setState(() => _selectedFarmId = fid);
                   _loadStock();
                   _loadTodayRecords();
@@ -226,24 +232,35 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    const Color(AppConstants.colorWarning).withValues(alpha: 0.15),
-                    const Color(AppConstants.colorWarning).withValues(alpha: 0.05),
+                    const Color(
+                      AppConstants.colorWarning,
+                    ).withValues(alpha: 0.15),
+                    const Color(
+                      AppConstants.colorWarning,
+                    ).withValues(alpha: 0.05),
                   ],
                 ),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: const Color(AppConstants.colorWarning).withValues(alpha: 0.3),
+                  color: const Color(
+                    AppConstants.colorWarning,
+                  ).withValues(alpha: 0.3),
                 ),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.inventory_2_rounded,
-                      color: const Color(AppConstants.colorWarning)),
+                  Icon(
+                    Icons.inventory_2_rounded,
+                    color: const Color(AppConstants.colorWarning),
+                  ),
                   const SizedBox(width: 10),
                   const Expanded(
                     child: Text(
                       'الكمية المتوفرة بالمخزون',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                   if (_stockLoading)
@@ -348,10 +365,7 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
               ),
               child: Column(
                 children: [
-                  _buildConversionRow(
-                    'عدد الأكياس',
-                    '$_bagsCount كيس',
-                  ),
+                  _buildConversionRow('عدد الأكياس', '$_bagsCount كيس'),
                   const Divider(height: 24),
                   _buildConversionRow(
                     'الكمية بالكيلو',
@@ -361,10 +375,7 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
                   const SizedBox(height: 8),
                   Text(
                     '(الكيس = ${_kgPerBag.toInt()} كغ)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ],
               ),
@@ -399,65 +410,90 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
             // سجلات اليوم
             if (_todayRecords.isNotEmpty) ...[
               const SizedBox(height: 24),
-              const Text('سجلات اليوم', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                'سجلات اليوم',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
-              ..._todayRecords.map((record) => Dismissible(
-                key: ValueKey(record.id),
-                direction: DismissDirection.endToStart,
-                background: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(left: 20),
-                  color: AppColors.danger,
-                  child: const Icon(Icons.delete, color: Colors.white),
-                ),
-                confirmDismiss: (direction) async {
-                  return await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Text('حذف السجل'),
-                      content: const Text('هل تريد حذف سجل استهلاك العلف؟'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
-                        FilledButton(
-                          onPressed: () => Navigator.pop(ctx, true),
-                          child: const Text('حذف'),
-                          style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+              ..._todayRecords.map(
+                (record) => Dismissible(
+                  key: ValueKey(record.id),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(left: 20),
+                    color: AppColors.danger,
+                    child: const Icon(Icons.delete, color: Colors.white),
+                  ),
+                  confirmDismiss: (direction) async {
+                    return await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('حذف السجل'),
+                        content: const Text('هل تريد حذف سجل استهلاك العلف؟'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('إلغاء'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('حذف'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.danger,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  onDismissed: (direction) async {
+                    if (record.id != null) {
+                      await ref
+                          .read(feedConsumptionProvider.notifier)
+                          .deleteRecord(record.id!);
+                      _loadTodayRecords();
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.warning.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: AppColors.warning.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.grain, color: AppColors.warning),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                Formatters.formatWeight(record.quantityKg),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                'أكياس: ${record.bagsCount}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                  );
-                },
-                onDismissed: (direction) async {
-                  if (record.id != null) {
-                    await ref.read(feedConsumptionProvider.notifier).deleteRecord(record.id!);
-                    _loadTodayRecords();
-                  }
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.warning.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.warning.withValues(alpha: 0.2)),
-                  ),
-                  child: Row(
-                    children: [
-                       const Icon(Icons.grain, color: AppColors.warning),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(Formatters.formatWeight(record.quantityKg), style: const TextStyle(fontWeight: FontWeight.bold)),
-                            Text('أكياس: ${record.bagsCount}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                          ],
-                        ),
-                      ),
-                    ],
                   ),
                 ),
-              )),
+              ),
             ],
           ],
         ),
@@ -475,7 +511,9 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: isActive ? const Color(AppConstants.colorWarning) : Colors.transparent,
+          color: isActive
+              ? const Color(AppConstants.colorWarning)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(6),
         ),
         child: Center(
@@ -492,7 +530,11 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
     );
   }
 
-  Widget _buildConversionRow(String label, String value, {bool isPrimary = false}) {
+  Widget _buildConversionRow(
+    String label,
+    String value, {
+    bool isPrimary = false,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [

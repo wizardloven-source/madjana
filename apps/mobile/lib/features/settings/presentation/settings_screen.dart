@@ -10,7 +10,7 @@ import '../providers/backup_provider.dart';
 import '../providers/theme_provider.dart';
 
 /// شاشة الإعدادات
-/// 
+///
 /// المميزات:
 /// - الوضع الليلي (مفعل افتراضياً)
 /// - حالة المزامنة
@@ -24,7 +24,8 @@ class SettingsScreen extends ConsumerWidget {
     final syncState = ref.watch(syncProvider);
     final isDarkMode = ref.watch(themeProvider);
     final autoSync = ref.watch(autoSyncProvider);
-    final isConnected = syncState.connectionStatus != SyncConnectionStatus.disconnected;
+    final isConnected =
+        syncState.connectionStatus != SyncConnectionStatus.disconnected;
 
     return Scaffold(
       appBar: AppBar(title: const Text('الإعدادات')),
@@ -39,15 +40,19 @@ class SettingsScreen extends ConsumerWidget {
               decoration: BoxDecoration(
                 color: AppColors.warning.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+                border: Border.all(
+                  color: AppColors.warning.withValues(alpha: 0.4),
+                ),
               ),
               child: Row(
                 children: const [
                   Icon(Icons.wifi_off, color: AppColors.warning, size: 20),
                   SizedBox(width: 8),
                   Expanded(
-                    child: Text('غير متصل بالإنترنت — البيانات ستُحفظ محلياً',
-                        style: TextStyle(color: AppColors.warning)),
+                    child: Text(
+                      'غير متصل بالإنترنت — البيانات ستُحفظ محلياً',
+                      style: TextStyle(color: AppColors.warning),
+                    ),
                   ),
                 ],
               ),
@@ -80,10 +85,7 @@ class SettingsScreen extends ConsumerWidget {
                   style: const TextStyle(fontSize: 14),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  user?.phone ?? '',
-                  style: const TextStyle(fontSize: 14),
-                ),
+                Text(user?.phone ?? '', style: const TextStyle(fontSize: 14)),
               ],
             ),
           ),
@@ -116,22 +118,67 @@ class SettingsScreen extends ConsumerWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         ),
-                        error: (e, _) => const Text('تعذّر جلب إعدادات المدجنة'),
-                        data: (farm) => Column(
+                        error: (e, _) =>
+                            const Text('تعذّر جلب إعدادات المدجنة'),
+                        data: (result) => Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildInfoRow('المدجنة', farm.name),
+                            // نُعلن صراحةً أن القيم قديمة بدل عرضها كأنها
+                            // حديثة: `getFarmWithSource` يرجع الكاش بصمت
+                            // عند انقطاع الشبكة أو رفض RLS، فكان المستخدم
+                            // يرى 50 كغ لمزرعته (24) دون أي تفسير.
+                            if (result.isStale)
+                              Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(bottom: 8),
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .errorContainer
+                                      .withValues(alpha: 0.5),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.cloud_off,
+                                      size: 16,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onErrorContainer,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'تعذّر تحديث الإعدادات من الخادم — القيم أدناه قديمة',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onErrorContainer,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            _buildInfoRow('المدجنة', result.farm.name),
                             _buildInfoRow(
                               'وزن كيس العلف',
-                              '${farm.feedBagWeightKg.toStringAsFixed(1)} كغ',
+                              '${result.farm.feedBagWeightKg.toStringAsFixed(1)} كغ',
                             ),
-                            _buildInfoRow('عدد البيض في الكرتون',
-                                '${farm.eggsPerCarton}'),
                             _buildInfoRow(
-                                'عدد البيض في الصينية', '${farm.eggsPerTray}'),
+                              'عدد البيض في الكرتون',
+                              '${result.farm.eggsPerCarton}',
+                            ),
+                            _buildInfoRow(
+                              'عدد البيض في الصينية',
+                              '${result.farm.eggsPerTray}',
+                            ),
                             _buildInfoRow(
                               'معدل النفوق الافتراضي',
-                              '${farm.defaultMortalityRate.toStringAsFixed(1)}%',
+                              '${result.farm.defaultMortalityRate.toStringAsFixed(1)}%',
                             ),
                           ],
                         ),
@@ -147,8 +194,7 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: 'تفعيل المظهر الداكن',
             trailing: Switch(
               value: isDarkMode,
-              onChanged: (v) =>
-                  ref.read(themeProvider.notifier).toggleTheme(v),
+              onChanged: (v) => ref.read(themeProvider.notifier).toggleTheme(v),
             ),
           ),
           const Divider(),
@@ -183,10 +229,7 @@ class SettingsScreen extends ConsumerWidget {
               children: [
                 const Text(
                   'حالة المزامنة',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
                 _buildInfoRow(
@@ -257,10 +300,7 @@ class SettingsScreen extends ConsumerWidget {
               children: [
                 const Text(
                   'النسخ الاحتياطي',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 4),
                 const Text(
@@ -286,10 +326,7 @@ class SettingsScreen extends ConsumerWidget {
               children: [
                 const Text(
                   'معلومات التطبيق',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 _buildInfoRow('الإصدار', '1.0.0'),
@@ -335,23 +372,25 @@ class SettingsScreen extends ConsumerWidget {
             ),
             child: Row(
               children: [
-                const Icon(Icons.error_outline,
-                    color: AppColors.danger, size: 16),
+                const Icon(
+                  Icons.error_outline,
+                  color: AppColors.danger,
+                  size: 16,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     backupState.errorMessage!,
-                    style:
-                        const TextStyle(color: AppColors.danger, fontSize: 12),
+                    style: const TextStyle(
+                      color: AppColors.danger,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-        _buildInfoRow(
-          'عدد النسخ',
-          '${backupState.backups.length}',
-        ),
+        _buildInfoRow('عدد النسخ', '${backupState.backups.length}'),
         const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -444,24 +483,26 @@ class SettingsScreen extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  ...backups.map((b) => ListTile(
-                        leading: const Icon(Icons.history),
-                        title: Text(b.id),
-                        subtitle: Text(
-                            '${_formatSize(b.fileSizeBytes)} — ${_relativeTime(b.createdAt)}'),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _confirmRestore(context, ref, b.id);
-                        },
-                      )),
+                  ...backups.map(
+                    (b) => ListTile(
+                      leading: const Icon(Icons.history),
+                      title: Text(b.id),
+                      subtitle: Text(
+                        '${_formatSize(b.fileSizeBytes)} — ${_relativeTime(b.createdAt)}',
+                      ),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _confirmRestore(context, ref, b.id);
+                      },
+                    ),
+                  ),
                 ],
               ),
       ),
     );
   }
 
-  void _confirmRestore(
-      BuildContext context, WidgetRef ref, String backupId) {
+  void _confirmRestore(BuildContext context, WidgetRef ref, String backupId) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -479,8 +520,9 @@ class SettingsScreen extends ConsumerWidget {
             onPressed: () async {
               Navigator.pop(ctx);
               final messenger = ScaffoldMessenger.of(context);
-              final result =
-                  await ref.read(backupProvider.notifier).restoreBackup(backupId);
+              final result = await ref
+                  .read(backupProvider.notifier)
+                  .restoreBackup(backupId);
               messenger.showSnackBar(
                 SnackBar(
                   content: Text(
@@ -492,9 +534,7 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               );
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.danger,
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
             child: const Text('استعادة'),
           ),
         ],
@@ -565,10 +605,9 @@ class SettingsScreen extends ConsumerWidget {
               Navigator.pop(ctx);
               await ref.read(authProvider.notifier).logout();
               if (context.mounted) {
-                Navigator.of(context).pushNamedAndRemoveUntil(
-                  '/login',
-                  (route) => false,
-                );
+                Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil('/login', (route) => false);
               }
             },
             style: ElevatedButton.styleFrom(

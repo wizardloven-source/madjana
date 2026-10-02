@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:core/core.dart';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/local/daos/session_dao.dart';
 import '../datasources/local/daos/settings_dao.dart';
 import '../datasources/remote/supabase_auth_datasource.dart';
@@ -77,7 +78,9 @@ class AuthRepositoryImpl implements AuthRepository {
       final storedUserJson = await _settingsDao.get('offline_user_json');
       final storedFarmId = await _settingsDao.get('offline_farm_id');
 
-      if (storedPhone == null || storedPinHash == null || storedUserJson == null) {
+      if (storedPhone == null ||
+          storedPinHash == null ||
+          storedUserJson == null) {
         return LoginResult.failure(
           'لا يوجد اتصال بالإنترنت ولا توجد بيانات محفوظة محلياً — سجّل الدخول أول مرة مع إنترنت',
         );
@@ -88,7 +91,8 @@ class AuthRepositoryImpl implements AuthRepository {
       final normalizedStored = _normalizePhone(storedPhone);
 
       if (normalizedPhone != normalizedStored) {
-        return LoginResult.failure('رقم الهاتف غير متطابق مع البيانات المحفوظة محلياً');
+        return LoginResult.failure(
+            'رقم الهاتف غير متطابق مع البيانات المحفوظة محلياً');
       }
 
       // التحقق من كلمة المرور
@@ -152,7 +156,8 @@ class AuthRepositoryImpl implements AuthRepository {
   }) async {
     final remote = _remoteDatasource;
     if (remote == null) {
-      return LoginResult.failure('لا يوجد اتصال بالإنترنت — لا يمكن إنشاء الحساب الأول');
+      return LoginResult.failure(
+          'لا يوجد اتصال بالإنترنت — لا يمكن إنشاء الحساب الأول');
     }
     try {
       await remote.createFirstAdmin(
@@ -177,7 +182,8 @@ class AuthRepositoryImpl implements AuthRepository {
     // أولوية لجلسة Supabase الحقيقية ثم الجلسة المحفوظة محلياً
     String? uid;
     try {
-      uid = _remoteDatasource?.currentUid ?? localSession?['user_id'] as String?;
+      uid =
+          _remoteDatasource?.currentUid ?? localSession?['user_id'] as String?;
     } catch (_) {
       uid = localSession?['user_id'] as String?;
     }
@@ -207,7 +213,8 @@ class AuthRepositoryImpl implements AuthRepository {
     final remote = _remoteDatasource;
     if (remote == null) return null;
     try {
-      final response = await remote.getUserById(uid)
+      final response = await remote
+          .getUserById(uid)
           .timeout(const Duration(seconds: 8), onTimeout: () => null);
       if (response == null) return null;
       return UserModel.fromJson(response);
@@ -222,16 +229,33 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<void> setActiveFarm(String farmId) async {
+  Future<UserModel?> setActiveFarm(String farmId) async {
     final remote = _remoteDatasource;
-    if (remote == null) return;
-    final user = await remote.setActiveFarm(farmId);
-    if (user == null) return;
+    if (remote == null) return null;
+    // The server rejects a farm the caller is not a member of. It used to
+    // do so silently by returning the previous farm (the old trigger), and
+    // now raises. We catch both shapes and return null, so callers never
+    // apply a farm the server did not actually accept.
+    UserModel? user;
+    try {
+      user = await remote.setActiveFarm(farmId);
+    } catch (e) {
+      debugPrint('setActiveFarm($farmId) rejected by server: $e');
+      return null;
+    }
+    if (user == null) return null;
     try {
       await _sessionDao.saveUserJson(jsonEncode(user.toJson()));
+      // session.farm_id هو ما يقرأه طابور المزامنة، لا user_json.
+      // كان يبقى على المزرعة القديمة بعد التبديل.
+      final serverFarmId = (user.farmId ?? '').toString().trim();
+      if (serverFarmId.isNotEmpty) {
+        await _sessionDao.updateActiveFarm(serverFarmId);
+      }
       await _settingsDao.set('offline_farm_id', user.farmId ?? farmId);
       await _settingsDao.set('offline_user_json', jsonEncode(user.toJson()));
     } catch (_) {}
+    return user;
   }
 
   @override

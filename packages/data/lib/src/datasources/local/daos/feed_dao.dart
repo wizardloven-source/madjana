@@ -33,6 +33,7 @@ class FeedDao {
       tableName: 'feed_consumption',
       recordId: id,
       action: 'INSERT',
+      farmId: record.farmId,
       payload: {
         'flock_id': record.flockId,
         'date': record.date.toIso8601String().split('T').first,
@@ -60,7 +61,8 @@ class FeedDao {
     return maps.map(_consumptionFromMap).toList();
   }
 
-  Future<List<FeedConsumptionModel>> getPendingConsumption({int limit = 50}) async {
+  Future<List<FeedConsumptionModel>> getPendingConsumption(
+      {int limit = 50}) async {
     final db = await LocalDatabase.database;
     final maps = await db.query(
       'feed_consumption',
@@ -207,8 +209,10 @@ class FeedDao {
   /// حذف سجل استهلاك
   Future<void> deleteConsumption(String id) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query('feed_consumption', columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query('feed_consumption',
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.delete('feed_consumption', where: 'id = ?', whereArgs: [id]);
     await LocalDatabase.enqueueChange(
       tableName: 'feed_consumption',
@@ -250,6 +254,7 @@ class FeedDao {
       tableName: 'feed_received',
       recordId: id,
       action: 'INSERT',
+      farmId: (data['farm_id'] ?? '').toString(),
       payload: {
         if (data['flock_id'] != null) 'flock_id': data['flock_id'],
         'date': data['date'],
@@ -272,8 +277,10 @@ class FeedDao {
   /// حذف سجل استلام علف
   Future<void> deleteReceived(String id) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query('feed_received', columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query('feed_received',
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.delete('feed_received', where: 'id = ?', whereArgs: [id]);
     await LocalDatabase.enqueueChange(
       tableName: 'feed_received',
@@ -293,7 +300,9 @@ class FeedDao {
       limit: limit,
     );
     return maps.map(_receivedFromMap).toList();
-  }  Future<void> updateReceivedSyncStatus(String id, SyncStatus status) async {
+  }
+
+  Future<void> updateReceivedSyncStatus(String id, SyncStatus status) async {
     final db = await LocalDatabase.database;
     await db.update(
       'feed_received',
@@ -306,8 +315,10 @@ class FeedDao {
   /// تسجيل سعر الكيلوغرام من المدير (سطح المكتب)
   Future<void> updateReceivedPrice(String id, double pricePerKg) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query('feed_received', columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query('feed_received',
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.update(
       'feed_received',
       {'price_per_kg': pricePerKg},

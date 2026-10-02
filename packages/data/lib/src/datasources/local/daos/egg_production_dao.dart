@@ -8,7 +8,7 @@ class EggProductionDao {
   static const String _table = 'egg_production';
   static const _uuid = Uuid();
 
-  /// حفظ سجل: 
+  /// حفظ سجل:
   /// - إذا كان (id) معروفاً => تعديل: استبدال القيم بالكامل (لا دمج)
   /// - إذا كان id == null => إدخال جديد: يدمج مع سجل نفس (مدجنة+تاريخ+عنبر) إن وجد
   Future<String> insert(EggProductionModel record) async {
@@ -72,7 +72,8 @@ class EggProductionDao {
     // ═══ إدخال جديد — التحقق من وجود سجل بنفس (مدجنة+تاريخ+عنبر) ═══
     final existing = await db.query(
       _table,
-      where: 'flock_id = ? AND date = ? AND ${record.sectionNo != null ? 'section_no = ?' : 'section_no IS NULL'}',
+      where:
+          'flock_id = ? AND date = ? AND ${record.sectionNo != null ? 'section_no = ?' : 'section_no IS NULL'}',
       whereArgs: record.sectionNo != null
           ? [record.flockId, dateStr, record.sectionNo]
           : [record.flockId, dateStr],
@@ -162,6 +163,7 @@ class EggProductionDao {
       tableName: _table,
       recordId: id,
       action: 'INSERT',
+      farmId: record.farmId,
       payload: {
         'flock_id': record.flockId,
         'date': record.date.toIso8601String().split('T').first,
@@ -227,7 +229,10 @@ class EggProductionDao {
     final db = await LocalDatabase.database;
     await db.update(
       _table,
-      {'sync_status': status.name, 'updated_at': DateTime.now().toIso8601String()},
+      {
+        'sync_status': status.name,
+        'updated_at': DateTime.now().toIso8601String()
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -307,8 +312,10 @@ class EggProductionDao {
   /// حذف سجل
   Future<void> delete(String id) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query(_table,
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
     await LocalDatabase.enqueueChange(
       tableName: _table,

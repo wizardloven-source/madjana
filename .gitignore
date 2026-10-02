@@ -16,7 +16,9 @@ node_modules/
 # Flutter
 .dart_tool/
 build/
+**/build/
 .packages
+*.dill
 
 # Flutter test coverage output
 coverage/
@@ -34,3 +36,6 @@ coverage/
 # OS
 .DS_Store
 Thumbs.db
+
+# Supabase CLI local state (project link, cached CLI versions)
+supabase/.temp/

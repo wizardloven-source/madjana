@@ -40,6 +40,22 @@ class SessionDao {
     );
   }
 
+  /// تحديث مزرعة الجلسة النشطة.
+  ///
+  /// `saveUserJson` وحده لا يكفي: يُحدّث user_json فقط، بينما
+  /// `LocalDatabase.getActiveFarmId()` و`enqueueChange` يقرآن
+  /// `session.farm_id`. بدون هذا التحديث يبقى الطابور على المزرعة القديمة
+  /// بعد تبديل المزرعة، فتُنسب السجلات الجديدة للمزرعة السابقة.
+  Future<void> updateActiveFarm(String farmId) async {
+    if (farmId.trim().isEmpty) return;
+    final db = await LocalDatabase.database;
+    await db.update(
+      'session',
+      {'farm_id': farmId},
+      where: 'id = 1',
+    );
+  }
+
   /// استرجاع المستخدم المخزن محلياً من صف الجلسة (يعمل بدون إنترنت)
   Map<String, dynamic>? getCachedUser(Map<String, dynamic>? session) {
     final json = session?['user_json'] as String?;

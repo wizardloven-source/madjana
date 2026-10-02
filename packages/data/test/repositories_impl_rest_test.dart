@@ -111,8 +111,7 @@ void main() {
           remoteDatasource: SupabaseFeedDatasource(fake),
         );
 
-    FeedConsumptionModel consumption({double kg = 100}) =>
-        FeedConsumptionModel(
+    FeedConsumptionModel consumption({double kg = 100}) => FeedConsumptionModel(
           farmId: 'farm-1',
           date: DateTime(2026, 8, 20),
           entryMode: FeedEntryMode.kg,
@@ -274,7 +273,12 @@ void main() {
 
     test('كاش فارغ + سحابة متاحة: يجلب ويُسرّب الكاش المحلي', () async {
       fake.seed('medicines_catalog', [
-        {'id': 'm1', 'name': 'فيتامين', 'type': 'vitamin', 'withdrawal_days': 0},
+        {
+          'id': 'm1',
+          'name': 'فيتامين',
+          'type': 'vitamin',
+          'withdrawal_days': 0
+        },
       ]);
       final dao = MedicationDao();
       final catalog = await repo().getMedicinesCatalog();
@@ -287,7 +291,10 @@ void main() {
       final dao = MedicationDao();
       await dao.seedCatalog(const [
         MedicineModel(
-            id: 'm1', name: 'محلي', type: MedicationType.drug, withdrawalDays: 7),
+            id: 'm1',
+            name: 'محلي',
+            type: MedicationType.drug,
+            withdrawalDays: 7),
       ]);
       final catalog = await repo().getMedicinesCatalog();
       expect(catalog.single.name, 'محلي');
@@ -303,7 +310,10 @@ void main() {
     test('saveMedicine / deleteMedicine يعملان محلياً فوراً', () async {
       final dao = MedicationDao();
       await repo().saveMedicine(const MedicineModel(
-          id: 'm9', name: 'مطهر', type: MedicationType.drug, withdrawalDays: 0));
+          id: 'm9',
+          name: 'مطهر',
+          type: MedicationType.drug,
+          withdrawalDays: 0));
       expect(await dao.getCatalog(), hasLength(1));
 
       await repo().deleteMedicine('m9');
@@ -389,8 +399,8 @@ void main() {
         lowStockThreshold: 5,
       ));
 
-      final afterInput = await r.adjustStock(
-          itemId: 'it-1', isInput: true, quantity: 100);
+      final afterInput =
+          await r.adjustStock(itemId: 'it-1', isInput: true, quantity: 100);
       expect(afterInput.quantity, 150);
 
       final afterOutput = await r.adjustStock(
@@ -497,7 +507,8 @@ void main() {
       expect(row['sync_status'], SyncStatus.synced.name);
     });
 
-    test('syncCustomersFromRemote يزرع زبائن السحابة في الكاش المحلي', () async {
+    test('syncCustomersFromRemote يزرع زبائن السحابة في الكاش المحلي',
+        () async {
       fake.seed('customers', [
         {
           'id': 'r1',
@@ -525,7 +536,8 @@ void main() {
       expect(customers.map((c) => c.name).toSet(), {'أحمد', 'سامر'});
     });
 
-    test('getCustomers: عند الاتصال يسحب من السحابة ويعبّئ الكاش, وعند الانقطاع يقرأ المحلي',
+    test(
+        'getCustomers: عند الاتصال يسحب من السحابة ويعبّئ الكاش, وعند الانقطاع يقرأ المحلي',
         () async {
       fake.seed('customers', [
         {
@@ -557,7 +569,8 @@ void main() {
       expect(offline.map((c) => c.name).toSet(), {'زيد', 'محلي'});
     });
 
-    test('addCustomer عند انقطاع الشبكة: يبقى pending محلياً بدون خطأ', () async {
+    test('addCustomer عند انقطاع الشبكة: يبقى pending محلياً بدون خطأ',
+        () async {
       fake.failWrites = true;
       final id = await repo().addCustomer(CustomerModel(
         farmId: 'farm-1',
@@ -578,7 +591,8 @@ void main() {
           remoteDatasource: SupabaseNotificationDatasource(fake),
         );
 
-    test('getActiveNotifications: عبر الإنترنت من البعيد، وعند الانقطاع لغاية []',
+    test(
+        'getActiveNotifications: عبر الإنترنت من البعيد، وعند الانقطاع لغاية []',
         () async {
       fake.seed('app_notifications', [
         {
@@ -625,17 +639,56 @@ void main() {
           settingsDao: SettingsDao(),
         );
 
-    test('getFarm من البعيد، وعند الانقطاع يعيد كياناً افتراضياً', () async {
+    test('getFarm: من البعيد، وعند الانقطاع يعود لآخر قيمة محفوظة', () async {
       fake.seed('farms', [
         {'id': 'farm-1', 'name': 'مزرعة الشام'},
       ]);
       final online = await repo().getFarm('farm-1');
       expect(online.name, 'مزرعة الشام');
 
+      // A successful read populated the cache, so the next read must return
+      // that last known value, not the defaults. The old test asserted the
+      // opposite and failed because defaults are merged over the cache
+      // rather than replacing it.
       fake.failReads = true;
       final offline = await repo().getFarm('farm-1');
-      expect(offline.name, 'المدجنة');
       expect(offline.id, 'farm-1');
+      expect(offline.name, 'مزرعة الشام');
+    });
+
+    test('getFarm: لا كاش ولا شبكة = قيم افتراضية باسم محايد', () async {
+      fake.failReads = true;
+      // مزرعة لم تُقرأ نجاحاً ولا مرة، فلا يوجد لها كاش إطلاقاً.
+      final fresh = await repo().getFarm('farm-never-seen');
+      expect(fresh.id, 'farm-never-seen');
+      expect(fresh.name, 'المدجنة');
+    });
+
+    test('getFarmWithSource يُصرّح أن القيم قديمة عند الرجوع للكاش', () async {
+      fake.seed('farms', [
+        {
+          'id': 'farm-1',
+          'name': 'الجرار',
+          'feed_bag_weight_kg': 24.0,
+        },
+      ]);
+
+      // من الخادم: مصدره remote وليس stale
+      final fresh = await repo().getFarmWithSource('farm-1');
+      expect(fresh.source, FarmFetchSource.remote);
+      expect(fresh.isStale, isFalse);
+      expect(fresh.farm.feedBagWeightKg, 24.0);
+
+      // بعد انقطاع: نفس الرقم 24 لكن مصرَّح أنه من الكاش.
+      // هذا هو الفارق الذي كان مفقوداً: قبل هذا التغيير كان الموبايل
+      // يعرض 50 القديم بلا أي indication لسببه.
+      fake.failReads = true;
+      final stale = await repo().getFarmWithSource('farm-1');
+      expect(stale.source, FarmFetchSource.cache);
+      expect(stale.isStale, isTrue);
+      expect(stale.error, isNotNull);
+      // الكاش احتفظ بالقيمة الصحيحة من القراءة الناجحة السابقة
+      expect(stale.farm.feedBagWeightKg, 24.0);
     });
 
     test('الإعدادات: قيم افتراضية ثم دورة تخزين/استرجاع', () async {

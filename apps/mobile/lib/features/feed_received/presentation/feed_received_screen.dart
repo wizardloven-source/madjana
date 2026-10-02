@@ -10,7 +10,7 @@ import '../../reference_data/providers/reference_data_provider.dart';
 import '../providers/feed_received_provider.dart';
 
 /// شاشة استلام علف
-/// 
+///
 /// المميزات:
 /// - Toggle: أكياس / كيلو / طن
 /// - تحويل تلقائي إلى كيلو
@@ -64,12 +64,17 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
         _hasDecimal = false;
       } else if (key == 'backspace') {
         if (_hasDecimal && _decimalBuffer.isNotEmpty) {
-          _decimalBuffer = _decimalBuffer.substring(0, _decimalBuffer.length - 1);
+          _decimalBuffer = _decimalBuffer.substring(
+            0,
+            _decimalBuffer.length - 1,
+          );
           if (_decimalBuffer.isEmpty) {
             _hasDecimal = false;
             _quantity = _quantity.toInt().toDouble();
           } else {
-            _quantity = double.tryParse('${_quantity.toInt()}.$_decimalBuffer') ?? _quantity.toInt().toDouble();
+            _quantity =
+                double.tryParse('${_quantity.toInt()}.$_decimalBuffer') ??
+                _quantity.toInt().toDouble();
           }
         } else if (_quantity > 0) {
           final fullStr = _quantity.toInt().toString();
@@ -88,7 +93,9 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
         if (_hasDecimal) {
           if (_decimalBuffer.length < 2) {
             _decimalBuffer += key;
-            _quantity = double.tryParse('${_quantity.toInt()}.$_decimalBuffer') ?? _quantity;
+            _quantity =
+                double.tryParse('${_quantity.toInt()}.$_decimalBuffer') ??
+                _quantity;
           }
         } else {
           _quantity = (_quantity.toInt() * 10 + int.parse(key)).toDouble();
@@ -115,22 +122,31 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
     if (user == null || user.farmId == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('خطأ في بيانات المستخدم'), backgroundColor: AppColors.danger),
+          const SnackBar(
+            content: Text('خطأ في بيانات المستخدم'),
+            backgroundColor: AppColors.danger,
+          ),
         );
       }
       return;
     }
     final farmId = user.farmId!;
 
-    final result = await ref.read(feedReceivedProvider.notifier).save(
+    final result = await ref
+        .read(feedReceivedProvider.notifier)
+        .save(
           farmId: farmId,
           date: _selectedDate,
           entryMode: _entryMode,
           quantity: _quantity,
           quantityKg: _quantityKg,
           feedType: _selectedFeedType!,
-          supplier: _supplierController.text.isEmpty ? null : _supplierController.text,
-          invoiceNumber: _invoiceController.text.isEmpty ? null : _invoiceController.text,
+          supplier: _supplierController.text.isEmpty
+              ? null
+              : _supplierController.text,
+          invoiceNumber: _invoiceController.text.isEmpty
+              ? null
+              : _invoiceController.text,
           notes: _notesController.text.isEmpty ? null : _notesController.text,
           workerId: user.uid,
         );
@@ -160,7 +176,8 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
     final user = ref.watch(authProvider).currentUser;
     final farmId = user?.farmId ?? '';
     final farmSettingsAsync = ref.watch(farmSettingsProvider(farmId));
-    final farmSettings = farmSettingsAsync.value;
+    // .farm لأن الـ provider صار يُرجع FarmFetchResult (قيمة + مصدرها).
+    final farmSettings = farmSettingsAsync.value?.farm;
     final kgPerBag = farmSettings?.feedBagWeightKg ?? AppConstants.kgPerBag;
     if (_kgPerBag != kgPerBag) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -218,7 +235,9 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
-                              color: _entryMode == mode ? Colors.white : Colors.black87,
+                              color: _entryMode == mode
+                                  ? Colors.white
+                                  : Colors.black87,
                             ),
                           ),
                         ),
@@ -293,24 +312,25 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
             // المورد
             TextField(
               controller: _supplierController,
-              decoration:
-                  const InputDecoration(labelText: 'اسم المورد (اختياري)'),
+              decoration: const InputDecoration(
+                labelText: 'اسم المورد (اختياري)',
+              ),
             ),
             const SizedBox(height: 16),
 
             // رقم الفاتورة
             TextField(
               controller: _invoiceController,
-              decoration:
-                  const InputDecoration(labelText: 'رقم الفاتورة (اختياري)'),
+              decoration: const InputDecoration(
+                labelText: 'رقم الفاتورة (اختياري)',
+              ),
             ),
             const SizedBox(height: 16),
 
             // ملاحظات
             TextField(
               controller: _notesController,
-              decoration:
-                  const InputDecoration(labelText: 'ملاحظات (اختياري)'),
+              decoration: const InputDecoration(labelText: 'ملاحظات (اختياري)'),
               maxLines: 2,
             ),
             const SizedBox(height: 24),

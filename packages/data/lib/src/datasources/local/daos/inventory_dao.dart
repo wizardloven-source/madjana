@@ -39,6 +39,7 @@ class InventoryDao {
         tableName: _itemsTable,
         recordId: id,
         action: 'INSERT',
+        farmId: item.farmId,
         payload: {
           'name': item.name,
           'unit': item.unit.name,
@@ -65,6 +66,7 @@ class InventoryDao {
         recordId: id,
         action: 'UPDATE',
         previousVersion: ver,
+        farmId: item.farmId,
         payload: {
           'name': item.name,
           'unit': item.unit.name,
@@ -190,8 +192,7 @@ class InventoryDao {
   }
 
   /// إضافة حركة مخزون محلياً
-  Future<void> insertTransaction(
-      InventoryTransactionModel transaction) async {
+  Future<void> insertTransaction(InventoryTransactionModel transaction) async {
     final db = await LocalDatabase.database;
     final id = transaction.id ?? _uuid.v4();
     await db.insert(_transactionsTable, {
@@ -228,8 +229,7 @@ class InventoryDao {
         orElse: () => InventoryUnit.piece,
       ),
       quantity: (map['quantity'] as num?)?.toDouble() ?? 0,
-      lowStockThreshold:
-          (map['low_stock_threshold'] as num?)?.toDouble() ?? 5,
+      lowStockThreshold: (map['low_stock_threshold'] as num?)?.toDouble() ?? 5,
       notes: map['notes'] as String?,
       flockId: map['flock_id'] as String?,
       updatedAt: map['updated_at'] != null

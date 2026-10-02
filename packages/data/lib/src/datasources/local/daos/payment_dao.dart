@@ -7,7 +7,7 @@ import '../local_database.dart';
 class PaymentDao {
   static const String _table = 'payments';
   static const _uuid = Uuid();
-  
+
   Future<String> insert(PaymentModel payment) async {
     final db = await LocalDatabase.database;
     // ═══ C3 FIX: احترام id المُمرّر (من المُستدعي) بدل توليد UUID جديد ═══
@@ -38,6 +38,7 @@ class PaymentDao {
       tableName: _table,
       recordId: id,
       action: 'INSERT',
+      farmId: payment.farmId,
       payload: {
         'dispatch_id': payment.dispatchId,
         'customer_id': payment.customerId,
@@ -56,11 +57,13 @@ class PaymentDao {
 
     return id;
   }
-  
+
   Future<void> update(String id, PaymentModel payment) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query(_table,
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.update(
       _table,
       {
@@ -106,8 +109,10 @@ class PaymentDao {
 
   Future<void> delete(String id) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query(_table,
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
     await LocalDatabase.enqueueChange(
       tableName: _table,
@@ -117,7 +122,7 @@ class PaymentDao {
       payload: {'id': id},
     );
   }
-  
+
   Future<List<PaymentModel>> getAll({
     String? farmId,
     DateTime? fromDate,
@@ -150,7 +155,7 @@ class PaymentDao {
     );
     return maps.map(_fromMap).toList();
   }
-  
+
   /// الحصول على السجلات المعلقة للمزامنة
   Future<List<Map<String, dynamic>>> getPendingRecords({int limit = 50}) async {
     final db = await LocalDatabase.database;
@@ -163,7 +168,7 @@ class PaymentDao {
     );
     return maps;
   }
-  
+
   /// تحديث حالة المزامنة
   Future<void> updateSyncStatus(String id, SyncStatus status) async {
     final db = await LocalDatabase.database;
@@ -177,7 +182,7 @@ class PaymentDao {
       whereArgs: [id],
     );
   }
-  
+
   /// عدد السجلات المعلقة
   Future<int> countPending() async {
     final db = await LocalDatabase.database;
@@ -197,7 +202,10 @@ class PaymentDao {
     // المحذوفة ناعماً تبقى خارج الحساب حتى لا تضخّم الذمم بعد مطابقة الخادم.
     final farmWhere = farmId != null ? ' AND farm_id = ?' : '';
     final deletedWhere = ' AND deleted_at IS NULL';
-    if (farmId != null) args..add(farmId)..add(farmId);
+    if (farmId != null)
+      args
+        ..add(farmId)
+        ..add(farmId);
 
     final result = await db.rawQuery(
       'SELECT SUM(t.due - t.paid) as total FROM ('
@@ -321,7 +329,7 @@ class PaymentDao {
     );
     return (result.first['total'] as num?)?.toDouble() ?? 0.0;
   }
-  
+
   PaymentModel _fromMap(Map<String, dynamic> map) {
     return PaymentModel(
       id: map['id'] as String,

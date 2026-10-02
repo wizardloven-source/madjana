@@ -26,9 +26,7 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: syncState.isSyncing
-                ? null
-                : () => _performSync(),
+            onPressed: syncState.isSyncing ? null : () => _performSync(),
           ),
         ],
       ),
@@ -75,7 +73,10 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
       child: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [statusColor.withOpacity(0.1), statusColor.withOpacity(0.3)],
+            colors: [
+              statusColor.withOpacity(0.1),
+              statusColor.withOpacity(0.3),
+            ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -107,7 +108,9 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      syncState.isSyncing ? 'جاري...' : '${syncState.pendingCount}',
+                      syncState.isSyncing
+                          ? 'جاري...'
+                          : '${syncState.pendingCount}',
                       style: TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.bold,
@@ -134,16 +137,65 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
                   : 'لم تتم مزامنة بعد',
               style: TextStyle(color: Colors.grey[600]),
             ),
+            // سبب آخر فشل: بدونه لا يعرف المستخدم (ولا نحن) لماذا توقفت
+            // المزامنة، لأن الواجهة كانت تعرض «في الانتظار» بلا تفسير.
+            if (syncState.lastError != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade300),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 16,
+                          color: Colors.red.shade800,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'سبب آخر فشل',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.red.shade800,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      syncState.lastError!,
+                      style: TextStyle(
+                        color: Colors.red.shade900,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             ElevatedButton.icon(
               onPressed: syncState.isSyncing ? null : () => _performSync(),
               icon: Icon(syncState.isSyncing ? Icons.sync : Icons.cloud_upload),
-              label: Text(syncState.isSyncing ? 'جاري المزامنة...' : 'مزامنة الآن'),
+              label: Text(
+                syncState.isSyncing ? 'جاري المزامنة...' : 'مزامنة الآن',
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: statusColor,
                 foregroundColor: Colors.white,
                 minimumSize: const Size(double.infinity, 48),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ],
@@ -161,9 +213,24 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
       crossAxisSpacing: 12,
       childAspectRatio: 1,
       children: [
-        _buildStatItem('قيد الانتظار', syncState.pendingCount, AppColors.info, Icons.pending),
-        _buildStatItem('تم المزامنة', syncState.syncedCount, AppColors.success, Icons.check_circle),
-        _buildStatItem('فشل', syncState.failedCount, AppColors.danger, Icons.error),
+        _buildStatItem(
+          'قيد الانتظار',
+          syncState.pendingCount,
+          AppColors.info,
+          Icons.pending,
+        ),
+        _buildStatItem(
+          'تم المزامنة',
+          syncState.syncedCount,
+          AppColors.success,
+          Icons.check_circle,
+        ),
+        _buildStatItem(
+          'فشل',
+          syncState.failedCount,
+          AppColors.danger,
+          Icons.error,
+        ),
       ],
     );
   }
@@ -248,7 +315,8 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
   }
 
   Widget _buildHistoryTile(SyncHistoryEntry entry) {
-    final isError = entry.failed > 0 || (entry.errorMessage?.isNotEmpty ?? false);
+    final isError =
+        entry.failed > 0 || (entry.errorMessage?.isNotEmpty ?? false);
     final color = isError ? AppColors.warning : AppColors.success;
     final message = isError
         ? (entry.errorMessage ?? 'فشل في ${entry.failed} عملية')
@@ -267,7 +335,10 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
         'رفع ${entry.uploaded} · سحب ${entry.downloaded}',
         style: const TextStyle(fontWeight: FontWeight.bold),
       ),
-      subtitle: Text(message, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+      subtitle: Text(
+        message,
+        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+      ),
       trailing: Text(
         _formatRelativeTime(entry.createdAt),
         style: TextStyle(fontSize: 11, color: Colors.grey[500]),
@@ -288,13 +359,14 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
         ),
       );
     } else if (result.isSuccess) {
-      final hasChanges =
-          result.uploadedCount > 0 || result.downloadedCount > 0;
+      final hasChanges = result.uploadedCount > 0 || result.downloadedCount > 0;
       messenger.showSnackBar(
         SnackBar(
-          content: Text(hasChanges
-              ? 'تمت المزامنة: رفع ${result.uploadedCount} · سحب ${result.downloadedCount}'
-              : 'تتم المزامنة (لا توجد تغييرات)'),
+          content: Text(
+            hasChanges
+                ? 'تمت المزامنة: رفع ${result.uploadedCount} · سحب ${result.downloadedCount}'
+                : 'تتم المزامنة (لا توجد تغييرات)',
+          ),
           backgroundColor: AppColors.success,
         ),
       );
@@ -322,7 +394,9 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
 }
 
 /// جلب سجل عمليات المزامنة الحقيقية من طبقة البيانات
-final syncHistoryProvider = FutureProvider.autoDispose<List<SyncHistoryEntry>>((ref) {
+final syncHistoryProvider = FutureProvider.autoDispose<List<SyncHistoryEntry>>((
+  ref,
+) {
   final repo = ref.watch(syncRepositoryProvider);
   return repo.getSyncHistory(limit: 20);
 });

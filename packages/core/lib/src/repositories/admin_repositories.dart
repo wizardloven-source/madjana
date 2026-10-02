@@ -4,6 +4,32 @@ import '../models/flock_model.dart';
 import '../models/sync_health_entry.dart';
 import '../models/user_model.dart';
 
+/// من أين جاءت قيم إعدادات المدجنة.
+enum FarmFetchSource {
+  /// الخادم أجاب، والقيم محدَّثة (والكاش المحلي حُدِّث معها).
+  remote,
+
+  /// تعذّر الوصول للخادم، والقيم من آخر لقطة محفوظة محلياً.
+  cache,
+}
+
+/// نتيجة قراءة إعدادات المدجنة مع مصدرها وسببFallback إن وُجد.
+class FarmFetchResult {
+  final FarmModel farm;
+  final FarmFetchSource source;
+
+  /// الخط الأصلي الذي سبّب الرجوع للكاش، إن وُجد.
+  final Object? error;
+
+  const FarmFetchResult({
+    required this.farm,
+    required this.source,
+    this.error,
+  });
+
+  bool get isStale => source == FarmFetchSource.cache;
+}
+
 /// مستودع القطعان - إدارة كاملة للمدير
 abstract class FlockRepository {
   /// جلب قطعان المزرعة
@@ -87,6 +113,13 @@ abstract class UserAdminRepository {
 abstract class FarmRepository {
   Future<FarmModel> getFarm(String farmId);
 
+  /// مثل [getFarm] لكنه يصرّح بمصدر القيم.
+  ///
+  /// `getFarm` يبتلع أخطاء الشبكة ويُعيد كاشاً قديماً بلا indication، فيُعرض
+  /// رقم قديم كأنه حديث (مثل وزن كيس 50 بدل 24). هذه الدالة تُرجع
+  /// [FarmFetchResult] ليعرف الـ provider أن القراءة جاءت من الكاش ويعرض تنبيهاً.
+  Future<FarmFetchResult> getFarmWithSource(String farmId);
+
   Future<void> updateFarm(FarmModel farm);
 
   /// يحفظ إعدادات المدجنة (وزن الكيس، بيض/كرتون، بيض/صينية، معدل النفوق)
@@ -105,13 +138,13 @@ abstract class FarmRepository {
   /// إعدادات النظام
   Future<double> getFeedBagWeightKg();
   Future<void> setFeedBagWeightKg(double weightKg);
-  
+
   Future<int> getEggsPerCarton();
   Future<void> setEggsPerCarton(int count);
-  
+
   Future<int> getEggsPerTray();
   Future<void> setEggsPerTray(int count);
-  
+
   Future<double> getDefaultMortalityRate();
   Future<void> setDefaultMortalityRate(double rate);
 

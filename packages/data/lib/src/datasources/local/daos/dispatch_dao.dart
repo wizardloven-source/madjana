@@ -35,6 +35,7 @@ class DispatchDao {
       tableName: _table,
       recordId: id,
       action: 'INSERT',
+      farmId: record.farmId,
       payload: {
         if (record.flockId != null) 'flock_id': record.flockId,
         'date': record.date.toIso8601String().split('T').first,
@@ -114,8 +115,10 @@ class DispatchDao {
 
   Future<void> updatePaymentStatus(String id, PaymentStatus status) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query(_table,
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.update(
       _table,
       {'payment_status': status.name},

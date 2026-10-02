@@ -123,6 +123,7 @@ class RevenueDao {
       tableName: _table,
       recordId: id,
       action: 'INSERT',
+      farmId: revenue.farmId,
       payload: {
         'date': revenue.date.toIso8601String().split('T').first,
         'category': revenue.category.name,
@@ -141,8 +142,10 @@ class RevenueDao {
 
   Future<void> update(String id, RevenueModel revenue) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query(_table,
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.update(
       _table,
       {
@@ -184,8 +187,10 @@ class RevenueDao {
 
   Future<void> delete(String id) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query(_table,
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
     await LocalDatabase.enqueueChange(
       tableName: _table,
@@ -237,9 +242,8 @@ class RevenueDao {
       exchangeRate: map['exchange_rate'] != null
           ? (map['exchange_rate'] as num).toDouble()
           : null,
-      quantity: map['quantity'] != null
-          ? (map['quantity'] as num).toDouble()
-          : null,
+      quantity:
+          map['quantity'] != null ? (map['quantity'] as num).toDouble() : null,
       unit: map['unit'] as String?,
       referenceId: map['reference_id'] as String?,
       workerId: map['worker_id'] as String?,

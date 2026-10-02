@@ -35,6 +35,7 @@ class CustomerDao {
       tableName: _table,
       recordId: id,
       action: 'INSERT',
+      farmId: customer.farmId,
       payload: {
         'name': customer.name,
         'phone': customer.phone,
@@ -115,8 +116,13 @@ class CustomerDao {
 
   Future<void> update(CustomerModel customer) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [customer.id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query(_table,
+        columns: ['version'],
+        where: 'id = ?',
+        whereArgs: [customer.id],
+        limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.update(
       _table,
       {
@@ -146,8 +152,10 @@ class CustomerDao {
 
   Future<void> deleteById(String id) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query(_table,
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
     await LocalDatabase.enqueueChange(
       tableName: _table,

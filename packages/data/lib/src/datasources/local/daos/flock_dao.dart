@@ -25,7 +25,8 @@ class FlockDao {
 
   Future<FlockModel?> getById(String id) async {
     final db = await LocalDatabase.database;
-    final maps = await db.query(_table, where: 'id = ?', whereArgs: [id], limit: 1);
+    final maps =
+        await db.query(_table, where: 'id = ?', whereArgs: [id], limit: 1);
     if (maps.isEmpty) return null;
     return _fromMap(maps.first);
   }
@@ -52,20 +53,26 @@ class FlockDao {
   /// إضافة قطيع واحد
   Future<void> insert(FlockModel flock) async {
     final db = await LocalDatabase.database;
-    await db.insert(_table, {
-      'id': flock.id,
-      'farm_id': flock.farmId,
-      'breed': flock.breed,
-      'start_date': flock.startDate.toIso8601String().split('T').first,
-      'initial_count': flock.initialCount,
-      'current_count': flock.currentCount,
-      'status': flock.status.name,
-      'sections_count': flock.sectionsCount,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+        _table,
+        {
+          'id': flock.id,
+          'farm_id': flock.farmId,
+          'breed': flock.breed,
+          'start_date': flock.startDate.toIso8601String().split('T').first,
+          'initial_count': flock.initialCount,
+          'current_count': flock.currentCount,
+          'status': flock.status.name,
+          'sections_count': flock.sectionsCount,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     await LocalDatabase.enqueueChange(
       tableName: _table,
       recordId: flock.id,
       action: 'INSERT',
+      // مزرعة القطيع نفسه، لا مزرعة الجلسة: هذا ما يمنع تسجيل قطعان نديم
+      // بركات تحت الجرار.
+      farmId: flock.farmId,
       payload: {
         'breed': flock.breed,
         'start_date': flock.startDate.toIso8601String().split('T').first,
@@ -80,8 +87,10 @@ class FlockDao {
   /// إنهاء دورة قطيع محلياً
   Future<void> markEnded(String id) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query(_table,
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.update(
       _table,
       {'status': FlockStatus.depleted.name},

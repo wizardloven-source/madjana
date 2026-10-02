@@ -1,4 +1,4 @@
--- ============================================================================
+﻿-- ============================================================================
 -- اختبار انحدار — إصلاح 20260926000100 (نشر الإيرادات + حماية فقدان التعديلات)
 -- ============================================================================
 -- للتحقق من كل بند أصلحته الترقية 20260926000100.
@@ -69,6 +69,11 @@ SELECT tests.assert(
 );
 
 -- sync_live_ids يجب أن يذكر revenue كمفتاح (مصالحة الحذف تعتمد ذلك)
+--
+-- ملاحظة: sync_live_ids ترمي AUTHORIZATION_DENIED: not signed in إذا لم
+-- تكن هناك هوية مطلوبة، فـ tests.set_user يجب أن يسبق هذا الاستدعاء. لم يكن
+-- الملف يستدعيها قبل هنا، فيسقط الاختبار عند أول استخدام.
+SELECT tests.set_user('00000000-0000-0000-0000-00000000000a'); -- admin_a
 SELECT tests.assert(
     'sync_live_ids تُرجع revenue',
     public.sync_live_ids('00000000-0000-0000-0000-000000000001') ? 'revenue',
@@ -76,9 +81,12 @@ SELECT tests.assert(
 );
 
 -- ── اختبار 2: الأعمدة المفقودة استُعيدت ─────────────────────────────────
+-- ملاحظة (00801): كل INSERT هنا يجب أن يحمل farm_id. الدالة ترفض INSERT بلا
+-- مزرعة عمداً، لأن التخمين بمزرعة نشطة هو أصل فقدان البيانات. previously these
+-- payloads omitted farm_id and would now be rejected.
 DO $$
 DECLARE
-    v_flock     uuid := gen_random_uuid();
+    v_flock   uuid := gen_random_uuid();
     v_farm      uuid := '00000000-0000-0000-0000-000000000001';
     v_res       jsonb;
     v_detail    jsonb;
@@ -96,17 +104,17 @@ BEGIN
             'operation_id', gen_random_uuid()::text,
             'record_id', v_flock::text,
             'data', jsonb_build_object(
+                'farm_id', v_farm::text,
                 'breed', 'اختبار', 'start_date', CURRENT_DATE::text,
                 'initial_count', 100, 'current_count', 97,
                 'status', 'active', 'sections_count', 1
             ),
             'previous_version', NULL
-        )),
-        'regression-test-device'
+        ))
     );
 
     v_detail := v_res->'details'->0;
-    SELECT tests.assert(
+    PERFORM tests.assert(
         'flocks.current_count يصل الخادم',
         v_detail->>'status' = 'ok',
         coalesce('status=' || coalesce(v_detail->>'status', 'null') ||
@@ -128,15 +136,15 @@ BEGIN
             'operation_id', gen_random_uuid()::text,
             'record_id', v_customer::text,
             'data', jsonb_build_object(
+                'farm_id', '00000000-0000-0000-0000-000000000001',
                 'name', 'زبون عام اختبار', 'phone', '000', 'is_global', true
             ),
             'previous_version', NULL
-        )),
-        'regression-test-device'
+        ))
     );
 
     v_cust_det := v_cust_res->'details'->0;
-    SELECT tests.assert(
+    PERFORM tests.assert(
         'customers.is_global يصل الخادم',
         v_cust_det->>'status' = 'ok',
         coalesce('status=' || coalesce(v_cust_det->>'status', 'null') ||
@@ -181,13 +189,13 @@ BEGIN
             'operation_id', gen_random_uuid()::text,
             'record_id', v_flock::text,
             'data', jsonb_build_object(
+                'farm_id', v_farm::text,
                 'breed', 'سابق', 'start_date', CURRENT_DATE::text,
                 'initial_count', 100, 'current_count', 88,
                 'status', 'active', 'sections_count', 1
             ),
             'previous_version', NULL
-        )),
-        'regression-test-device'
+        ))
     );
 
     SELECT count(*) INTO v_after
@@ -195,19 +203,19 @@ BEGIN
     WHERE record_id = v_flock;
 
     v_detail := v_res->'details'->0;
-    SELECT tests.assert(
+    PERFORM tests.assert(
         'سجل موجود مسبقاً: العملية تُبلَّغ ok',
         v_detail->>'status' = 'ok'
     );
 
     -- هذا هو الفحص الحاسم: هل وُلد صف sync_changes رغم أن السجل كان موجوداً؟
-    SELECT tests.assert(
+    PERFORM tests.assert(
         'سجل موجود مسبقاً: يُبثّ إلى sync_changes (إصلاح الفقد الصامت)',
         v_after > v_before,
         format('عدد تغييرات هذا السجل: قبل=%s بعد=%s', v_before, v_after)
     );
 
-    SELECT tests.assert(
+    PERFORM tests.assert(
         'سجل موجود مسبقاً: التعديل طُبِّق فعلاً (upsert لا تجاهل)',
         (SELECT current_count FROM flocks WHERE id = v_flock) = 88
     );
@@ -235,19 +243,18 @@ BEGIN
             'record_id', v_cust::text,
             'data', jsonb_build_object('name', 'بعد'),
             'previous_version', NULL
-        )),
-        'regression-test-device'
+        ))
     );
 
     v_det := v_res->'details'->0;
-    SELECT tests.assert(
+    PERFORM tests.assert(
         'previous_version=NULL لا يُنتج تعارضاً وهمياً',
         v_det->>'status' <> 'conflict',
         coalesce('status=' || coalesce(v_det->>'status', 'null') ||
                  ' msg=' || coalesce(v_det->>'message', ''), '')
     );
 
-    SELECT tests.assert(
+    PERFORM tests.assert(
         'previous_version=NULL: التحديث طُبِّق فعلاً',
         (SELECT name FROM customers WHERE id = v_cust) = 'بعد'
     );
@@ -258,8 +265,9 @@ END $$;
 -- يحمل السجل أكثر من عملية في نفس الدفعة.
 DO $$
 DECLARE
-    v_op  text := gen_random_uuid()::text;
-    v_res jsonb;
+    v_op   text := gen_random_uuid()::text;
+    v_res  jsonb;
+    v_farm uuid := '00000000-0000-0000-0000-000000000001';
 BEGIN
     PERFORM tests.set_user('00000000-0000-0000-0000-00000000000a');
 
@@ -268,13 +276,13 @@ BEGIN
             'table_name', 'customers', 'operation', 'insert',
             'operation_id', v_op,
             'record_id', gen_random_uuid()::text,
-            'data', jsonb_build_object('name', 'اختبار operation_id', 'phone', '2'),
+            'data', jsonb_build_object('farm_id', v_farm::text,
+                                       'name', 'اختبار operation_id', 'phone', '2'),
             'previous_version', NULL
-        )),
-        'regression-test-device'
+        ))
     );
 
-    SELECT tests.assert(
+    PERFORM tests.assert(
         'الرد يحمل operation_id للعميل',
         v_res->'details'->0->>'operation_id' = v_op,
         coalesce('operation_id=' || coalesce(v_res->'details'->0->>'operation_id', 'null'), '')
@@ -304,24 +312,31 @@ SELECT tests.assert(
 -- تفتح تسريباً بين المزارع.
 DO $$
 DECLARE
-    v_leak int;
+    v_leak  int;
+    v_denied boolean := false;
 BEGIN
     PERFORM tests.set_user('00000000-0000-0000-0000-00000000000a'); -- admin_a
     BEGIN
         SELECT count(*) INTO v_leak
-        FROM public.pull_remote_changes(0, 200, '00000000-0000-0000-0000-000000000002');
-        SELECT tests.assert(
-            'admin_a لا يستطيع سحب تغييرات مزرعة ب',
-            false,
-            format('سحب %s صفاً من مزرعة أخرى — تسريب!', v_leak)
-        );
+        FROM public.pull_remote_changes(
+            '00000000-0000-0000-0000-000000000002'::uuid, 0);
     EXCEPTION WHEN OTHERS THEN
-        IF position('AUTHORIZATION_DENIED' in SQLERRM) > 0 THEN
-            RAISE NOTICE 'PASS [admin_a لا يستطيع سحب تغييرات مزرعة ب] مُنع بشكل صحيح';
-        ELSE
+        -- الرفض الصريح مقبول أيضاً، بشرط أن يكون لسبب المزرعة لا لسبب آخر.
+        IF position('AUTHORIZATION_DENIED' in SQLERRM) = 0 THEN
             RAISE EXCEPTION 'FAIL [عزل المزارع] خطأ غير متوقع: %', SQLERRM;
         END IF;
+        v_denied := true;
+        v_leak := 0;
     END;
+
+    -- إمّا رُفض الطلب، أو رجع صفر صفوف. الصفر وحده هو ما يمنع التسريب.
+    -- الكود القديم هنا كان assert(false) أي «FAIL» في كلتا الحالتين، فكان
+    -- الاختبار يمرّ بالخطأ أو يمرّ بالصدفة ولا يقيس شيئاً.
+    PERFORM tests.assert(
+        'admin_a لا يستطيع سحب تغييرات مزرعة ب',
+        v_denied OR v_leak = 0,
+        format('denied=%s rows=%s', v_denied, v_leak)
+    );
 END $$;
 
 -- ── STEP 8) النتيجة ───────────────────────────────────────────────────

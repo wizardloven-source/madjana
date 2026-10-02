@@ -35,8 +35,11 @@ class FarmDropdown extends ConsumerWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.apartment_rounded,
-              size: 16, color: theme.colorScheme.primary),
+          Icon(
+            Icons.apartment_rounded,
+            size: 16,
+            color: theme.colorScheme.primary,
+          ),
           const SizedBox(width: 6),
           if (farms.length <= 1)
             Text(
@@ -65,13 +68,29 @@ class FarmDropdown extends ConsumerWidget {
                     for (final f in farms)
                       DropdownMenuItem(
                         value: f.id,
-                        child: Text(f.name,
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        child: Text(
+                          f.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                   ],
-                  onChanged: (id) {
-                    if (id != null && id != current.id) {
-                      ref.read(authProvider.notifier).setActiveFarm(id);
+                  onChanged: (id) async {
+                    if (id == null || id == current.id) return;
+                    // لا نُغلق القائمة ونُحدّث الواجهة بأمل النجاح:
+                    // `setActiveFarm` يُرجع false إن رفض الخادم المزرعة
+                    // (غير مرتبطة بالعضوية). بما أن DropdownMenu مرتبط بـ
+                    // `current.id` من authProvider، يبقى ظاهراً المزرعة
+                    // القديمة عند الرفض — وهذا صحيح. نُخبر المستخدم فقط.
+                    final ok = await ref
+                        .read(authProvider.notifier)
+                        .setActiveFarm(id);
+                    if (!ok && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('تعذّر تبديل المدجنة: لست عضواً فيها'),
+                        ),
+                      );
                     }
                   },
                 ),

@@ -25,6 +25,13 @@ type SyncRecord = {
   payload: Record<string, unknown> | null;
   previous_version: number | null;
   device_id?: string | null;
+  // The farm the record belonged to at local creation time. It reaches
+  // sync_records_batch as v_rec->>'farm_id' and is checked there against
+  // user_has_farm_access. The server does NOT guess a farm: for UPDATE/DELETE
+  // with no farm_id it reads the farm off the row already on the server, and
+  // for INSERT with no farm_id it refuses. That refusal is what replaced the old
+  // fallback to the active farm, which misfiled records under the wrong farm.
+  farm_id?: string | null;
 };
 
 // قائمة المصادر المسموح بها (CORS) — تُضاف هنا الزبائن المعتمدة فقط
@@ -68,6 +75,26 @@ function validateRecord(r: Record<string, unknown>): { ok: true; value: SyncReco
   const dev = r["device_id"];
   if (dev !== null && dev !== undefined && typeof dev !== "string") return ERR("device_id غير صالح");
 
+  // farm_id validation.
+  //
+  // It is required for INSERT, because an INSERT has no prior row to read the
+  // farm from, and guessing the caller's active farm is what filed records
+  // under the wrong farm. For UPDATE/DELETE the SQL reads the farm off the row
+  // that already exists on the server, which is authoritative rather than a
+  // guess, so older clients that omit it keep working.
+  //
+  // Once the server-side counter shows no more 'existing_row' resolutions,
+  // this becomes mandatory for all operations.
+  const fid = r["farm_id"];
+  if (fid !== null && fid !== undefined && fid !== "") {
+    if (typeof fid !== "string") return ERR("farm_id غير صالح");
+    if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(fid)) {
+      return ERR("farm_id ليس UUID صالحاً");
+    }
+  } else if (op === "insert") {
+    return ERR("farm_id مطلوب للإضافة: لا يمكن تحديد مزرعة السجل الجديد");
+  }
+
   return {
     ok: true,
     value: {
@@ -78,6 +105,7 @@ function validateRecord(r: Record<string, unknown>): { ok: true; value: SyncReco
       payload: payload as Record<string, unknown> | null,
       previous_version: (pv as number | null) ?? null,
       device_id: (dev as string | null) ?? null,
+      farm_id: (typeof fid === "string" && fid !== "" ? fid : null),
     },
   };
 }
@@ -202,8 +230,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    // استخدام client المستخدم (而非 service role) لضمان عمل auth.uid()
-    // التحويل إلى عقد SQL: الحقل `data` وليس `payload`
+    // Use the caller's own client (not the service role) so that
+    // auth.uid() resolves inside sync_records_batch and RLS applies.
+    // Convert to the SQL contract: the field is `data`, not `payload`.
     const rpcInput = normalized.map((r) => ({
       table_name: r.table_name,
       operation: r.operation,
@@ -212,6 +241,7 @@ Deno.serve(async (req) => {
       data: r.payload ?? {},
       previous_version: r.previous_version,
       device_id: r.device_id,
+      farm_id: r.farm_id,
     }));
 
     // FIX: تمرير المصفوفة كقيمة JSON مباشرة (لا JSON.stringify) —

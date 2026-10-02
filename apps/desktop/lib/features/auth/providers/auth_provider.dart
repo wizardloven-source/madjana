@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/providers.dart';
@@ -8,11 +9,7 @@ class AuthState {
   final bool isLoading;
   final String? error;
 
-  const AuthState({
-    this.currentUser,
-    this.isLoading = false,
-    this.error,
-  });
+  const AuthState({this.currentUser, this.isLoading = false, this.error});
 
   bool get isLoggedIn => currentUser != null;
 
@@ -26,9 +23,13 @@ class AuthState {
     bool clearError = false,
   }) {
     return AuthState(
-      currentUser: identical(currentUser, _unset) ? this.currentUser : currentUser as UserModel?,
+      currentUser: identical(currentUser, _unset)
+          ? this.currentUser
+          : currentUser as UserModel?,
       isLoading: isLoading ?? this.isLoading,
-      error: clearError ? null : (identical(error, _unset) ? this.error : error as String?),
+      error: clearError
+          ? null
+          : (identical(error, _unset) ? this.error : error as String?),
     );
   }
 }
@@ -70,10 +71,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (result.success) {
       state = AuthState(currentUser: result.user);
     } else {
-      state = state.copyWith(
-        isLoading: false,
-        error: result.error,
-      );
+      state = state.copyWith(isLoading: false, error: result.error);
     }
 
     return result;
@@ -100,26 +98,40 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (result.success) {
       state = AuthState(currentUser: result.user);
     } else {
-      state = state.copyWith(
-        isLoading: false,
-        error: result.error,
-      );
+      state = state.copyWith(isLoading: false, error: result.error);
     }
 
     return result;
   }
 
   /// تحديد المدجنة النشطة للمستخدم الحالي (من قائمة مداجنه المرتبطة)
-  Future<void> setActiveFarm(String farmId) async {
+  ///
+  /// State is only advanced after the server confirms. `set_active_farm`
+  /// refuses any farm the user is not a member of, and this notifier used to
+  /// update `currentUser` optimistically with the REQUESTED farm before
+  /// knowing the outcome. The UI then showed a farm the user did not own
+  /// while `users.farm_id` on the server was unchanged, and flocks were later
+  /// found filed under it. Now we keep state untouched on rejection and
+  /// return false.
+  Future<bool> setActiveFarm(String farmId) async {
     final user = state.currentUser;
-    if (user == null) return;
-    await _repository.setActiveFarm(farmId);
+    if (user == null) return false;
+
+    UserModel? updated;
+    try {
+      updated = await _repository.setActiveFarm(farmId);
+    } catch (e) {
+      debugPrint('setActiveFarm($farmId) failed: $e');
+      return false;
+    }
+    if (updated == null) return false;
+
+    // The server may answer with a different farm than requested, so we take
+    // its value rather than the requested one.
     state = state.copyWith(
-      currentUser: user.copyWith(
-        farmId: farmId,
-        farmIds: user.farmIds,
-      ),
+      currentUser: updated.copyWith(farmIds: user.farmIds),
     );
+    return updated.farmId == farmId;
   }
 
   /// تسجيل الخروج

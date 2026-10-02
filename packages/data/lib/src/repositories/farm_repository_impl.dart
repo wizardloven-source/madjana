@@ -12,8 +12,10 @@ class AppSettingsKeys {
   static const String feedBagWeight = 'feed_bag_weight_kg';
   static const String defaultMortalityRate = 'default_mortality_rate';
   static const String cartonLowThreshold = 'carton_low_threshold';
+
   /// آخر لقطة كاملة لبيانات المدجنة (JSON) لإعادة رفعها عند الانقطاع.
   static const String farmSnapshot = 'farm_snapshot_json';
+
   /// '1' عندما تكون إعدادات المدجنة لم تصل للخادم بعد.
   static const String farmSettingsDirty = 'farm_settings_dirty';
 }
@@ -31,18 +33,41 @@ class FarmRepositoryImpl implements FarmRepository {
 
   @override
   Future<FarmModel> getFarm(String farmId) async {
+    final r = await getFarmWithSource(farmId);
+    return r.farm;
+  }
+
+  /// إرجاع إعدادات المدجنة مع بيان مصدرها.
+  ///
+  /// [FarmFetchSource.remote] يعني أن الخادم أجاب (الكاش محدَّث).
+  /// [FarmFetchSource.cache] يعني أن الشبكة أو الصلاحيات فشلت، والقيمة
+  /// من آخر لقطة محفوظة.
+  ///
+  /// السبب: `getFarm()` كان يبتلع كل خطأ ويُعيد كاشاً قديماً بلا أي indication،
+  /// فمثل.weight كيس الجرار (=24) كان الموبايل يعرض 50 صامتاً دون أن
+  /// يعرف المستخدم أن الخادم لم يُستفسر أصلاً. بإرجاع المصدر يستطيع
+  /// الـ provider إظهار تحذير «تعذّر تحديث الإعدادات» بدل تقديم رقم قديم
+  /// كأنه حديث.
+  @override
+  Future<FarmFetchResult> getFarmWithSource(String farmId) async {
     try {
-      final farm = await _remoteDatasource.getFarm(farmId)
+      final farm = await _remoteDatasource
+          .getFarm(farmId)
           .timeout(const Duration(seconds: 10), onTimeout: () {
         throw Exception('انتهت مهلة الاتصال');
       });
       // نزامن الكاش المحلي مع قيم الخادم (المصدر: سطح مكتب المدير)
       await _cacheFarm(farm);
-      return farm;
+      return FarmFetchResult(farm: farm, source: FarmFetchSource.remote);
     } catch (e) {
       // انقطاع الاتصال أو تعذّر الوصول للخادم: نُعيد آخر قيم محفوظة محلياً
       // بدل القيم الافتراضية، حتى لا يرجع وزن الكيس إلى 50 كغ ويضيع ما عدّله المدير.
-      return _farmFromCache(farmId);
+      final cached = await _farmFromCache(farmId);
+      return FarmFetchResult(
+        farm: cached,
+        source: FarmFetchSource.cache,
+        error: e,
+      );
     }
   }
 
@@ -52,8 +77,7 @@ class FarmRepositoryImpl implements FarmRepository {
   /// كتابة قيم الخادم في الكاش المحلي الخاص بهذه المدجنة
   /// (لقطة كاملة + مفاتيح قديمة للتوافق مع قارئات عامة).
   Future<void> _cacheFarm(FarmModel farm) async {
-    await _settingsDao.set(
-        _farmKey(AppSettingsKeys.farmSnapshot, farm.id),
+    await _settingsDao.set(_farmKey(AppSettingsKeys.farmSnapshot, farm.id),
         jsonEncode(farm.toJson()));
     // مفاتيح عامة (احتياطية) تُبقي آخر قيم مقروءة لأي كود قديم.
     await _settingsDao.set(
@@ -62,8 +86,8 @@ class FarmRepositoryImpl implements FarmRepository {
         AppSettingsKeys.eggsPerCarton, farm.eggsPerCarton.toString());
     await _settingsDao.set(
         AppSettingsKeys.eggsPerTray, farm.eggsPerTray.toString());
-    await _settingsDao.set(
-        AppSettingsKeys.defaultMortalityRate, farm.defaultMortalityRate.toString());
+    await _settingsDao.set(AppSettingsKeys.defaultMortalityRate,
+        farm.defaultMortalityRate.toString());
     await _settingsDao.set(
         AppSettingsKeys.cartonLowThreshold, farm.cartonLowThreshold.toString());
   }
@@ -85,8 +109,7 @@ class FarmRepositoryImpl implements FarmRepository {
   /// رفع إعدادات المدجنة للخادم — يُعيد نجاح العملية بدل ابتلاع الخطأ.
   Future<bool> _pushFarm(FarmModel farm) async {
     try {
-      await _remoteDatasource.update(farm)
-          .timeout(const Duration(seconds: 10));
+      await _remoteDatasource.update(farm).timeout(const Duration(seconds: 10));
       return true;
     } catch (_) {
       return false;
@@ -150,7 +173,8 @@ class FarmRepositoryImpl implements FarmRepository {
 
   @override
   Future<void> setCartonLowThreshold(int trays) async {
-    await _settingsDao.set(AppSettingsKeys.cartonLowThreshold, trays.toString());
+    await _settingsDao.set(
+        AppSettingsKeys.cartonLowThreshold, trays.toString());
   }
 
   @override
@@ -194,6 +218,7 @@ class FarmRepositoryImpl implements FarmRepository {
 
   @override
   Future<void> setDefaultMortalityRate(double rate) async {
-    await _settingsDao.set(AppSettingsKeys.defaultMortalityRate, rate.toString());
+    await _settingsDao.set(
+        AppSettingsKeys.defaultMortalityRate, rate.toString());
   }
 }

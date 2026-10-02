@@ -60,9 +60,111 @@ void main() {
   }
 
   group('uploadBatch', () {
+    test('صف قديم بلا farm_id: يُسترجع المزرعة من السجل المحلي', () async {
+      // This is the failure mode that filed records under the wrong farm: a
+      // legacy queue row (pre-v24) with no farm_id used to take the user's
+      // active farm from JWT metadata. Now we read the farm from the local
+      // record itself, which is the authoritative source.
+      // Enqueue through the real API (so NOT NULL columns are satisfied),
+      // then clear farm_id to reproduce a legacy pre-v24 row exactly.
+      await LocalDatabase.enqueueChange(
+        tableName: 'egg_production',
+        farmId: 'farm-REAL',
+        recordId: 'r-local',
+        action: 'INSERT',
+        payload: {'flock_id': 'f1', 'cartons': 2},
+      );
+      final db = await LocalDatabase.database;
+      final now = DateTime.now().toIso8601String();
+      await db.insert('egg_production', {
+        'id': 'r-local',
+        'farm_id': 'farm-REAL',
+        'flock_id': 'f1',
+        'date': '2026-08-20',
+        'cartons': 2,
+        'worker_id': 'w1',
+        'version': 1,
+        'created_at': now,
+        'updated_at': now,
+      });
+      await db.rawUpdate(
+          'UPDATE sync_queue SET farm_id = NULL, next_retry_at = ?', [now]);
+
+      String? capturedBody;
+      final repo = buildRepo(MockClient((request) async {
+        capturedBody = request.body;
+        return jsonReply(
+          jsonEncode({
+            'success': true,
+            'affected': 1,
+            'skipped': 0,
+            'errors': 0,
+            'success_ids': ['r-local'],
+            'failed_ids': <String>[],
+            'conflict_ids': <String>[],
+            'details': [
+              {
+                'record_id': 'r-local',
+                'table_name': 'egg_production',
+                'status': 'ok',
+                'new_version': 2,
+              }
+            ],
+          }),
+          request,
+        );
+      }));
+
+      final records = await repo.getPendingChanges();
+      expect(records, hasLength(1));
+      expect(records.single.farmId, 'farm-REAL');
+
+      // The farm is persisted back into the queue row so the lookup happens
+      // once, not on every upload attempt.
+      final q = await db.query('sync_queue', where: 'record_id = ?',
+          whereArgs: ['r-local']);
+      expect(q.single['farm_id'], 'farm-REAL');
+
+      final result = await repo.uploadBatch(records);
+      expect(result.successIds, ['r-local']);
+      final sent = (jsonDecode(capturedBody!)['records'] as List).first as Map;
+      expect(sent['farm_id'], 'farm-REAL');
+    });
+
+    test('صف بلا farm_id ولا سجل محلي: يُحجَز ولا يُرفع باسم مزرعة أخرى',
+        () async {
+      // Queue a row for a record that does not exist locally, then clear its
+      // farm_id. The farm cannot be determined from anywhere, so the row must
+      // be held back rather than uploaded under some other farm.
+      await LocalDatabase.enqueueChange(
+        tableName: 'egg_production',
+        farmId: 'farm-X',
+        recordId: 'r-ghost',
+        action: 'INSERT',
+        payload: {'flock_id': 'f1'},
+      );
+      final db = await LocalDatabase.database;
+      final now = DateTime.now().toIso8601String();
+      await db.rawUpdate(
+          'UPDATE sync_queue SET farm_id = NULL, next_retry_at = ?', [now]);
+
+      final repo = buildRepo(MockClient((request) async {
+        fail('يجب ألا يُرفع سجل بلا مزرعة معروفة إطلاقاً');
+        return jsonReply('{}', request);
+      }));
+
+      final records = await repo.getPendingChanges();
+      expect(records, isEmpty);
+
+      final q = await db.query('sync_queue', where: 'record_id = ?',
+          whereArgs: ['r-ghost']);
+      expect(q.single['status'], 'pending', reason: 'يبقى معلقاً لا مفقوداً');
+      expect(q.single['last_error'], contains('farm_id'));
+    });
+
     test('قائمة فارغة → نتيجة فارغة بدون حجب', () async {
-      final repo = buildRepo(
-          MockClient((request) async => jsonReply('{}', request)));
+      final repo =
+          buildRepo(MockClient((request) async => jsonReply('{}', request)));
       final result = await repo.uploadBatch([]);
       expect(result.successIds, isEmpty);
       expect(result.failedIds, isEmpty);
@@ -100,12 +202,14 @@ void main() {
       });
       await LocalDatabase.enqueueChange(
         tableName: 'egg_production',
+        farmId: 'farm-1',
         recordId: 'r1',
         action: 'INSERT',
         payload: {'flock_id': 'f1', 'date': '2026-08-20', 'cartons': 2},
       );
       await LocalDatabase.enqueueChange(
         tableName: 'payments',
+        farmId: 'farm-1',
         recordId: 'p1',
         action: 'UPDATE',
         previousVersion: 2,
@@ -168,13 +272,21 @@ void main() {
       expect(pay.first['version'], 9);
     });
 
-    test('عقد Edge Function sync_records: operation صغيرة + previous_version على المستوى الأعلى', () async {
+    test(
+        'عقد Edge Function sync_records: operation صغيرة + previous_version على المستوى الأعلى',
+        () async {
       await LocalDatabase.enqueueChange(
         tableName: 'mortality',
+        farmId: 'farm-1',
         recordId: 'm1',
         action: 'UPDATE',
         previousVersion: 7,
-        payload: {'count': 3, 'id': 'مستبعد', 'version': 9, 'farm_id': 'farm-1'},
+        payload: {
+          'count': 3,
+          'id': 'مستبعد',
+          'version': 9,
+          'farm_id': 'farm-1'
+        },
       );
 
       String? capturedBody;
@@ -217,19 +329,25 @@ void main() {
       // previous_version يُقرأ أعلى المستوى (يصله null في INSERT)
       expect(sent['previous_version'], 7);
 
-      // data = payload نظيف: بلا id/farm_id/version — وprevious_version داخله جزء من عقد OCC
+      // data = payload نظيف: بلا id/version — وprevious_version داخله جزء من عقد OCC
       final data = sent['data'] as Map;
       expect(data.containsKey('previous_version'), isTrue);
       expect(data['previous_version'], 7);
       expect(data['count'], 3);
       expect(data.containsKey('id'), isFalse);
-      expect(data.containsKey('farm_id'), isFalse);
       expect(data.containsKey('version'), isFalse);
+
+      // farm_id الآن داخل data عمداً، وعلى مستوى السجل أيضاً. قبل هذا التغيير
+      // كانت data خالية منه، فيقرأه الخادم من الصومعة فينقص أي أثر في
+      // linkage — أو يسقط إلى المزرعة النشطة فتُسجَّل الدفعة في مزرعة خاطئة.
+      expect(data['farm_id'], 'farm-1');
+      expect(sent['farm_id'], 'farm-1');
     });
 
     test('conflict: status=conflict → يحوَّل إلى حالة conflict', () async {
       await LocalDatabase.enqueueChange(
         tableName: 'egg_production',
+        farmId: 'farm-1',
         recordId: 'r1',
         action: 'UPDATE',
         previousVersion: 1,
@@ -261,9 +379,11 @@ void main() {
       expect(rows.first['status'], 'conflict');
     });
 
-    test('skipped → يبقى pending (الخادم لم يطبّع، فالعملية لم تُنفَّذ)', () async {
+    test('skipped → يبقى pending (الخادم لم يطبّع، فالعملية لم تُنفَّذ)',
+        () async {
       await LocalDatabase.enqueueChange(
         tableName: 'mortality',
+        farmId: 'farm-1',
         recordId: 'm1',
         action: 'INSERT',
         payload: {'count': 3},
@@ -302,12 +422,14 @@ void main() {
     test('سجل مرفوض (لا يوجد detail له) → يعامل كفشل', () async {
       await LocalDatabase.enqueueChange(
         tableName: 'egg_production',
+        farmId: 'farm-1',
         recordId: 'r1',
         action: 'INSERT',
         payload: {'flock_id': 'f1'},
       );
       await LocalDatabase.enqueueChange(
         tableName: 'egg_production',
+        farmId: 'farm-1',
         recordId: 'r2',
         action: 'INSERT',
         payload: {'flock_id': 'f2'},
@@ -344,9 +466,11 @@ void main() {
       expect(byId['r2']!['status'], 'failed');
     });
 
-    test('فشل شبكة → يبقى pending مع attempts و backoff حتى فشل نهائي', () async {
+    test('فشل شبكة → يبقى pending مع attempts و backoff حتى فشل نهائي',
+        () async {
       await LocalDatabase.enqueueChange(
         tableName: 'egg_production',
+        farmId: 'farm-1',
         recordId: 'r1',
         action: 'INSERT',
         payload: {'flock_id': 'f1'},
@@ -483,7 +607,8 @@ void main() {
       expect(state.first['last_pulled_version'], 3);
     });
 
-    test('جدول غير محلي في المنتصف → يُتخطى ويُدفع commit-point فوقه', () async {
+    test('جدول غير محلي في المنتصف → يُتخطى ويُدفع commit-point فوقه',
+        () async {
       final client = MockClient((request) async => jsonReply(
           jsonEncode({
             'latest_version': 3,
@@ -557,6 +682,7 @@ void main() {
     test('رفع ناجح + سحب ناجح و تسجيل في sync_history', () async {
       await LocalDatabase.enqueueChange(
         tableName: 'egg_production',
+        farmId: 'farm-1',
         recordId: 'r1',
         action: 'INSERT',
         payload: {'flock_id': 'f1', 'date': '2026-08-20', 'cartons': 4},
@@ -617,8 +743,7 @@ void main() {
       expect(result.resyncRequired, isFalse);
 
       final db = await LocalDatabase.database;
-      expect(
-          await db.query('egg_dispatch', where: 'id = ?', whereArgs: ['d1']),
+      expect(await db.query('egg_dispatch', where: 'id = ?', whereArgs: ['d1']),
           hasLength(1));
 
       final history = await db.query('sync_history');

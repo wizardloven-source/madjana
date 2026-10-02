@@ -7,7 +7,7 @@ import '../local_database.dart';
 class ExpenseDao {
   static const String _table = 'expenses';
   static const _uuid = Uuid();
-  
+
   Future<List<ExpenseModel>> getAll({
     required String farmId,
     DateTime? fromDate,
@@ -32,7 +32,7 @@ class ExpenseDao {
     );
     return maps.map(_fromMap).toList();
   }
-  
+
   /// الحصول على السجلات المعلقة للمزامنة
   Future<List<Map<String, dynamic>>> getPendingRecords({int limit = 50}) async {
     final db = await LocalDatabase.database;
@@ -51,7 +51,7 @@ class ExpenseDao {
     final maps = await getPendingRecords(limit: limit);
     return maps.map(_fromMap).toList();
   }
-  
+
   /// تحديث حالة المزامنة
   Future<void> updateSyncStatus(String id, SyncStatus status) async {
     final db = await LocalDatabase.database;
@@ -65,7 +65,7 @@ class ExpenseDao {
       whereArgs: [id],
     );
   }
-  
+
   /// عدد السجلات المعلقة
   Future<int> countPending() async {
     final db = await LocalDatabase.database;
@@ -99,6 +99,7 @@ class ExpenseDao {
       tableName: _table,
       recordId: id,
       action: 'INSERT',
+      farmId: expense.farmId,
       payload: {
         'date': expense.date.toIso8601String().split('T').first,
         'category': expense.category.name,
@@ -106,7 +107,8 @@ class ExpenseDao {
         'amount': expense.amount,
         'currency': expense.currency.name,
         if (expense.exchangeRate != null) 'exchange_rate': expense.exchangeRate,
-        if (expense.cartonBundles != null) 'carton_bundles': expense.cartonBundles,
+        if (expense.cartonBundles != null)
+          'carton_bundles': expense.cartonBundles,
       },
     );
     return id;
@@ -115,8 +117,10 @@ class ExpenseDao {
   Future<void> update(String id, ExpenseModel expense) async {
     final db = await LocalDatabase.database;
     // قراءة الإصدار الحالي قبل التعديل (يُستخدم كـ previous_version في OCC)
-    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query(_table,
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.update(
       _table,
       {
@@ -145,7 +149,8 @@ class ExpenseDao {
         'amount': expense.amount,
         'currency': expense.currency.name,
         if (expense.exchangeRate != null) 'exchange_rate': expense.exchangeRate,
-        if (expense.cartonBundles != null) 'carton_bundles': expense.cartonBundles,
+        if (expense.cartonBundles != null)
+          'carton_bundles': expense.cartonBundles,
       },
     );
   }
@@ -153,8 +158,10 @@ class ExpenseDao {
   Future<void> delete(String id) async {
     final db = await LocalDatabase.database;
     // قراءة الإصدار الحالي قبل الحذف
-    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query(_table,
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
     await LocalDatabase.enqueueChange(
       tableName: _table,

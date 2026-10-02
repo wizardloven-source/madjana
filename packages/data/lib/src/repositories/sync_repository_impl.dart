@@ -50,23 +50,121 @@ class SyncRepositoryImpl implements SyncRepository {
       LIMIT ?
     ''', filterByFarm ? [now, farmId, limit] : [now, limit]);
 
-    final currentUser = _supabase.auth.currentUser;
-    final userFarmId = currentUser?.userMetadata?['farm_id']?.toString() ?? '';
+    // farm_id is read from the queue row itself: the farm the record was
+    // filed under at local creation time.
+    //
+    // It used to be overwritten with userMetadata['farm_id'] (the user's
+    // active farm on the server), which is what filed records under the
+    // wrong farm: a record created on farm A was uploaded as farm B after
+    // the user switched.
+    //
+    // There is NO fallback to metadata now. For legacy rows with no farm_id
+    // we read the farm from the local record itself (the authoritative
+    // source) and persist it back into the queue row. If we cannot find it
+    // we neither guess nor upload under some other farm: we record
+    // last_error and leave the row unsent.
+    final out = <SyncChangeModel>[];
 
-    return results.map((map) => SyncChangeModel.fromMap({
-      'operation_id': map['operation_id'],
-      'farm_id': userFarmId.isNotEmpty ? userFarmId : (map['farm_id'] ?? ''),
-      'table_name': map['table_name'],
-      'record_id': map['record_id'],
-      'operation': (map['action'] as String? ?? 'INSERT').toLowerCase(),
-      'changed_at': map['created_at'] ?? DateTime.now().toIso8601String(),
-      'user_id': map['user_id'],
-      'payload': map['payload'],
-      'status': map['status'] ?? 'pending',
-      'attempts': map['attempts'] ?? 0,
-      'error_message': map['last_error'],
-    })).toList();
+    for (final map in results) {
+      final queueFarmId = (map['farm_id'] ?? '').toString().trim();
+      var resolvedFarmId = queueFarmId;
+
+      if (resolvedFarmId.isEmpty) {
+        resolvedFarmId = await _recoverFarmIdFromLocalRecord(
+          db,
+          tableName: (map['table_name'] ?? '').toString(),
+          recordId: (map['record_id'] ?? '').toString(),
+        );
+        if (resolvedFarmId.isNotEmpty) {
+          await db.update(
+            'sync_queue',
+            {'farm_id': resolvedFarmId},
+            where: 'operation_id = ?',
+            whereArgs: [map['operation_id']],
+          );
+        } else {
+          await db.update(
+            'sync_queue',
+            {
+              'last_error':
+                  'farm_id غير معروف للسجل المحلي؛ لا يمكن رفعه دون مخاطرة '
+                      'بتسجيله تحت مزرعة خاطئة',
+              'next_retry_at': DateTime.now()
+                  .add(const Duration(minutes: 30))
+                  .toIso8601String(),
+            },
+            where: 'operation_id = ?',
+            whereArgs: [map['operation_id']],
+          );
+          continue;
+        }
+      }
+
+      out.add(SyncChangeModel.fromMap({
+        'operation_id': map['operation_id'],
+        'farm_id': resolvedFarmId,
+        'table_name': map['table_name'],
+        'record_id': map['record_id'],
+        'operation': (map['action'] as String? ?? 'INSERT').toLowerCase(),
+        'changed_at': map['created_at'] ?? DateTime.now().toIso8601String(),
+        'user_id': map['user_id'],
+        'payload': map['payload'],
+        'status': map['status'] ?? 'pending',
+        'attempts': map['attempts'] ?? 0,
+        'error_message': map['last_error'],
+      }));
+    }
+    return out;
   }
+
+  /// يستخرج مزرعة سجل محلي من جدوله الأصلي.
+  ///
+  /// يُستخدم فقط لإصلاح صفوف الطابور القديمة التي حُفظت قبل أن يحمل
+  /// الطابور `farm_id` (v24 وما قبلها). يُعيد سلسلة فارغة إن لم يُعرف
+  /// الجدول أو لم يُوجد السجل.
+  Future<String> _recoverFarmIdFromLocalRecord(
+    Database db, {
+    required String tableName,
+    required String recordId,
+  }) async {
+    if (tableName.isEmpty || recordId.isEmpty) return '';
+    if (!_farmScopedTables.contains(tableName)) return '';
+    // allowlist صارم: لا تُبنى أي أسماء جداول من مُدخلات المستخدم
+    try {
+      final rows = await db.rawQuery(
+        'SELECT farm_id FROM "$tableName" WHERE id = ? LIMIT 1',
+        [recordId],
+      );
+      if (rows.isEmpty) return '';
+      return (rows.first['farm_id'] ?? '').toString().trim();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// الجداول المحلية التي تحمل عمود `farm_id`.
+  ///
+  /// هذه أسماء جداول SQLite الفعلية، لا أسماء جداول Postgres البعيدة:
+  /// `mortality` و `egg_dispatch` محلياً مقابل `mortality_records` و
+  /// `dispatches` على السيرفر. استخدام الاسم البعيد كان يجعل الاستعلام
+  /// يفشل بصمت ويُعيد '' فتُحجَز كل صف قديم بلا سبب.
+  static const _farmScopedTables = <String>{
+    'flocks',
+    'customers',
+    'egg_dispatch',
+    'egg_production',
+    'expenses',
+    'feed_consumption',
+    'feed_received',
+    'inventory_items',
+    'inventory_transactions',
+    'medications',
+    'mortality',
+    'opening_balances',
+    'payments',
+    'revenue',
+    'stock_adjustments',
+  };
 
   @override
   Future<List<SyncChangeModel>> getQueueItems({int limit = 100}) async {
@@ -77,19 +175,22 @@ class SyncRepositoryImpl implements SyncRepository {
       LIMIT ?
     ''', [limit]);
 
-    return results.map((map) => SyncChangeModel.fromMap({
-      'operation_id': map['operation_id'],
-      'farm_id': map['farm_id'] ?? '',
-      'table_name': map['table_name'],
-      'record_id': map['record_id'],
-      'operation': (map['action'] as String? ?? 'INSERT').toLowerCase(),
-      'changed_at': map['created_at'] ?? DateTime.now().toIso8601String(),
-      'user_id': map['user_id'],
-      'payload': map['payload'],
-      'status': map['status'] ?? 'pending',
-      'attempts': map['attempts'] ?? 0,
-      'error_message': map['last_error'],
-    })).toList();
+    return results
+        .map((map) => SyncChangeModel.fromMap({
+              'operation_id': map['operation_id'],
+              'farm_id': map['farm_id'] ?? '',
+              'table_name': map['table_name'],
+              'record_id': map['record_id'],
+              'operation': (map['action'] as String? ?? 'INSERT').toLowerCase(),
+              'changed_at':
+                  map['created_at'] ?? DateTime.now().toIso8601String(),
+              'user_id': map['user_id'],
+              'payload': map['payload'],
+              'status': map['status'] ?? 'pending',
+              'attempts': map['attempts'] ?? 0,
+              'error_message': map['last_error'],
+            }))
+        .toList();
   }
 
   @override
@@ -99,9 +200,17 @@ class SyncRepositoryImpl implements SyncRepository {
         (change.operationId == null || change.operationId!.isEmpty)
             ? _newOperationId()
             : change.operationId;
-    final farmId = change.farmId.trim().isNotEmpty
-        ? change.farmId
-        : await LocalDatabase.getActiveFarmId();
+
+    // أولويةfarm_id: من حمولة السجل نفسه، ثم من النموذج، ثم المزرعة النشطة
+    // محلياً. الأولوية للحمولة مهمة: سجل أُنشئ تحت مزرعة ثم تغيّرت الجلسة قبل
+    // رفعه يجب أن يبقى تحت مزرعته الأصلية لا مزرعة الجلسة الحالية.
+    final payloadFarmId = (change.payload?['farm_id'] ?? '').toString().trim();
+    final farmId = payloadFarmId.isNotEmpty
+        ? payloadFarmId
+        : (change.farmId.trim().isNotEmpty
+            ? change.farmId
+            : await LocalDatabase.getActiveFarmId());
+
     final row = <String, dynamic>{
       'id': operationId,
       'operation_id': operationId,
@@ -127,9 +236,7 @@ class SyncRepositoryImpl implements SyncRepository {
     final bytes = List<int>.generate(16, (_) => rng.nextInt(256));
     bytes[6] = (bytes[6] & 0x0F) | 0x40; // version 4
     bytes[8] = (bytes[8] & 0x3F) | 0x80; // variant
-    final hex = bytes
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join();
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
         '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
         '${hex.substring(20)}';
@@ -149,7 +256,8 @@ class SyncRepositoryImpl implements SyncRepository {
   }
 
   @override
-  Future<void> markAsFailed(String id, String errorMessage, {int? attempts}) async {
+  Future<void> markAsFailed(String id, String errorMessage,
+      {int? attempts}) async {
     final db = await LocalDatabase.database;
     await db.rawUpdate('''
       UPDATE sync_queue
@@ -175,7 +283,7 @@ class SyncRepositoryImpl implements SyncRepository {
   /// «متخطّى» في الخادم تعني: السجل غير موجود أو لا ينتمي لهذه المزرعة،
   /// أي أن العملية **لم تُطبَّق**. لا يجوز اعتبارها نجاحاً ثم حذفها من
   /// الطابور — تفقد العملية نهائياً. نُبقيها `pending` مع رمز خطأ ظاهر
-  /// للمستخدم ليقرر: هل السجل حُذف على الخادم عمداً، أم 有的 خطأ في المزرعة؟
+  /// للمستخدم ليقرر: هل السجل حُذف على الخادم عمداً، أم أن المزرعة خاطئة؟
   Future<void> markAsSkipped(String id, String reason) async {
     final db = await LocalDatabase.database;
     await db.rawUpdate('''
@@ -196,9 +304,9 @@ class SyncRepositoryImpl implements SyncRepository {
         DELETE FROM sync_queue
         WHERE status = 'synced'
         AND updated_at < ?
-      ''', [DateTime.now()
-            .subtract(Duration(days: daysToKeep))
-            .toIso8601String()]);
+      ''', [
+        DateTime.now().subtract(Duration(days: daysToKeep)).toIso8601String()
+      ]);
     } catch (e) {
       // تنظيف قديم: غير حرج لدورة المزامنة، لكن لا نخفيه — نسجّله.
       debugPrint('cleanupOldSyncedRecords failed: $e');
@@ -242,14 +350,23 @@ class SyncRepositoryImpl implements SyncRepository {
   }
 
   /// تحديث version السجل في SQLite بعد المزامنة الناجحة
-  Future<void> _updateLocalVersion(String recordId, String tableName, int newVersion) async {
+  Future<void> _updateLocalVersion(
+      String recordId, String tableName, int newVersion) async {
     try {
       final db = await LocalDatabase.database;
       final allowedTables = [
-        'egg_production', 'mortality', 'feed_consumption',
-        'feed_received', 'egg_dispatch', 'medications',
-        'customers', 'flocks', 'expenses', 'payments',
-        'inventory_items', 'inventory_transactions',
+        'egg_production',
+        'mortality',
+        'feed_consumption',
+        'feed_received',
+        'egg_dispatch',
+        'medications',
+        'customers',
+        'flocks',
+        'expenses',
+        'payments',
+        'inventory_items',
+        'inventory_transactions',
         'stock_adjustments',
       ];
       if (allowedTables.contains(tableName)) {
@@ -369,13 +486,32 @@ class SyncRepositoryImpl implements SyncRepository {
             'All records must come through queueChange() which generates operationId.',
           );
         }
+
+        // farm_id من صف الطابور: المزرعة التي سُجّل السجل تحتها وقت إنشائه
+        // محلياً. كان يُحذف من الحمولة ولا يُرسل إطلاقاً، فيرجع الخادم إلى
+        // current_user_farm_id() (المزرعة النشطة على السيرفر) — وهو سبب
+        // تسجيل قطعان نديم بركات تحت الجرار.
+        //
+        // يُرسل مرتين عمداً: كحقل مستقل (v_rec->>'farm_id') وداخل data
+        // (v_data->>'farm_id')، لأن الخادم يقرأ الأول قبل الثاني.
+        final farmId = r.farmId.trim();
+        if (farmId.isEmpty) {
+          debugPrint(
+            'uploadBatch: ${r.tableName}/${r.recordId} has no farm_id; '
+            'server will fall back to the active farm. Re-queue if unexpected.',
+          );
+        }
+        final data = <String, dynamic>{...p};
+        if (farmId.isNotEmpty) data['farm_id'] = farmId;
+
         return {
           'table_name': r.tableName,
           'record_id': r.recordId,
           'operation': r.operation.name,
           'operation_id': r.operationId,
-          'data': p,
+          'data': data,
           'device_id': deviceId,
+          'farm_id': farmId.isEmpty ? null : farmId,
           'previous_version': p['previous_version'] ?? p['version'],
         };
       }).toList();
@@ -487,8 +623,7 @@ class SyncRepositoryImpl implements SyncRepository {
               // في الطابور تحمي من حذف تعديل محلي لم يُرفع. نُبقيها pending
               // مع رسالة صريحة بدل ابتلاعها.
               skippedOps.add(queueKey);
-              skippedMessageById[queueKey] =
-                  (detail['message'] as String?) ??
+              skippedMessageById[queueKey] = (detail['message'] as String?) ??
                   'الخادم لم يطبّع العملية (السجل غير موجود على الخادم '
                       'أو لا ينتمي لهذه المزرعة) — لم تُحذف بياناتك محلياً، '
                       'راجع السجل قبل إعادة المحاولة';
@@ -550,7 +685,8 @@ class SyncRepositoryImpl implements SyncRepository {
   static const int _maxRetryAttempts = 5;
 
   /// يعيد العملية إلى pending مع زيادة عدد المحاولات وتحديد وقت إعادة المحاولة
-  Future<void> _markPendingWithRetry(String id, int attempts, String error, DateTime now) async {
+  Future<void> _markPendingWithRetry(
+      String id, int attempts, String error, DateTime now) async {
     final db = await LocalDatabase.database;
     final nextRetry = _backoffDelay(attempts);
     final nextRetryAt = now.add(nextRetry).toIso8601String();
@@ -587,8 +723,8 @@ class SyncRepositoryImpl implements SyncRepository {
       // 1) قراءة آخر إصدار مُستلم لهذه المزرعة (watermark لكل مدجنة
       // — لا يمكن مشاركة صف واحد بين المداجن وإلا تُحجب نسخ المدجنات
       // الأقل تقدماً مثل ما حدث مع حكمون/الجرار).
-      final stateRows =
-          await db.query('sync_state', where: 'id = ?', whereArgs: [farmId], limit: 1);
+      final stateRows = await db.query('sync_state',
+          where: 'id = ?', whereArgs: [farmId], limit: 1);
       final lastVersion = stateRows.isNotEmpty
           ? (stateRows.first['last_pulled_version'] as int?) ?? 0
           : 0;
@@ -670,7 +806,8 @@ class SyncRepositoryImpl implements SyncRepository {
 
             if (operation == 'DELETE') {
               if (exists) {
-                await txn.delete(tableName, where: 'id = ?', whereArgs: [recordId]);
+                await txn
+                    .delete(tableName, where: 'id = ?', whereArgs: [recordId]);
                 applied++;
               }
             } else if (operation == 'INSERT') {
@@ -711,7 +848,8 @@ class SyncRepositoryImpl implements SyncRepository {
       // (لا نتجاوزه عن فشل، وإلا لن يُسحب السجل الفاشل مرة أخرى).
       // لا يتقدّم commit-point إلى ما بعد أول نسخة فاشلة، وإلا لن يُعاد
       // سحب الصف الفاشل في المزامنة التالية (يُقفل forever حسب ترتيب ASC).
-      if (minFailedVersion != null && minFailedVersion! - 1 < commitPointVersion) {
+      if (minFailedVersion != null &&
+          minFailedVersion! - 1 < commitPointVersion) {
         commitPointVersion = minFailedVersion! - 1;
       }
       final effectiveVersion = commitPointVersion;
@@ -810,7 +948,8 @@ class SyncRepositoryImpl implements SyncRepository {
         final outstandingOps = await db.query(
           'sync_queue',
           columns: ['record_id'],
-          where: "table_name = ? AND status IN ('pending', 'failed', 'conflict')"
+          where:
+              "table_name = ? AND status IN ('pending', 'failed', 'conflict')"
               ' AND farm_id = ?',
           whereArgs: [tableName, farmId],
         );
@@ -824,13 +963,12 @@ class SyncRepositoryImpl implements SyncRepository {
                   version: (r['version'] as int?) ?? 1,
                 ))
             .where((e) {
-              if (e.id.isEmpty || ids.contains(e.id)) return false;
-              // أي عملية معلّقة على هذا السجل ⇒ لا نلمسه أبداً.
-              if (outstandingRecordIds.contains(e.id)) return false;
-              // محذوف ناعماً على الخادم ⇒ نطهّر السجل المحلي.
-              return e.syncStatus == SyncStatus.synced.name;
-            })
-            .toList();
+          if (e.id.isEmpty || ids.contains(e.id)) return false;
+          // أي عملية معلّقة على هذا السجل ⇒ لا نلمسه أبداً.
+          if (outstandingRecordIds.contains(e.id)) return false;
+          // محذوف ناعماً على الخادم ⇒ نطهّر السجل المحلي.
+          return e.syncStatus == SyncStatus.synced.name;
+        }).toList();
         if (stale.isEmpty) continue;
 
         for (final row in stale) {

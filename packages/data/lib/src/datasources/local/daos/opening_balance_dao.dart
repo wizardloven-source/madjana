@@ -7,7 +7,8 @@ import '../local_database.dart';
 class OpeningBalanceDao {
   static const String _table = 'opening_balances';
 
-  Future<OpeningBalanceModel?> getForFlock(String farmId, String flockId) async {
+  Future<OpeningBalanceModel?> getForFlock(
+      String farmId, String flockId) async {
     final db = await LocalDatabase.database;
     final maps = await db.query(
       _table,
@@ -32,24 +33,29 @@ class OpeningBalanceDao {
 
   Future<void> save(OpeningBalanceModel balance) async {
     final db = await LocalDatabase.database;
-    await db.insert(_table, {
-      'id': balance.id,
-      'farm_id': balance.farmId,
-      'flock_id': balance.flockId,
-      'created_at': balance.createdAt.toIso8601String(),
-      'eggs_produced': balance.eggsProduced,
-      'eggs_dispatched': balance.eggsDispatched,
-      'feed_consumed_kg': balance.feedConsumedKg,
-      'initial_birds': balance.initialBirds,
-      'mortality_count': balance.mortalityCount,
-      'total_payments': balance.totalPayments,
-      'total_revenues': balance.totalRevenues,
-      'sections': jsonEncode(balance.sections.map((s) => s.toJson()).toList()),
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+        _table,
+        {
+          'id': balance.id,
+          'farm_id': balance.farmId,
+          'flock_id': balance.flockId,
+          'created_at': balance.createdAt.toIso8601String(),
+          'eggs_produced': balance.eggsProduced,
+          'eggs_dispatched': balance.eggsDispatched,
+          'feed_consumed_kg': balance.feedConsumedKg,
+          'initial_birds': balance.initialBirds,
+          'mortality_count': balance.mortalityCount,
+          'total_payments': balance.totalPayments,
+          'total_revenues': balance.totalRevenues,
+          'sections':
+              jsonEncode(balance.sections.map((s) => s.toJson()).toList()),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
     await LocalDatabase.enqueueChange(
       tableName: _table,
       recordId: balance.id,
       action: 'INSERT',
+      farmId: balance.farmId,
       payload: {
         'flock_id': balance.flockId,
         'eggs_produced': balance.eggsProduced,
@@ -59,7 +65,8 @@ class OpeningBalanceDao {
         'mortality_count': balance.mortalityCount,
         'total_payments': balance.totalPayments,
         'total_revenues': balance.totalRevenues,
-        'sections': jsonEncode(balance.sections.map((s) => s.toJson()).toList()),
+        'sections':
+            jsonEncode(balance.sections.map((s) => s.toJson()).toList()),
       },
     );
   }

@@ -1,4 +1,4 @@
-﻿import 'package:core/core.dart';
+import 'package:core/core.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 import '../local_database.dart';
@@ -34,6 +34,7 @@ class MortalityDao {
       tableName: _table,
       recordId: id,
       action: 'INSERT',
+      farmId: record.farmId,
       payload: {
         'flock_id': record.flockId,
         'date': record.date.toIso8601String().split('T').first,
@@ -172,8 +173,10 @@ class MortalityDao {
   /// حذف سجل
   Future<void> delete(String id) async {
     final db = await LocalDatabase.database;
-    final existing = await db.query(_table, columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
-    final ver = existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
+    final existing = await db.query(_table,
+        columns: ['version'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final ver =
+        existing.isNotEmpty ? (existing.first['version'] as int?) ?? 1 : 1;
     await db.delete(_table, where: 'id = ?', whereArgs: [id]);
     await LocalDatabase.enqueueChange(
       tableName: _table,

@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
 /// قاعدة البيانات المحلية - Offline-first
-/// 
+///
 /// تحتوي على:
 /// 1. جداول البيانات التشغيلية (نسخة محلية)
 /// 2. طابور المزامنة (sync_queue)
@@ -603,12 +603,11 @@ CREATE TABLE inventory_items (
         'CREATE INDEX idx_egg_production_date ON egg_production(date)');
     await db.execute(
         'CREATE INDEX idx_egg_production_farm_date ON egg_production(farm_id, date)');
-    await db.execute(
-        'CREATE INDEX idx_mortality_sync ON mortality(sync_status)');
+    await db
+        .execute('CREATE INDEX idx_mortality_sync ON mortality(sync_status)');
     await db.execute(
         'CREATE INDEX idx_mortality_farm_date ON mortality(farm_id, date)');
-    await db.execute(
-        'CREATE INDEX idx_mortality_flock ON mortality(flock_id)');
+    await db.execute('CREATE INDEX idx_mortality_flock ON mortality(flock_id)');
     await db.execute(
         'CREATE INDEX idx_feed_consumption_sync ON feed_consumption(sync_status)');
     await db.execute(
@@ -627,12 +626,11 @@ CREATE TABLE inventory_items (
         'CREATE INDEX idx_medications_sync ON medications(sync_status)');
     await db.execute(
         'CREATE INDEX idx_medications_farm_date ON medications(farm_id, date)');
-    await db.execute(
-        'CREATE INDEX idx_customers_farm ON customers(farm_id)');
+    await db.execute('CREATE INDEX idx_customers_farm ON customers(farm_id)');
     await db.execute(
         'CREATE INDEX idx_payments_farm_date ON payments(farm_id, date)');
-    await db.execute(
-        'CREATE INDEX idx_payments_customer ON payments(customer_id)');
+    await db
+        .execute('CREATE INDEX idx_payments_customer ON payments(customer_id)');
     await db.execute(
         'CREATE INDEX idx_expenses_farm_date ON expenses(farm_id, date)');
     await db.execute(
@@ -641,8 +639,8 @@ CREATE TABLE inventory_items (
         'CREATE INDEX idx_inventory_items_farm ON inventory_items(farm_id)');
     await db.execute(
         'CREATE INDEX idx_inventory_tx_item ON inventory_transactions(item_id)');
-    await db.execute(
-        'CREATE INDEX idx_sync_queue_status ON sync_queue(status)');
+    await db
+        .execute('CREATE INDEX idx_sync_queue_status ON sync_queue(status)');
     await db.execute(
         'CREATE INDEX idx_dispatch_requests_farm ON dispatch_requests(farm_id)');
     await db.execute(
@@ -650,7 +648,8 @@ CREATE TABLE inventory_items (
   }
 
   /// ترقية قاعدة البيانات
-  static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+  static Future<void> _onUpgrade(
+      Database db, int oldVersion, int newVersion) async {
     // v2: إضافة جدول المدفوعات
     if (oldVersion < 2) {
       await db.execute('''
@@ -744,65 +743,75 @@ CREATE TABLE inventory_items (
       ''');
       // إضافة عمود العنبر بأمان (قد يكون موجوداً في نسخ أقدم)
       try {
-        await db.execute('ALTER TABLE egg_production ADD COLUMN section_no INTEGER');
+        await db.execute(
+            'ALTER TABLE egg_production ADD COLUMN section_no INTEGER');
       } catch (_) {}
     }
 
     // v6: وزن الصحن في التخريج (وزن 30 بيضة بالكيلوغرام)
-        if (oldVersion < 6) {
-          if (!await _columnExists(db, 'egg_dispatch', 'tray_weight_kg')) {
-            await db.execute('ALTER TABLE egg_dispatch ADD COLUMN tray_weight_kg REAL');
-          }
-        }
-        // v7: سعر كيلوغرام العلف المستلم (تسعير المدير)
-        if (oldVersion < 7) {
-          if (!await _columnExists(db, 'feed_received', 'price_per_kg')) {
-            await db.execute('ALTER TABLE feed_received ADD COLUMN price_per_kg REAL');
-          }
-        }
-        // v8: أعمدة مفقودة + فهارس إضافية
-        if (oldVersion < 8) {
-          // إضافة updated_at للجداول التي تفتقر إليه (لحل التعارض في المزامنة)
-          for (final table in ['mortality', 'feed_consumption', 'feed_received', 'egg_dispatch', 'medications']) {
-            try {
-              await db.execute('ALTER TABLE $table ADD COLUMN updated_at TEXT');
-            } catch (_) {}
-          }
-          // إضافة sync_status للجداول التي تفتقر إليه
-          for (final table in ['customers', 'payments']) {
-            try {
-              await db.execute('ALTER TABLE $table ADD COLUMN sync_status TEXT DEFAULT \'synced\'');
-            } catch (_) {}
-          }
-          // فهارس إضافية
-          for (final idx in [
-            'CREATE INDEX IF NOT EXISTS idx_egg_production_farm_date ON egg_production(farm_id, date)',
-            'CREATE INDEX IF NOT EXISTS idx_mortality_farm_date ON mortality(farm_id, date)',
-            'CREATE INDEX IF NOT EXISTS idx_mortality_flock ON mortality(flock_id)',
-            'CREATE INDEX IF NOT EXISTS idx_feed_consumption_farm_date ON feed_consumption(farm_id, date)',
-            'CREATE INDEX IF NOT EXISTS idx_feed_received_sync ON feed_received(sync_status)',
-            'CREATE INDEX IF NOT EXISTS idx_feed_received_farm_date ON feed_received(farm_id, date)',
-            'CREATE INDEX IF NOT EXISTS idx_egg_dispatch_sync ON egg_dispatch(sync_status)',
-            'CREATE INDEX IF NOT EXISTS idx_egg_dispatch_farm_date ON egg_dispatch(farm_id, date)',
-            'CREATE INDEX IF NOT EXISTS idx_egg_dispatch_customer ON egg_dispatch(customer_id)',
-            'CREATE INDEX IF NOT EXISTS idx_medications_sync ON medications(sync_status)',
-            'CREATE INDEX IF NOT EXISTS idx_medications_farm_date ON medications(farm_id, date)',
-            'CREATE INDEX IF NOT EXISTS idx_customers_farm ON customers(farm_id)',
-            'CREATE INDEX IF NOT EXISTS idx_payments_farm_date ON payments(farm_id, date)',
-            'CREATE INDEX IF NOT EXISTS idx_payments_customer ON payments(customer_id)',
-            'CREATE INDEX IF NOT EXISTS idx_expenses_farm_date ON expenses(farm_id, date)',
-            'CREATE INDEX IF NOT EXISTS idx_inventory_items_farm ON inventory_items(farm_id)',
-            'CREATE INDEX IF NOT EXISTS idx_inventory_tx_item ON inventory_transactions(item_id)',
-            'CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status)',
-          ]) {
-            try {
-              await db.execute(idx);
-            } catch (_) {}
-          }
-        }
-        // v9: جدول طلبات التخريج
-        if (oldVersion < 9) {
-          await db.execute('''
+    if (oldVersion < 6) {
+      if (!await _columnExists(db, 'egg_dispatch', 'tray_weight_kg')) {
+        await db
+            .execute('ALTER TABLE egg_dispatch ADD COLUMN tray_weight_kg REAL');
+      }
+    }
+    // v7: سعر كيلوغرام العلف المستلم (تسعير المدير)
+    if (oldVersion < 7) {
+      if (!await _columnExists(db, 'feed_received', 'price_per_kg')) {
+        await db
+            .execute('ALTER TABLE feed_received ADD COLUMN price_per_kg REAL');
+      }
+    }
+    // v8: أعمدة مفقودة + فهارس إضافية
+    if (oldVersion < 8) {
+      // إضافة updated_at للجداول التي تفتقر إليه (لحل التعارض في المزامنة)
+      for (final table in [
+        'mortality',
+        'feed_consumption',
+        'feed_received',
+        'egg_dispatch',
+        'medications'
+      ]) {
+        try {
+          await db.execute('ALTER TABLE $table ADD COLUMN updated_at TEXT');
+        } catch (_) {}
+      }
+      // إضافة sync_status للجداول التي تفتقر إليه
+      for (final table in ['customers', 'payments']) {
+        try {
+          await db.execute(
+              'ALTER TABLE $table ADD COLUMN sync_status TEXT DEFAULT \'synced\'');
+        } catch (_) {}
+      }
+      // فهارس إضافية
+      for (final idx in [
+        'CREATE INDEX IF NOT EXISTS idx_egg_production_farm_date ON egg_production(farm_id, date)',
+        'CREATE INDEX IF NOT EXISTS idx_mortality_farm_date ON mortality(farm_id, date)',
+        'CREATE INDEX IF NOT EXISTS idx_mortality_flock ON mortality(flock_id)',
+        'CREATE INDEX IF NOT EXISTS idx_feed_consumption_farm_date ON feed_consumption(farm_id, date)',
+        'CREATE INDEX IF NOT EXISTS idx_feed_received_sync ON feed_received(sync_status)',
+        'CREATE INDEX IF NOT EXISTS idx_feed_received_farm_date ON feed_received(farm_id, date)',
+        'CREATE INDEX IF NOT EXISTS idx_egg_dispatch_sync ON egg_dispatch(sync_status)',
+        'CREATE INDEX IF NOT EXISTS idx_egg_dispatch_farm_date ON egg_dispatch(farm_id, date)',
+        'CREATE INDEX IF NOT EXISTS idx_egg_dispatch_customer ON egg_dispatch(customer_id)',
+        'CREATE INDEX IF NOT EXISTS idx_medications_sync ON medications(sync_status)',
+        'CREATE INDEX IF NOT EXISTS idx_medications_farm_date ON medications(farm_id, date)',
+        'CREATE INDEX IF NOT EXISTS idx_customers_farm ON customers(farm_id)',
+        'CREATE INDEX IF NOT EXISTS idx_payments_farm_date ON payments(farm_id, date)',
+        'CREATE INDEX IF NOT EXISTS idx_payments_customer ON payments(customer_id)',
+        'CREATE INDEX IF NOT EXISTS idx_expenses_farm_date ON expenses(farm_id, date)',
+        'CREATE INDEX IF NOT EXISTS idx_inventory_items_farm ON inventory_items(farm_id)',
+        'CREATE INDEX IF NOT EXISTS idx_inventory_tx_item ON inventory_transactions(item_id)',
+        'CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status)',
+      ]) {
+        try {
+          await db.execute(idx);
+        } catch (_) {}
+      }
+    }
+    // v9: جدول طلبات التخريج
+    if (oldVersion < 9) {
+      await db.execute('''
             CREATE TABLE IF NOT EXISTS dispatch_requests (
               id TEXT PRIMARY KEY,
               farm_id TEXT NOT NULL,
@@ -815,25 +824,28 @@ CREATE TABLE inventory_items (
               updated_at TEXT
             )
           ''');
-          try {
-            await db.execute('CREATE INDEX IF NOT EXISTS idx_dispatch_requests_farm ON dispatch_requests(farm_id)');
-          } catch (_) {}
-          try {
-            await db.execute('CREATE INDEX IF NOT EXISTS idx_dispatch_requests_status ON dispatch_requests(status)');
-          } catch (_) {}
-        }
-        // v10: أعمدة مفقودة في _onCreate
-        if (oldVersion < 10) {
-          try {
-            await db.execute('ALTER TABLE expenses ADD COLUMN updated_at TEXT');
-          } catch (_) {}
-          try {
-            await db.execute('ALTER TABLE flocks ADD COLUMN sections_count INTEGER DEFAULT 1');
-          } catch (_) {}
-        }
-        // v11: الأرصدة الافتتاحية للقطعان القديمة
-        if (oldVersion < 11) {
-          await db.execute('''
+      try {
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_dispatch_requests_farm ON dispatch_requests(farm_id)');
+      } catch (_) {}
+      try {
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_dispatch_requests_status ON dispatch_requests(status)');
+      } catch (_) {}
+    }
+    // v10: أعمدة مفقودة في _onCreate
+    if (oldVersion < 10) {
+      try {
+        await db.execute('ALTER TABLE expenses ADD COLUMN updated_at TEXT');
+      } catch (_) {}
+      try {
+        await db.execute(
+            'ALTER TABLE flocks ADD COLUMN sections_count INTEGER DEFAULT 1');
+      } catch (_) {}
+    }
+    // v11: الأرصدة الافتتاحية للقطعان القديمة
+    if (oldVersion < 11) {
+      await db.execute('''
             CREATE TABLE IF NOT EXISTS opening_balances (
               id TEXT PRIMARY KEY,
               farm_id TEXT NOT NULL,
@@ -849,10 +861,10 @@ CREATE TABLE inventory_items (
               sections TEXT
             )
           ''');
-        }
-        // v12: كاش المستخدمين + أعمدة المزامنة للزبائن
-        if (oldVersion < 12) {
-          await db.execute('''
+    }
+    // v12: كاش المستخدمين + أعمدة المزامنة للزبائن
+    if (oldVersion < 12) {
+      await db.execute('''
             CREATE TABLE IF NOT EXISTS users (
               id TEXT PRIMARY KEY,
               farm_id TEXT NOT NULL,
@@ -862,63 +874,74 @@ CREATE TABLE inventory_items (
               created_at TEXT NOT NULL
             )
           ''');
-          try {
-            await db.execute(
-                'ALTER TABLE customers ADD COLUMN sync_status TEXT DEFAULT \'synced\'');
-          } catch (_) {}
-          try {
-            await db.execute('ALTER TABLE customers ADD COLUMN updated_at TEXT');
-          } catch (_) {}
-        }
-        // v13: أعمدة المزامنة المفقودة في جدول المدفوعات
-        // (كانت مفقودة في _onCreate مما كسر getPendingRecords – أصلحناها)
-        if (oldVersion < 13) {
-          try {
-            await db.execute(
-                'ALTER TABLE payments ADD COLUMN sync_status TEXT DEFAULT \'synced\'');
-          } catch (_) {}
-          try {
-            await db.execute('ALTER TABLE payments ADD COLUMN updated_at TEXT');
-          } catch (_) {}
-        }
-        // v14: version + deleted_at للجداول التشغيلية (version-based conflict detection)
-        if (oldVersion < 14) {
-          final tables = [
-            'egg_production', 'mortality', 'feed_consumption',
-            'feed_received', 'egg_dispatch', 'medications',
-            'customers', 'flocks', 'expenses', 'payments',
-          ];
-          for (final table in tables) {
-            try {
-              await db.execute('ALTER TABLE $table ADD COLUMN version INTEGER DEFAULT 1');
-            } catch (_) {}
-            try {
-              await db.execute('ALTER TABLE $table ADD COLUMN deleted_at TEXT');
-            } catch (_) {}
-          }
-          // section_no for mortality/feed_consumption/feed_received
-          try {
-            await db.execute('ALTER TABLE mortality ADD COLUMN section_no INTEGER');
-          } catch (_) {}
-          try {
-            await db.execute('ALTER TABLE feed_consumption ADD COLUMN section_no INTEGER');
-          } catch (_) {}
-          try {
-            await db.execute('ALTER TABLE feed_received ADD COLUMN section_no INTEGER');
-          } catch (_) {}
-        }
-        // v15: flock_id for feed_consumption + medications
-        if (oldVersion < 15) {
-          try {
-            await db.execute('ALTER TABLE feed_consumption ADD COLUMN flock_id TEXT');
-          } catch (_) {}
-          try {
-            await db.execute('ALTER TABLE medications ADD COLUMN flock_id TEXT');
-          } catch (_) {}
-        }
-        // v16: سجل عمليات المزامنة + أعمدة إعادة المحاولة في sync_queue
-        if (oldVersion < 16) {
-          await db.execute('''
+      try {
+        await db.execute(
+            'ALTER TABLE customers ADD COLUMN sync_status TEXT DEFAULT \'synced\'');
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE customers ADD COLUMN updated_at TEXT');
+      } catch (_) {}
+    }
+    // v13: أعمدة المزامنة المفقودة في جدول المدفوعات
+    // (كانت مفقودة في _onCreate مما كسر getPendingRecords – أصلحناها)
+    if (oldVersion < 13) {
+      try {
+        await db.execute(
+            'ALTER TABLE payments ADD COLUMN sync_status TEXT DEFAULT \'synced\'');
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE payments ADD COLUMN updated_at TEXT');
+      } catch (_) {}
+    }
+    // v14: version + deleted_at للجداول التشغيلية (version-based conflict detection)
+    if (oldVersion < 14) {
+      final tables = [
+        'egg_production',
+        'mortality',
+        'feed_consumption',
+        'feed_received',
+        'egg_dispatch',
+        'medications',
+        'customers',
+        'flocks',
+        'expenses',
+        'payments',
+      ];
+      for (final table in tables) {
+        try {
+          await db.execute(
+              'ALTER TABLE $table ADD COLUMN version INTEGER DEFAULT 1');
+        } catch (_) {}
+        try {
+          await db.execute('ALTER TABLE $table ADD COLUMN deleted_at TEXT');
+        } catch (_) {}
+      }
+      // section_no for mortality/feed_consumption/feed_received
+      try {
+        await db.execute('ALTER TABLE mortality ADD COLUMN section_no INTEGER');
+      } catch (_) {}
+      try {
+        await db.execute(
+            'ALTER TABLE feed_consumption ADD COLUMN section_no INTEGER');
+      } catch (_) {}
+      try {
+        await db
+            .execute('ALTER TABLE feed_received ADD COLUMN section_no INTEGER');
+      } catch (_) {}
+    }
+    // v15: flock_id for feed_consumption + medications
+    if (oldVersion < 15) {
+      try {
+        await db
+            .execute('ALTER TABLE feed_consumption ADD COLUMN flock_id TEXT');
+      } catch (_) {}
+      try {
+        await db.execute('ALTER TABLE medications ADD COLUMN flock_id TEXT');
+      } catch (_) {}
+    }
+    // v16: سجل عمليات المزامنة + أعمدة إعادة المحاولة في sync_queue
+    if (oldVersion < 16) {
+      await db.execute('''
             CREATE TABLE IF NOT EXISTS sync_history (
               id TEXT PRIMARY KEY,
               created_at TEXT NOT NULL,
@@ -929,16 +952,18 @@ CREATE TABLE inventory_items (
               error_message TEXT
             )
           ''');
-          if (!await _columnExists(db, 'sync_queue', 'last_error_code')) {
-            await db.execute('ALTER TABLE sync_queue ADD COLUMN last_error_code TEXT');
-          }
-          if (!await _columnExists(db, 'sync_queue', 'next_retry_at')) {
-            await db.execute('ALTER TABLE sync_queue ADD COLUMN next_retry_at TEXT');
-          }
-        }
+      if (!await _columnExists(db, 'sync_queue', 'last_error_code')) {
+        await db
+            .execute('ALTER TABLE sync_queue ADD COLUMN last_error_code TEXT');
+      }
+      if (!await _columnExists(db, 'sync_queue', 'next_retry_at')) {
+        await db
+            .execute('ALTER TABLE sync_queue ADD COLUMN next_retry_at TEXT');
+      }
+    }
 
-        // v16+: جدول تتبع آخر إصدار مُستلم من الخادم (للسحب التزايدي)
-        await db.execute('''
+    // v16+: جدول تتبع آخر إصدار مُستلم من الخادم (للسحب التزايدي)
+    await db.execute('''
           CREATE TABLE IF NOT EXISTS sync_state (
             id TEXT PRIMARY KEY DEFAULT 'local',
             last_pulled_version INTEGER DEFAULT 0,
@@ -946,16 +971,16 @@ CREATE TABLE inventory_items (
           )
         ''');
 
-        // v28: حالة آخر مصالحة حذف — منفصلة عن sync_state (watermark السحب)
-        await db.execute('''
+    // v28: حالة آخر مصالحة حذف — منفصلة عن sync_state (watermark السحب)
+    await db.execute('''
           CREATE TABLE IF NOT EXISTS sync_reconcile_state (
             farm_id TEXT PRIMARY KEY,
             updated_at TEXT NOT NULL
           )
         ''');
 
-        // v17: جدول تعارضات المزامنة (مراجعة يدوية للنزاعات)
-        await db.execute('''
+    // v17: جدول تعارضات المزامنة (مراجعة يدوية للنزاعات)
+    await db.execute('''
           CREATE TABLE IF NOT EXISTS conflicts (
             id TEXT PRIMARY KEY,
             table_name TEXT NOT NULL,
@@ -971,61 +996,65 @@ CREATE TABLE inventory_items (
           )
         ''');
 
-        // v17: إضافة is_active للمستخدمين
-        if (!await _columnExists(db, 'users', 'is_active')) {
-          await db.execute('ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
-        }
+    // v17: إضافة is_active للمستخدمين
+    if (!await _columnExists(db, 'users', 'is_active')) {
+      await db.execute(
+          'ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
+    }
 
-        // v18: عمود operation_id المستقل لكل عملية (فصل هوية العملية عن هوية السجل)
-        if (!await _columnExists(db, 'sync_queue', 'operation_id')) {
-          await db.execute('ALTER TABLE sync_queue ADD COLUMN operation_id TEXT');
-          // backfill: في قواعد البيانات القديمة operation_id == id
-          await db.execute('UPDATE sync_queue SET operation_id = id WHERE operation_id IS NULL OR operation_id = \'\'');
-        }
+    // v18: عمود operation_id المستقل لكل عملية (فصل هوية العملية عن هوية السجل)
+    if (!await _columnExists(db, 'sync_queue', 'operation_id')) {
+      await db.execute('ALTER TABLE sync_queue ADD COLUMN operation_id TEXT');
+      // backfill: في قواعد البيانات القديمة operation_id == id
+      await db.execute(
+          'UPDATE sync_queue SET operation_id = id WHERE operation_id IS NULL OR operation_id = \'\'');
+    }
 
-        // v19: عمود version لعناصر المخزون لدعم OCC في المزامنة
-        if (oldVersion < 19) {
-          if (!await _columnExists(db, 'inventory_items', 'version')) {
-            await db.execute('ALTER TABLE inventory_items ADD COLUMN version INTEGER DEFAULT 1');
-          }
-        }
+    // v19: عمود version لعناصر المخزون لدعم OCC في المزامنة
+    if (oldVersion < 19) {
+      if (!await _columnExists(db, 'inventory_items', 'version')) {
+        await db.execute(
+            'ALTER TABLE inventory_items ADD COLUMN version INTEGER DEFAULT 1');
+      }
+    }
 
-        // v20: عمود فلوك_Id لاستلام العلف وتخريج البيض (تخصيص القطيع)
-        if (oldVersion < 20) {
-          if (!await _columnExists(db, 'feed_received', 'flock_id')) {
-            await db.execute('ALTER TABLE feed_received ADD COLUMN flock_id TEXT');
-          }
-          if (!await _columnExists(db, 'egg_dispatch', 'flock_id')) {
-            await db.execute('ALTER TABLE egg_dispatch ADD COLUMN flock_id TEXT');
-          }
-        }
+    // v20: عمود فلوك_Id لاستلام العلف وتخريج البيض (تخصيص القطيع)
+    if (oldVersion < 20) {
+      if (!await _columnExists(db, 'feed_received', 'flock_id')) {
+        await db.execute('ALTER TABLE feed_received ADD COLUMN flock_id TEXT');
+      }
+      if (!await _columnExists(db, 'egg_dispatch', 'flock_id')) {
+        await db.execute('ALTER TABLE egg_dispatch ADD COLUMN flock_id TEXT');
+      }
+    }
 
-        // v21: العملة وسعر الصرف للقبض والمصروفات + شراء صحون الكرتون بالربطات
-        if (oldVersion < 21) {
-          // payments
-          if (!await _columnExists(db, 'payments', 'currency')) {
-            await db.execute(
-                "ALTER TABLE payments ADD COLUMN currency TEXT DEFAULT 'dollar'");
-          }
-          if (!await _columnExists(db, 'payments', 'exchange_rate')) {
-            await db.execute('ALTER TABLE payments ADD COLUMN exchange_rate REAL');
-          }
-          // expenses
-          if (!await _columnExists(db, 'expenses', 'currency')) {
-            await db.execute(
-                "ALTER TABLE expenses ADD COLUMN currency TEXT DEFAULT 'dollar'");
-          }
-          if (!await _columnExists(db, 'expenses', 'exchange_rate')) {
-            await db.execute('ALTER TABLE expenses ADD COLUMN exchange_rate REAL');
-          }
-          if (!await _columnExists(db, 'expenses', 'carton_bundles')) {
-            await db.execute('ALTER TABLE expenses ADD COLUMN carton_bundles INTEGER');
-          }
-        }
+    // v21: العملة وسعر الصرف للقبض والمصروفات + شراء صحون الكرتون بالربطات
+    if (oldVersion < 21) {
+      // payments
+      if (!await _columnExists(db, 'payments', 'currency')) {
+        await db.execute(
+            "ALTER TABLE payments ADD COLUMN currency TEXT DEFAULT 'dollar'");
+      }
+      if (!await _columnExists(db, 'payments', 'exchange_rate')) {
+        await db.execute('ALTER TABLE payments ADD COLUMN exchange_rate REAL');
+      }
+      // expenses
+      if (!await _columnExists(db, 'expenses', 'currency')) {
+        await db.execute(
+            "ALTER TABLE expenses ADD COLUMN currency TEXT DEFAULT 'dollar'");
+      }
+      if (!await _columnExists(db, 'expenses', 'exchange_rate')) {
+        await db.execute('ALTER TABLE expenses ADD COLUMN exchange_rate REAL');
+      }
+      if (!await _columnExists(db, 'expenses', 'carton_bundles')) {
+        await db
+            .execute('ALTER TABLE expenses ADD COLUMN carton_bundles INTEGER');
+      }
+    }
 
-        // v22: جدول الإيرادات
-        if (oldVersion < 22) {
-          await db.execute('''
+    // v22: جدول الإيرادات
+    if (oldVersion < 22) {
+      await db.execute('''
             CREATE TABLE IF NOT EXISTS revenue (
               id TEXT PRIMARY KEY,
               farm_id TEXT NOT NULL,
@@ -1046,22 +1075,23 @@ CREATE TABLE inventory_items (
               updated_at TEXT
             )
           ''');
-          try {
-            await db.execute('CREATE INDEX IF NOT EXISTS idx_revenue_farm_date ON revenue(farm_id, date)');
-          } catch (_) {}
-        }
+      try {
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_revenue_farm_date ON revenue(farm_id, date)');
+      } catch (_) {}
+    }
 
-        // v23: عمود farm_id لطابور المزامنة — يمنع رفع سجلات مدجنة أخرى
-        // أثناء جلسة مزرعة مختلفة (تلوث متقاطع بين المداجن على نفس الجهاز).
-        if (oldVersion < 23) {
-          if (!await _columnExists(db, 'sync_queue', 'farm_id')) {
-            await db.execute('ALTER TABLE sync_queue ADD COLUMN farm_id TEXT');
-          }
-        }
+    // v23: عمود farm_id لطابور المزامنة — يمنع رفع سجلات مدجنة أخرى
+    // أثناء جلسة مزرعة مختلفة (تلوث متقاطع بين المداجن على نفس الجهاز).
+    if (oldVersion < 23) {
+      if (!await _columnExists(db, 'sync_queue', 'farm_id')) {
+        await db.execute('ALTER TABLE sync_queue ADD COLUMN farm_id TEXT');
+      }
+    }
 
-        // v24: جدول تنبيهات الطوارئ المحلية (offline-first للعامل)
-        if (oldVersion < 24) {
-          await db.execute('''
+    // v24: جدول تنبيهات الطوارئ المحلية (offline-first للعامل)
+    if (oldVersion < 24) {
+      await db.execute('''
             CREATE TABLE IF NOT EXISTS emergency_alerts (
               id TEXT PRIMARY KEY,
               farm_id TEXT NOT NULL,
@@ -1072,20 +1102,20 @@ CREATE TABLE inventory_items (
               sent_at TEXT
             )
           ''');
-        }
+    }
 
-        // v25: is_global للزبائن المشتركين بين المداجن
-        if (oldVersion < 25) {
-          if (!await _columnExists(db, 'customers', 'is_global')) {
-            await db.execute(
-                'ALTER TABLE customers ADD COLUMN is_global INTEGER DEFAULT 0');
-          }
-        }
+    // v25: is_global للزبائن المشتركين بين المداجن
+    if (oldVersion < 25) {
+      if (!await _columnExists(db, 'customers', 'is_global')) {
+        await db.execute(
+            'ALTER TABLE customers ADD COLUMN is_global INTEGER DEFAULT 0');
+      }
+    }
 
-        // v27: جدول تسويات رصيد المخزون (مزامن مع الخادم - للمدير)
-        if (oldVersion < 27) {
-          if (!await _tableExists(db, 'stock_adjustments')) {
-            await db.execute('''
+    // v27: جدول تسويات رصيد المخزون (مزامن مع الخادم - للمدير)
+    if (oldVersion < 27) {
+      if (!await _tableExists(db, 'stock_adjustments')) {
+        await db.execute('''
               CREATE TABLE IF NOT EXISTS stock_adjustments (
               id TEXT PRIMARY KEY,
               farm_id TEXT NOT NULL,
@@ -1102,25 +1132,26 @@ CREATE TABLE inventory_items (
               updated_at TEXT NOT NULL
             )
           ''');
-          }
-        }
+      }
+    }
 
-        // v29: العدة والأجهزة per-flock. مرجع فقط — الكمية تبقى في المخزون
-        // العام ولا تُقسَّم بين القطعان (قرار المستخدم: مرجع بلا حصر).
-        if (oldVersion < 29) {
-          if (!await _columnExists(db, 'inventory_items', 'flock_id')) {
-            await db.execute(
-                'ALTER TABLE inventory_items ADD COLUMN flock_id TEXT');
-          }
-          await db.execute(
-            'CREATE INDEX IF NOT EXISTS idx_inventory_items_flock '
-            'ON inventory_items(flock_id)',
-          );
-        }
+    // v29: العدة والأجهزة per-flock. مرجع فقط — الكمية تبقى في المخزون
+    // العام ولا تُقسَّم بين القطعان (قرار المستخدم: مرجع بلا حصر).
+    if (oldVersion < 29) {
+      if (!await _columnExists(db, 'inventory_items', 'flock_id')) {
+        await db
+            .execute('ALTER TABLE inventory_items ADD COLUMN flock_id TEXT');
+      }
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_inventory_items_flock '
+        'ON inventory_items(flock_id)',
+      );
+    }
   }
 
   /// يتحقق من وجود عمود في جدول (بدلاً من إخفاء أخطاء migration عبر catch عام)
-  static Future<bool> _columnExists(Database db, String table, String column) async {
+  static Future<bool> _columnExists(
+      Database db, String table, String column) async {
     final rows = await db.rawQuery('PRAGMA table_info($table)');
     return rows.any((r) => r['name'] == column);
   }
@@ -1209,9 +1240,11 @@ CREATE TABLE inventory_items (
       // نسخ احتياطي منفصل لطلاب المزامنة المعلقة لحماية البيانات غير المرفوعة
       try {
         final db = await database;
-        final pendingDir = Directory(join(Directory(src).parent.path, 'madjana_backups'));
+        final pendingDir =
+            Directory(join(Directory(src).parent.path, 'madjana_backups'));
         await pendingDir.create(recursive: true);
-        final pendingFile = File(join(pendingDir.path, 'pending_changes_$now.json'));
+        final pendingFile =
+            File(join(pendingDir.path, 'pending_changes_$now.json'));
         final result = await db.rawQuery(
           "SELECT record_id, table_name, action, payload, user_id, status "
           "FROM sync_queue WHERE status != 'synced'",
@@ -1276,13 +1309,20 @@ CREATE TABLE inventory_items (
 
   /// إدخال تغيير في طابور المزامنة بعد كل عملية كتابة محلية.
   /// تقرأ user_id/farm_id من جدول الجلسة، وتولّد operation_id فريداً.
-  /// تstrip الأعمدة النظامية (sync_status, deleted_at) من الـ payload.
+  /// يstrip الأعمدة النظامية (sync_status, deleted_at) من الـ payload.
+  ///
+  /// [farmId] يتجاوز مزرعة الجلسة. يجب تمريره من النمذج نفسه (`flock.farmId`)
+  /// في عمليات INSERT: الجلسة قد تكون على مزرعة أخرى وقت الحفظ، فالاعتماد
+  /// عليها كان يُسجّل السجل تحت المزرعة النشطة بدل مزرعته الحقيقية — وهو ما
+  /// أنشأ قطيع «بياض كبير» تحت الجرار بدل نديم بركات.
+  /// اتركه null فقط حين تكون مزرعة الجلسة هي مزرعة السجل المؤكد (UPDATE).
   static Future<void> enqueueChange({
     required String tableName,
     required String recordId,
     required String action,
     required Map<String, dynamic> payload,
     int? previousVersion,
+    String? farmId,
   }) async {
     try {
       final db = await database;
@@ -1290,12 +1330,20 @@ CREATE TABLE inventory_items (
       // قراءة الجلسة الحالية
       final session = await db.query('session', where: 'id = 1', limit: 1);
       final userId = session.isNotEmpty ? (session.first['user_id'] ?? '') : '';
-      final farmId = session.isNotEmpty ? (session.first['farm_id'] ?? '') : '';
+      final sessionFarmId =
+          session.isNotEmpty ? (session.first['farm_id'] ?? '') : '';
+
+      // الأولوية للمزرعة الصريحة من النموذج، ثم مزرعة الجلسة.
+      final explicitFarmId = (farmId ?? '').toString().trim();
+      final effectiveFarmId =
+          explicitFarmId.isNotEmpty ? explicitFarmId : sessionFarmId;
 
       // توليد operation_id فريد
       final operationId = _generateUniqueId();
 
-      // إزالة الأعمدة النظامية من الـ payload
+      // إزالة الأعمدة النظامية من الـ payload.
+      // farm_id يُحذف من الحمولة عمداً: الخادم يستخرجه من صف الطابور
+      // (farm_id) أو من data.farm_id، ولا يقبله كعمود قابل للكتابة مباشرة.
       final cleanPayload = Map<String, dynamic>.from(payload)
         ..remove('id')
         ..remove('farm_id')
@@ -1323,8 +1371,8 @@ CREATE TABLE inventory_items (
         'created_at': DateTime.now().toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
       };
-      if (farmId.toString().trim().isNotEmpty) {
-        queueRow['farm_id'] = farmId;
+      if (effectiveFarmId.toString().trim().isNotEmpty) {
+        queueRow['farm_id'] = effectiveFarmId;
       }
       await db.insert('sync_queue', queueRow);
     } catch (e) {

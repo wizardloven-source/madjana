@@ -27,8 +27,8 @@ class StockAdjustmentsDao {
       'delta_qty': data['delta_qty'],
       'reason': data['reason'],
       'notes': data['notes'],
-      'date':
-          (data['date'] as String?) ?? DateTime.now().toIso8601String().split('T').first,
+      'date': (data['date'] as String?) ??
+          DateTime.now().toIso8601String().split('T').first,
       'manager_id': data['manager_id'],
       'sync_status': data['sync_status'] ?? 'synced',
       'version': 1,
@@ -37,14 +37,15 @@ class StockAdjustmentsDao {
       'updated_at': now,
     };
 
-    await db.insert(_table, values, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(_table, values,
+        conflictAlgorithm: ConflictAlgorithm.replace);
 
     await LocalDatabase.enqueueChange(
       tableName: _table,
       recordId: id,
       action: 'INSERT',
+      farmId: (data['farm_id'] ?? '').toString(),
       payload: {
-        'farm_id': data['farm_id'],
         'stock_type': data['stock_type'],
         'delta_qty': data['delta_qty'],
         'reason': data['reason'],
@@ -59,7 +60,8 @@ class StockAdjustmentsDao {
   }
 
   /// جلب جميع التسويات (اختيارياً لمزرعة/مدير محددين)
-  Future<List<Map<String, dynamic>>> getAll({String? farmId, String? managerId}) async {
+  Future<List<Map<String, dynamic>>> getAll(
+      {String? farmId, String? managerId}) async {
     final db = await LocalDatabase.database;
     final where = <String>['deleted_at IS NULL'];
     final args = <dynamic>[];
@@ -129,7 +131,8 @@ class StockAdjustmentsDao {
   }
 
   /// مجموع التغيير الصافي لتسويات نوع معيّن (لمجال اليوم أو فترة)
-  Future<double> totalDelta(String stockType, {DateTime? from, DateTime? to}) async {
+  Future<double> totalDelta(String stockType,
+      {DateTime? from, DateTime? to}) async {
     final db = await LocalDatabase.database;
     final where = <String>['stock_type = ?', 'deleted_at IS NULL'];
     final args = <dynamic>[stockType];

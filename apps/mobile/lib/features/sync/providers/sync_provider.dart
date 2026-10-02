@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show debugPrint, debugPrintStack;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:core/core.dart';
@@ -15,6 +16,13 @@ class SyncState {
   final DateTime? lastSyncAt;
   final SyncConnectionStatus connectionStatus;
 
+  /// نص آخر خطأсинcatch، لعرضه في شاشة المزامنة.
+  ///
+  /// كان `catch (_)` في _syncOnce يبتلع الاستثناء بالكامل: أي فشل شبكة أو
+  /// RPC أو Edge Function 404 كان يختفي بلا أثر، فتظهر الواجهة كأن شيئاً لم
+  /// يحدث ولا يمكن تشخيصه. هذه القيمة هي ما يجعل الخطأ مرئياً.
+  final String? lastError;
+
   const SyncState({
     this.pendingCount = 0,
     this.syncedCount = 0,
@@ -22,6 +30,7 @@ class SyncState {
     this.isSyncing = false,
     this.lastSyncAt,
     this.connectionStatus = SyncConnectionStatus.unknown,
+    this.lastError,
   });
 
   SyncState copyWith({
@@ -31,6 +40,8 @@ class SyncState {
     bool? isSyncing,
     DateTime? lastSyncAt,
     SyncConnectionStatus? connectionStatus,
+    String? lastError,
+    bool clearError = false,
   }) {
     return SyncState(
       pendingCount: pendingCount ?? this.pendingCount,
@@ -39,6 +50,7 @@ class SyncState {
       isSyncing: isSyncing ?? this.isSyncing,
       lastSyncAt: lastSyncAt ?? this.lastSyncAt,
       connectionStatus: connectionStatus ?? this.connectionStatus,
+      lastError: clearError ? null : (lastError ?? this.lastError),
     );
   }
 }
@@ -195,19 +207,46 @@ class SyncNotifier extends StateNotifier<SyncState> {
       state = state.copyWith(
         isSyncing: false,
         lastSyncAt: result.isSuccess ? DateTime.now() : null,
+        clearError: result.isSuccess,
       );
       return result;
-    } catch (_) {
+    } catch (e, st) {
+      // كان يُبتلع هنا بلا تسجيل. سجّلاه: بدونهما يستحيل تحديد ما إذا كان
+      // الفشل شبكةً أم RPC أم Edge Function غير منشورة.
+      debugPrint('[sync] فشل: $e');
+      debugPrintStack(stackTrace: st, maxFrames: 12);
       _consecutiveFailures++;
       if (_consecutiveFailures >= _maxConsecutiveFailures) {
         _stopPeriodicSync();
         _scheduleBackoffRetry();
       }
-      state = state.copyWith(isSyncing: false);
+      state = state.copyWith(isSyncing: false, lastError: _describe(e));
       return null;
     } finally {
       _isSyncing = false;
     }
+  }
+
+  /// تحويل الاستثناء إلى نص مقروء، مع تلميح لأشيع الأسباب.
+  static String _describe(Object e) {
+    final s = e.toString();
+    final lower = s.toLowerCase();
+    if (lower.contains('404') || lower.contains('function not found')) {
+      return 'دالة المزامنة غير منشورة على الخادم (404) — '
+          'sync_records تحتاج deploy من supabase/functions/sync_records';
+    }
+    if (lower.contains('failed host lookup') ||
+        lower.contains('socketexception') ||
+        lower.contains('connection')) {
+      return 'تعذّر الوصول للسحابة — تحقق من الإنترنت';
+    }
+    if (lower.contains('jwt') || lower.contains('401')) {
+      return 'انتهت الجلسة أو الرمز غير صالح — أعد تسجيل الدخول';
+    }
+    if (lower.contains('authorization_denied')) {
+      return 'مرفوض من الخادم — صلاحيات غير كافية';
+    }
+    return s.length > 220 ? '${s.substring(0, 220)}…' : s;
   }
 
   /// ضبط المزرعة بعد الدخول — يفعّل السحب من السحابة
@@ -268,6 +307,10 @@ final syncProvider = StateNotifierProvider<SyncNotifier, SyncState>((ref) {
     repository: ref.watch(syncRepositoryProvider),
     connectivity: ref.watch(connectivityServiceProvider),
     onSynced: () {
+      // `farmSettingsProvider` الآن autoDispose ويجلب من الشبكة كل مرة، فـ
+      // invalidate هنا يضمن أن أي تعديل أجراه المدير على سطح المكتب (مثل
+      // وزن الكيس 24) يصل لشاشة الموبايل فور انتهاء المزامنة، بلا إعادة
+      // تشغيل للتطبيق.
       ref.invalidate(farmSettingsProvider);
       ref.invalidate(customersProvider);
     },
