@@ -8,6 +8,7 @@ Steps:
   1. build       -- rebuild madjana_test from shim + base schema + migrations
   2. structural  -- verify_test_db.py, object/RLS/contract shape
   3. behavioural -- test_sync_farm_id.py, sync_records_batch farm resolution
+  3b. repair     -- test_flock_rehome.py, the 019d8bee re-home migration
   4. regression  -- the two SQL suites, via psql as test_runner (non-superuser,
                     so RLS actually applies; the local `postgres` role has
                     BYPASSRLS and would report every isolation test as a pass)
@@ -101,15 +102,16 @@ def main():
 
     rc1 = run("2. structural verification", "verify_test_db.py")
     rc2 = run("3. behavioural suite", "test_sync_farm_id.py")
+    rc3 = run("3b. flock rehome repair", "test_flock_rehome.py")
 
     rcs = []
     for title, filename in SQL_SUITES:
         rcs.append(run_sql(title, filename))
 
     print("\n" + "=" * 70)
-    ok = rc1 == 0 and rc2 == 0 and all(rc == 0 for rc in rcs)
+    ok = rc1 == 0 and rc2 == 0 and rc3 == 0 and all(rc == 0 for rc in rcs)
     print(f"structural rc={rc1}   behavioural rc={rc2}   "
-          f"sql rc={rcs}   -> "
+          f"rehome rc={rc3}   sql rc={rcs}   -> "
           + ("ALL GREEN" if ok else "FAILURES ABOVE"))
     return 0 if ok else 1
 
