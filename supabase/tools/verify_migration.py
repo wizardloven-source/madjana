@@ -70,17 +70,27 @@ def check_idempotency(raw):
 def check_matches_ref(raw, ref):
     """Verify every table and column the migration depends on is real.
     Re-declaring something production already has is flagged loudly."""
-    issues, declared = [], set()
+    issues, declared, notes = [], set(), []
     body = strip_line_comments(strip_dollar_quoted(raw))
 
     for m in re.finditer(
             r"ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?(\w+)\s+"
-            r"ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", body, re.I):
-        tbl, col = m.group(1).lower(), m.group(2).lower()
+            r"ADD\s+COLUMN\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)", body, re.I):
+        tbl, guarded, col = m.group(1).lower(), m.group(2), m.group(3).lower()
         declared.add(f"{tbl}.{col}")
-        if tbl in ref["tables"] and col in ref["tables"][tbl]:
-            issues.append(f"{tbl}.{col} already exists in production -- "
-                          f"this ADD COLUMN is a silent no-op")
+        if tbl not in ref["tables"]:
+            continue
+        if col in ref["tables"][tbl]:
+            # Expected for any migration that was already applied to
+            # production: the dump is a snapshot AFTER that migration ran.
+            # It is only a defect if the statement is unguarded, because then
+            # a re-run would error out instead of being a no-op.
+            if not guarded:
+                issues.append(
+                    f"{tbl}.{col} exists in production AND the ADD COLUMN is "
+                    f"unguarded -- a re-run would fail")
+            else:
+                notes.append(f"{tbl}.{col} already present (guarded no-op)")
 
     for m in re.finditer(r"REFERENCES\s+(?:public\.)?(\w+)\s*\(", body, re.I):
         t = m.group(1).lower()
@@ -132,7 +142,7 @@ def check_matches_ref(raw, ref):
         if t not in ref["tables"]:
             issues.append(f"references unknown table '{t}'")
 
-    return issues, sorted(declared)
+    return issues, sorted(declared), notes
 
 #!/usr/bin/env python3
 """
@@ -233,12 +243,13 @@ def main():
         raw = open(path, encoding="utf-8").read()
         s_issues = check_structure(raw)
         i_issues = check_idempotency(raw)
-        m_issues, declared = check_matches_ref(raw, ref)
+        m_issues, declared, notes = check_matches_ref(raw, ref)
         ok = not (s_issues or i_issues or m_issues)
         all_ok = all_ok and ok
         results.append({"file": os.path.relpath(path, ROOT), "ok": ok,
                         "structure": s_issues, "idempotency": i_issues,
-                        "reference": m_issues, "declared": declared})
+                        "reference": m_issues, "declared": declared,
+                        "notes": notes})
 
     if args.json:
         print(json.dumps(results, indent=2, ensure_ascii=False))

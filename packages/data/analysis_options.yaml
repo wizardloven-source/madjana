@@ -1,0 +1,16 @@
+# Analyzer configuration for the data package.
+#
+# This file was MISSING while the other three packages had one, which left
+# `flutter analyze` running with the analyzer's defaults instead of
+# package:flutter_lints -- the reason CI's "Analyze (packages/data)" step
+# had been failing independently of any of our changes.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # Warnings are reported but do not fail the build. Errors do.
+    # Unused imports and dead code are noise that blocks real defects, so
+    # they are surfaced in the log without blocking.
+    unused_import: warning
+    unused_local_variable: warning
+    dead_code: warning

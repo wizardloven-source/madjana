@@ -95,7 +95,11 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          for f in $(ls -1 supabase/migrations/*.sql | grep -v '/[A-Z_]*UNIFIED\|UNIFIED_schema'); do
+          # Rollbacks are excluded: they share the 14-digit prefix but undo
+          # the migration beside them. Including them would create
+          # flock_movements and drop it again in the same run.
+          for f in $(ls -1 supabase/migrations/*.sql \
+                       | grep -v 'rollback' | grep -v 'UNIFIED_schema'); do
             echo "::group::apply $f"
             psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$f"
             echo "::endgroup::"
@@ -119,8 +123,9 @@ jobs:
         run: |
           # A migration that fails on its second run is not idempotent, and
           # every migration in this repo promises to be. Fail loudly here
-          # rather than in production.
-          for f in $(ls -1 supabase/migrations/*.sql); do
+          # rather than in production. Rollbacks excluded, as above.
+          for f in $(ls -1 supabase/migrations/*.sql \
+                       | grep -v 'rollback' | grep -v 'UNIFIED_schema'); do
             echo "::group::re-apply $f"
             psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$f"
             echo "::endgroup::"

@@ -122,6 +122,14 @@ def build(verbose=True, quiet_ok=True):
         if not re.match(r"^\d{14}_", name):
             say(f"  skip  {name}  (not part of the numbered chain)")
             continue
+        # ── rollbacks are NOT part of the forward chain ──
+        # They carry the same 14-digit timestamp prefix so they sort next to
+        # the migration they undo, but running one here would UNDO the
+        # migration beside it. W0.1 shipped both and the build therefore
+        # created flock_movements, then immediately dropped it again.
+        if "rollback" in name:
+            say(f"  skip  {name}  (rollback, not a forward migration)")
+            continue
         _, fails = apply_file(cur, os.path.join(MIGDIR, name), name,
                               verbose_errors=4 if verbose else 0)
         if fails:
