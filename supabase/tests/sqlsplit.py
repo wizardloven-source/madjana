@@ -119,8 +119,16 @@ def split_statements(sql):
 
 
 def strip_tx(sql):
-    """Drop the file-level BEGIN/COMMIT; the driver owns transactions here."""
-    return re.sub(r"(?im)^\s*(BEGIN|COMMIT|START TRANSACTION)\s*;\s*$", "", sql)
+    """Drop the file-level BEGIN/COMMIT; the driver owns transactions here.
+
+    The pattern is anchored to a single line and the leading indent is
+    matched with [ \\t]*, never \\s*: \\s also matches newlines, so a
+    `\\s*` before BEGIN would let the pattern reach across a blank line and
+    delete a `BEGIN` that belongs to a PL/pgSQL block inside a DO body.
+    That silently corrupted every DO block in the migrations.
+    """
+    return re.sub(r"(?im)^[ \t]*(BEGIN|COMMIT|START TRANSACTION)[ \t]*;[ \t]*$",
+                  "", sql)
 
 
 if __name__ == "__main__":
