@@ -397,6 +397,26 @@ CREATE TRIGGER trg_validate_flock_movements
     BEFORE INSERT OR UPDATE ON public.flock_movements
     FOR EACH ROW EXECUTE FUNCTION public.validate_flock_farm();
 
+-- Same for the worker-attribution guard. The verification block at the end
+-- reports any trigger that is missing, but only after the fact; these two
+-- guarded blocks name the failing statement at the moment it fails, so a
+-- build log points at the cause instead of at the summary.
+DO $$
+BEGIN
+    BEGIN
+        EXECUTE 'DROP TRIGGER IF EXISTS trg_validate_flock_movements
+                 ON public.flock_movements';
+        EXECUTE 'CREATE TRIGGER trg_validate_flock_movements
+                 BEFORE INSERT OR UPDATE ON public.flock_movements
+                 FOR EACH ROW
+                 EXECUTE FUNCTION public.validate_flock_farm()';
+    EXCEPTION WHEN OTHERS THEN
+        RAISE EXCEPTION
+            'FAIL: could not create trg_validate_flock_movements: %', SQLERRM;
+    END;
+END;
+$$;
+
 -- ── RLS ───────────────────────────────────────────────────────────────────
 -- Production names are `*_select` (not `*_read`) for this table; kept as-is.
 ALTER TABLE public.flock_movements ENABLE ROW LEVEL SECURITY;
