@@ -56,6 +56,12 @@ CREATE TABLE IF NOT EXISTS public.flock_movements (
 -- sync_status is the cross-table convention (every other synced table has
 -- it). It is ADDED so the offline queue can report per-record state instead
 -- of failing on an unknown column.
+--
+-- init.sql also creates a flock_movements, but WITHOUT sync_status and with
+-- a narrower column set. Because this migration runs after that snapshot,
+-- CREATE TABLE IF NOT EXISTS above is a no-op there, so the ALTERs below
+-- are the only thing that can bring such a table up to date. Each is
+-- therefore written to tolerate both shapes.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
@@ -66,6 +72,30 @@ BEGIN
             ADD COLUMN sync_status text NOT NULL DEFAULT 'pending';
         COMMENT ON COLUMN public.flock_movements.sync_status IS
             'pending | synced | failed | processing | conflict';
+    END IF;
+
+    -- init.sql declares `type` and `notes`; json_output.txt shows the same
+    -- two columns, so no repair is needed. What it does NOT carry is the
+    -- NOT NULL on flock_id / type / count, which is why those are re-stated
+    -- as constraints below rather than trusted from the snapshot.
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'flock_movements_flock_id_fkey'
+          AND conrelid = 'public.flock_movements'::regclass) THEN
+        ALTER TABLE public.flock_movements
+            ADD CONSTRAINT flock_movements_flock_id_fkey
+            FOREIGN KEY (flock_id) REFERENCES public.flocks(id)
+            ON DELETE RESTRICT;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'flock_movements_farm_id_fkey'
+          AND conrelid = 'public.flock_movements'::regclass) THEN
+        ALTER TABLE public.flock_movements
+            ADD CONSTRAINT flock_movements_farm_id_fkey
+            FOREIGN KEY (farm_id) REFERENCES public.farms(id)
+            ON DELETE RESTRICT;
     END IF;
 END;
 $$;
@@ -181,21 +211,49 @@ BEGIN
                    WHERE tgrelid = 'public.flock_movements'::regclass
                      AND tgname = 'trg_validate_flock_movements'
                      AND NOT tgisinternal) THEN
-        RAISE EXCEPTION 'FAIL: trg_validate_flock_movements not installed';
+        -- Report WHY, because a bare "not installed" sent us looking in the
+        -- wrong place. The usual cause is that CREATE TRIGGER failed on a
+        -- missing function or a missing column, and the trigger was simply
+        -- never created.
+        RAISE EXCEPTION
+            'FAIL: trg_validate_flock_movements not installed. '
+            'validate_flock_farm() present: %; flock_id column present: %; '
+            'existing triggers: %',
+            (SELECT count(*) > 0 FROM pg_proc p
+               JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'public'
+                AND p.proname = 'validate_flock_farm'),
+            EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND table_name = 'flock_movements'
+                       AND column_name = 'flock_id'),
+            (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger
+              WHERE tgrelid = 'public.flock_movements'::regclass
+                AND NOT tgisinternal);
     END IF;
 
     -- The sync triggers must exist, otherwise movements never sync at all.
+    -- Names come from json_output.txt, which lists four on this table plus
+    -- the two this migration adds. Only the ones we install are checked.
     SELECT string_agg(t, ', ') INTO v_missing
       FROM unnest(ARRAY['flock_movements_sync_insert',
                         'flock_movements_sync_update',
                         'flock_movements_tombstone',
                         'flock_movements_updated_at',
-                        'trg_update_flock_count_movements']) AS t
+                        'trg_update_flock_count_movements',
+                        'trg_validate_flock_movements',
+                        'trg_guard_flock_movement_user_change']) AS t
      WHERE NOT EXISTS (SELECT 1 FROM pg_trigger
                         WHERE tgrelid = 'public.flock_movements'::regclass
                           AND tgname = t AND NOT tgisinternal);
     IF v_missing IS NOT NULL THEN
-        RAISE EXCEPTION 'FAIL: missing triggers on flock_movements: %', v_missing;
+        RAISE EXCEPTION
+            'FAIL: missing triggers on flock_movements: %. Present: %',
+            v_missing,
+            (SELECT COALESCE(string_agg(tgname, ', ' ORDER BY tgname), 'none')
+               FROM pg_trigger
+              WHERE tgrelid = 'public.flock_movements'::regclass
+                AND NOT tgisinternal);
     END IF;
 
     RAISE NOTICE 'OK: W0.1 verified - flock_movements + sync_table_registry present';

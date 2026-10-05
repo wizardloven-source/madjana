@@ -116,12 +116,19 @@ BEGIN
                       FROM pg_policies
                      WHERE schemaname = 'public' AND tablename = %L
                 LOOP
+                    -- `t` is the table name and is used in three %L placeholders
+                    -- inside this DO body (the policyname lookup, the policy
+                    -- name, and the NOTICE), plus a fourth one in the outer
+                    -- body, so it must be supplied three times. It was passed
+                    -- only twice, which PostgreSQL rejects outright with
+                    -- "too few arguments for format()" and which left every
+                    -- financial table with its old, permissive policies.
                     EXECUTE format('DROP POLICY IF EXISTS %%I ON public.%I',
                                    p.policyname, %L);
                     RAISE NOTICE 'dropped %% on public.%%', p.policyname, %L;
                 END LOOP;
             END $inner$;
-        $drop$, t, t);
+        $drop$, t, t, t);
 
         -- ── Recreate: manager-scoped for every verb ──────────────────────────
         -- user_manages_farm() already ORs in is_system_admin() (00800:74-84);
