@@ -189,6 +189,12 @@ def build(verbose=True, quiet_ok=True):
                 print(f"        > {head}")
             if len(fails) > 5:
                 print(f"        ... and {len(fails) - 5} more")
+            # The first failing STATEMENT is what identifies the bug. Its
+            # first 400 characters are enough to see a missing BEGIN, a
+            # mangled dollar quote, or a wrong argument count -- and without
+            # it every failure of the same kind looks identical.
+            bad = " ".join(fails[0][0].split())[:400]
+            print(f"::error file={name}::first failing statement: {bad}")
         if base_fail:
             print(f"  (pass 1 of the base snapshot also had {len(base_fail)} "
                   f"errors, all forward references resolved by pass 2)")
