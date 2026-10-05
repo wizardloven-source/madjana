@@ -218,7 +218,7 @@ BEGIN
         RAISE EXCEPTION
             'FAIL: trg_validate_flock_movements not installed. '
             'validate_flock_farm() present: %; flock_id column present: %; '
-            'existing triggers: %',
+            'existing triggers: %; schema: %',
             (SELECT count(*) > 0 FROM pg_proc p
                JOIN pg_namespace n ON n.oid = p.pronamespace
               WHERE n.nspname = 'public'
@@ -253,7 +253,14 @@ BEGIN
             (SELECT COALESCE(string_agg(tgname, ', ' ORDER BY tgname), 'none')
                FROM pg_trigger
               WHERE tgrelid = 'public.flock_movements'::regclass
-                AND NOT tgisinternal);
+                AND NOT tgisinternal),
+            -- Which schema actually holds the table? init.sql creates it
+            -- unqualified, so if search_path was ever anything other than
+            -- public the table would live elsewhere and every public.-scoped
+            -- statement here would have failed earlier rather than quietly.
+            (SELECT n.nspname FROM pg_class c
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE c.oid = 'public.flock_movements'::regclass);
     END IF;
 
     RAISE NOTICE 'OK: W0.1 verified - flock_movements + sync_table_registry present';
