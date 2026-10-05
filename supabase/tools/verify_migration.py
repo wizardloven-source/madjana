@@ -64,6 +64,47 @@ def check_idempotency(raw):
             continue
         issues.append(f"unguarded DROP: {stmt[:72]}")
 
+    # RAISE placeholder/argument count. The database only reports this at
+    # run time, and the error it gives ("too few parameters specified for
+    # RAISE") does not name the statement -- so a static check here saves a
+    # full CI round trip.
+    issues.extend(check_raise_placeholders(body))
+
+    return issues
+
+
+def check_raise_placeholders(body):
+    """Every RAISE must supply exactly as many arguments as it has %s."""
+    issues = []
+    pat = re.compile(
+        r"\bRAISE\s+(?:EXCEPTION|NOTICE|WARNING)\s+"
+        r"((?:'(?:[^']|'')*'(?:\s*\|\|\s*)?)+)(.*?);", re.S | re.I)
+    for m in pat.finditer(body):
+        lits, rest = m.group(1), m.group(2)
+        n_ph = 0
+        for lit in re.findall(r"'(?:[^']|'')*'", lits):
+            s = lit[1:-1].replace("''", "'")
+            n_ph += s.count("%%") * -1 + s.count("%")
+        if n_ph <= 0:
+            continue
+        # Count top-level commas in the argument list, ignoring anything
+        # nested in parentheses: a comma inside (SELECT a, b) separates
+        # columns, not RAISE arguments.
+        depth, commas, saw = 0, 0, False
+        for ch in rest:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                commas += 1
+            if not ch.isspace():
+                saw = True
+        args = commas + 1 if saw else 0
+        if args != n_ph:
+            issues.append(
+                f"RAISE has {n_ph} placeholder(s) but {args} argument(s) -- "
+                f"fails at run time")
     return issues
 
 

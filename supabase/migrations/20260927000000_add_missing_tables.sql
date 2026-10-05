@@ -229,7 +229,14 @@ BEGIN
                        AND column_name = 'flock_id'),
             (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger
               WHERE tgrelid = 'public.flock_movements'::regclass
-                AND NOT tgisinternal);
+                AND NOT tgisinternal),
+            -- Which schema actually holds the table? init.sql creates it
+            -- unqualified, so if search_path was ever anything other than
+            -- public the table would live elsewhere and every public.-scoped
+            -- statement here would have failed earlier rather than quietly.
+            (SELECT n.nspname FROM pg_class c
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE c.oid = 'public.flock_movements'::regclass);
     END IF;
 
     -- The sync triggers must exist, otherwise movements never sync at all.
@@ -253,14 +260,7 @@ BEGIN
             (SELECT COALESCE(string_agg(tgname, ', ' ORDER BY tgname), 'none')
                FROM pg_trigger
               WHERE tgrelid = 'public.flock_movements'::regclass
-                AND NOT tgisinternal),
-            -- Which schema actually holds the table? init.sql creates it
-            -- unqualified, so if search_path was ever anything other than
-            -- public the table would live elsewhere and every public.-scoped
-            -- statement here would have failed earlier rather than quietly.
-            (SELECT n.nspname FROM pg_class c
-               JOIN pg_namespace n ON n.oid = c.relnamespace
-              WHERE c.oid = 'public.flock_movements'::regclass);
+                AND NOT tgisinternal);
     END IF;
 
     RAISE NOTICE 'OK: W0.1 verified - flock_movements + sync_table_registry present';
