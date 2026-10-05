@@ -16,18 +16,38 @@ Steps:
 import io
 import os
 import re
+import shutil
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
-PSQL = r"C:\Program Files\PostgreSQL\15\bin\psql.exe"
+
+# psql resolution order: explicit override -> PATH -> the local Windows install.
+# The Windows path is the LAST fallback, not the only option: hardcoding it as
+# the sole candidate made this script impossible to run on Linux/macOS, which
+# is what CI (ubuntu-latest) needs. shutil.which("psql") resolves on the
+# runners, and on this Windows box psql is not on PATH, so local behaviour is
+# unchanged.
+PSQL = (os.environ.get("PSQL_BIN")
+        or shutil.which("psql")
+        or r"C:\Program Files\PostgreSQL\15\bin\psql.exe")
+
+# Connection target. Defaults match the Docker/local test database exactly
+# (127.0.0.1:5433/madjana_test); the env overrides exist so CI can move the
+# port when 5433 is already taken on a shared runner, without editing code.
+HOST = os.environ.get("PGHOST", "127.0.0.1")
+PORT = os.environ.get("PGPORT", "5433")
+DB = os.environ.get("PGDATABASE", "madjana_test")
 
 # The SQL suites are Stage-authored scripts: they raise on the first failed
 # assertion, so a non-zero exit plus no FAIL notice means everything passed.
 SQL_SUITES = [
     ("4a. P0 isolation + sync", "p0_isolation_and_sync_test.sql"),
     ("4b. revenue sync regression", "revenue_sync_regression_test.sql"),
+    ("4c. P0 financial RLS guard", "p0_financial_rls_guard_test.sql"),
+    ("4d. W0.1 recovered tables", "w0_1_missing_tables_test.sql"),
+    ("4e. P0 expenses.flock_id", "p0_expenses_flock_test.sql"),
 ]
 
 
@@ -65,8 +85,8 @@ def run_sql(title, filename):
     print(f"  {title}")
     print("=" * 70)
     r = subprocess.run(
-        [PSQL, "-h", "127.0.0.1", "-p", "5433", "-U", "postgres",
-         "-d", "madjana_test", "-w", "-q",
+        [PSQL, "-h", HOST, "-p", PORT, "-U", "postgres",
+         "-d", DB, "-w", "-q",
          "-c", "SET ROLE test_runner",
          "-f", os.path.join(HERE, filename)],
         capture_output=True, text=True, encoding="utf-8", errors="replace")

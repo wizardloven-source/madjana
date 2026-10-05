@@ -1,0 +1,178 @@
+# ============================================================================
+#  P0 Financial RLS Guard
+#  ---------------------------------------------------------------------------
+#  لماذا هذا الـ workflow موجود:
+#
+#  ثغرة P0 (تصعيد صلاحيات على الجداول المالية الستة) لم يلتقطها أي اختبار،
+#  لأن تغطية العزل كانت على الجداول التشغيلية فقط. docs/TEST_COVERAGE_GAPS.md
+#  سجّل هذه الفجوة باسم T3. طالما لم يكن هناك حارس، يمكن لأي هجرة قادمة أن
+#  تُضعف سياسات RLS ويمرّ CI كله بالأخضر.
+#
+#  هذا الـ workflow يقرّر Pale ذلك: تُغلق الفجوة، ويُشغَّل على كل push و PR،
+#  فيتحوّل "هل أضعفت السياسة؟" من سؤال يدوي إلى بوابة آلية.
+#
+#  ⚠️ صفر أسرار في هذا الملف. لا يستخدم secrets إطلاقاً: يتصل بقاعدة PostgreSQL
+#  مؤقتة تُنشأ داخل الـ job وتُمحى بانتهائه. لا يوجد أي اتصال بإنتاج.
+# ============================================================================
+
+name: P0 Financial RLS Guard
+
+on:
+  # تشغيل يدوي قبل أي push — راجع طلبك في 1.5.
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+  pull_request:
+
+# أقل صلاحية ممكنة: هذا الـ job يقرأ المستودع فقط ولا يحتاج كتابة.
+permissions:
+  contents: read
+
+# عند دفع عدة commits متتالية، ألغِ التشغيل القديم والجديد هو المرجع.
+concurrency:
+  group: p0-rls-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rls_guard:
+    name: Financial RLS guard (PostgreSQL 16)
+    runs-on: ubuntu-latest
+
+    # سقف زمني: يمنع job من التعليق للأبد لو انتظر قاعدة لا تأتي. 15 دقيقة
+    # أضعف من الوقت الفعلي المطلوب بكثير.
+    timeout-minutes: 15
+
+    # ── قاعدة البيانات ────────────────────────────────────────────────────
+    # service container: يتعيّن GitHub بانتظار اجتياز healthcheck قبل تشغيل
+    # أي step، فلا نحتاج انتظاراً يدوياً للإقلاع.
+    #
+    # نفس إعدادات supabase/tests/docker-compose.yml: trust، وUTF-8 عبر
+    # C.UTF-8، والمنفذ 5433.
+    #
+    # انحراف واحد مقصود: compose يحصر الـ bind على 127.0.0.1، بينما صيغة
+    # service container في GitHub لا تدعم تحديد عنوان المضيف فتربط كل
+    # الواجهات. هذا مقبول هنا لأن الـ runner هو VM مؤقتة وحيدة المستأجر تُمحى
+    # تُمحى بانتهاء الـ job — بخلاف جهازك. trust هنا لا يقارن أي سطح هجوم
+    # مستدام. إن نقلتَ هذا النمط إلى ماكينة طويلة العمر، أعِد حصر الـ bind.
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          # C.UTF-8 وليس en_US.UTF-8: الصورة على Debian ولا تُولّد الأخير
+          # مسبقاً، فيفشل initdb ولا تقلع القاعدة إطلاقاً.
+          POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    # هذه المتغيرات يقرأها السكربتات مباشرة بعد تعديلها لتقبلها من البيئة،
+    # ويقرأها libpq أيضاً. القيم تطابق docker-compose.yml تماماً.
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5433"
+      PGUSER: postgres
+      PGDATABASE: madjana_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # 3.10 لمطابق إصدارك المحلي (3.10.0)، فتبقى سلوكيات السكربتات
+          # مطابقة بين CI وجهازك.
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: supabase/tests/requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip -r supabase/tests/requirements.txt
+
+      - name: Smoke test (SELECT 1)
+        run: |
+          set -euo pipefail
+          # healthcheck الخاص بـ GitHub يضمن INITIALIZE فقط؛ هذه الخطوة تغطي
+          # حالة "كانت سليمة ثم أعادت التشغيل" وتقيس زمن الاستجابة فعلياً.
+          for i in $(seq 1 30); do
+            if psql -h "$PGHOST" -p "$PGPORT" -U postgres -d postgres -tAc 'SELECT 1' >/dev/null 2>&1; then
+              echo "database ready after ${i} attempt(s)"
+              psql --version
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::database not reachable on $PGHOST:$PGPORT after 60s"
+          exit 1
+
+      - name: Verify PostgreSQL version is 16
+        run: |
+          set -euo pipefail
+          ver="$(psql -h "$PGHOST" -p "$PGPORT" -U postgres -d postgres -tAc 'SHOW server_version')"
+          major="${ver%%.*}"
+          echo "server_version = $ver"
+          # فشل صريح عند اختلاف الإصدار: اختلاف 15/16 قد يتغيّر فيه سلوك
+          # RLS دون أن يُظهر الاختبار ذلك، فيُعطي وهم passes على مخطط
+          #和生产 مطابق. نريد أن يكون الفشل صريحاً لا صامتاً.
+          if [ "$major" != "16" ]; then
+            echo "::error::expected PostgreSQL 16, got $ver"
+            exit 1
+          fi
+
+      - name: Build test database
+        run: python supabase/tests/build_test_db.py
+
+      # 4c يشتغل قبل المسح الكامل عمداً. لو فشل 4a لاحقاً، GitHub يُسقط
+      # الـ steps التالية، فكانت نتيجة P0 ستختفي خلف فشل مجموعة لا علاقة لها
+      # بها. بتشغيله أولاً، حكمُ P0 يكون دائماً مقروءاً في السجل.
+      - name: 4c — P0 financial RLS guard
+        run: |
+          set -o pipefail
+          LOG="$(mktemp)"
+          # -c "SET ROLE test_runner" ثم -f: psql ينفّذهما بنفس الجلسة وبهذا
+          # الترتيب، فيصير test_runner هو الدور الساري. هذا ليس تفصيلاً:
+          # RLS مُفعّل بلا FORCE، والدور postgres يتجاوزه، فتشغيل الاختبار
+          # كـ postgres يجعله ينجح دائماً بلا معنى.
+          psql -h "$PGHOST" -p "$PGPORT" -U postgres -d "$PGDATABASE" -w -q \
+               -v ON_ERROR_STOP=1 \
+               -c "SET ROLE test_runner" \
+               -f supabase/tests/p0_financial_rls_guard_test.sql 2>&1 | tee "$LOG"
+          rc=${PIPESTATUS[0]}
+
+          echo "assertions passed: $(grep -cE 'NOTICE:[[:space:]]+PASS' "$LOG" || true)"
+
+          # حزامان: رمز خروج psql، ثم الفحص النصي. الاختبار يرفع EXCEPTION
+          # عند أي ادعاء فاشل، فـ ON_ERROR_STOP يلتقطه — لكن الفحص النصي
+          # يحوّل أي FAIL إلى ::error:: ظاهر في واجهة GitHub.
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::4c failed — psql exit ${rc}"
+            exit 1
+          fi
+          if grep -qE '(NOTICE|ERROR):[[:space:]]+FAIL|^ERROR:' "$LOG"; then
+            echo "::error::4c reported a FAIL assertion (see log above)"
+            exit 1
+          fi
+
+      # ‎--no-build: قاعدة البيانات بُنيت في الخطوة السابقة، وإعادة البناء
+      # تستهلك دقائق بلا فائدة. 4c ينتهي بـ ROLLBACK فلا يترك أثراً، فالتسلسل
+      # آمن، ويكافح run_all باقي المجموعات على القاعدة نفسها كما هي.
+      - name: Full suite (run_all.py)
+        run: python supabase/tests/run_all.py --no-build
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### P0 Financial RLS Guard — ${{ job.status }}"
+          echo ""
+          echo "| Check | Meaning |"
+          echo "|-------|---------|"
+          echo "| PostgreSQL 16 | يطابق إنتاج CI المحلي |"
+          echo "| build_test_db | المخطط بُني بلا أخطاء |"
+          echo "| 4c | العامل ممنوع من المال + المدير مقيَّد بمزرعته |"
+          echo "| run_all | باقي مجموعات الانحدار |"

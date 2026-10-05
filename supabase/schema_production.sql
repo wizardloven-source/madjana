@@ -4689,3 +4689,130 @@ ALTER TABLE public.egg_production ADD CONSTRAINT egg_production_loose_eggs_check
 -- ============================================================================
 -- نهاية الملف - قاعدة نظيفة وعاملة بأحدث إصلاحات المزامنة
 -- ============================================================================
+-- ###########################################################################
+-- ##  TEMPORARY DRIFT PATCH -- REMOVE ONCE DOCKER IS AVAILABLE            ##
+-- ###########################################################################
+-- ##  TODO: regenerate this whole file with `supabase db dump`, then delete ##
+-- ##  this block. This file is a GENERATED SNAPSHOT and must never be the  ##
+-- ##  source of truth for a change.                                        ##
+-- ##                                                                      ##
+-- ##  verify_schema_drift.py proved that TWO tables exist in live          ##
+-- ##  production but were absent from this snapshot and from every         ##
+-- ##  migration in the repo:                                                ##
+-- ##      flock_movements      -- head-count movement ledger                ##
+-- ##      sync_table_registry  -- ordered sync allowlist                   ##
+-- ##  Rebuilding the DB from this file therefore dropped both, which is    ##
+-- ##  the most likely root cause of "sync fails silently, no message".    ##
+-- ##                                                                      ##
+-- ##  The AUTHORITATIVE definition is the migration:                       ##
+-- ##      supabase/migrations/20260927000000_add_missing_tables.sql        ##
+-- ##  This block exists only so the snapshot stops contradicting           ##
+-- ##  production. Keep it consistent with that migration.                  ##
+-- ###########################################################################
+
+-- ── flock_movements ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.flock_movements (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    farm_id     uuid NOT NULL REFERENCES public.farms(id)  ON DELETE RESTRICT,
+    flock_id    uuid NOT NULL REFERENCES public.flocks(id) ON DELETE RESTRICT,
+    worker_id   uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    type        text NOT NULL
+                CHECK (type IN ('addition', 'sale', 'transfer', 'destruction')),
+    count       integer NOT NULL CHECK (count > 0),
+    date        date NOT NULL,
+    notes       text,
+    version     bigint NOT NULL DEFAULT 0,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now(),
+    deleted_at  timestamptz,
+    sync_status text NOT NULL DEFAULT 'pending'
+);
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conname = 'flock_movements_sync_status_check'
+                     AND conrelid = 'public.flock_movements'::regclass) THEN
+        ALTER TABLE public.flock_movements
+            ADD CONSTRAINT flock_movements_sync_status_check
+            CHECK (sync_status IN ('pending', 'synced', 'failed',
+                                   'processing', 'conflict'));
+    END IF;
+END;
+$$;
+CREATE INDEX IF NOT EXISTS idx_flock_movements_flock_date
+    ON public.flock_movements (flock_id, date);
+CREATE INDEX IF NOT EXISTS idx_flock_movements_farm
+    ON public.flock_movements (farm_id);
+CREATE INDEX IF NOT EXISTS idx_flock_movements_sync
+    ON public.flock_movements (sync_status)
+    WHERE sync_status <> 'synced';
+
+-- ── flock_movements: triggers ─────────────────────────────────────────────
+DROP TRIGGER IF EXISTS flock_movements_sync_insert ON public.flock_movements;
+CREATE TRIGGER flock_movements_sync_insert
+    AFTER INSERT ON public.flock_movements
+    FOR EACH ROW EXECUTE FUNCTION public.populate_sync_changes();
+DROP TRIGGER IF EXISTS flock_movements_sync_update ON public.flock_movements;
+CREATE TRIGGER flock_movements_sync_update
+    AFTER UPDATE ON public.flock_movements
+    FOR EACH ROW EXECUTE FUNCTION public.populate_sync_changes();
+DROP TRIGGER IF EXISTS flock_movements_tombstone ON public.flock_movements;
+CREATE TRIGGER flock_movements_tombstone
+    AFTER DELETE ON public.flock_movements
+    FOR EACH ROW EXECUTE FUNCTION public.sync_tombstone_after_delete();
+DROP TRIGGER IF EXISTS flock_movements_updated_at ON public.flock_movements;
+CREATE TRIGGER flock_movements_updated_at
+    BEFORE UPDATE ON public.flock_movements
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+DROP TRIGGER IF EXISTS trg_update_flock_count_movements ON public.flock_movements;
+CREATE TRIGGER trg_update_flock_count_movements
+    AFTER INSERT OR UPDATE OR DELETE ON public.flock_movements
+    FOR EACH ROW EXECUTE FUNCTION public.update_flock_count_from_movements();
+DROP TRIGGER IF EXISTS trg_validate_flock_movements ON public.flock_movements;
+CREATE TRIGGER trg_validate_flock_movements
+    BEFORE INSERT OR UPDATE ON public.flock_movements
+    FOR EACH ROW EXECUTE FUNCTION public.validate_flock_farm();
+
+-- ── flock_movements: RLS ──────────────────────────────────────────────────
+-- Production names this table's policies *_select (not *_read); kept as-is.
+ALTER TABLE public.flock_movements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS flock_movements_select ON public.flock_movements;
+CREATE POLICY flock_movements_select ON public.flock_movements
+    FOR SELECT TO authenticated
+    USING (public.user_has_farm_access(farm_id));
+DROP POLICY IF EXISTS flock_movements_insert ON public.flock_movements;
+CREATE POLICY flock_movements_insert ON public.flock_movements
+    FOR INSERT TO authenticated
+    WITH CHECK (public.user_has_farm_access(farm_id));
+DROP POLICY IF EXISTS flock_movements_update ON public.flock_movements;
+CREATE POLICY flock_movements_update ON public.flock_movements
+    FOR UPDATE TO authenticated
+    USING (public.user_manages_farm(farm_id))
+    WITH CHECK (public.user_manages_farm(farm_id));
+DROP POLICY IF EXISTS flock_movements_delete ON public.flock_movements;
+CREATE POLICY flock_movements_delete ON public.flock_movements
+    FOR DELETE TO authenticated
+    USING (public.user_manages_farm(farm_id));
+
+-- ── sync_table_registry ───────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.sync_table_registry (
+    table_name  text PRIMARY KEY,
+    sort_order  integer NOT NULL DEFAULT 0,
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO public.sync_table_registry (table_name, sort_order) VALUES
+    ('farms', 10), ('users', 20), ('user_farms', 30), ('flocks', 40),
+    ('flock_movements', 50), ('opening_balances', 60), ('egg_production', 70),
+    ('mortality', 80), ('feed_received', 90), ('feed_consumption', 100),
+    ('medications', 110), ('customers', 120), ('egg_dispatch', 130),
+    ('payments', 140), ('expenses', 150), ('revenue', 160),
+    ('inventory_items', 170), ('inventory_transactions', 180),
+    ('stock_adjustments', 190), ('dispatch_requests', 200)
+ON CONFLICT (table_name) DO NOTHING;
+
+ALTER TABLE public.sync_table_registry ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS sync_table_registry_read ON public.sync_table_registry;
+CREATE POLICY sync_table_registry_read ON public.sync_table_registry
+    FOR SELECT TO authenticated
+    USING (public.is_system_admin()
+           OR public.current_user_role() = 'manager');

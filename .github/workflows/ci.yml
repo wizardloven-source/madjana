@@ -48,3 +48,106 @@ jobs:
         with:
           name: data-package-coverage
           path: packages/data/coverage
+
+  db_migration_test:
+    name: db — schema drift + migration apply/rollback/re-apply
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: supabase/postgres:15.1.1.61
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Step 1: static drift gate. Needs no database, runs first so a
+      #    schema contradiction fails in seconds instead of after boot.
+      - name: Verify schema drift (static)
+        run: python supabase/tools/verify_schema_drift.py
+
+      - name: Verify every migration (structure / idempotency / reference)
+        run: |
+          # UNIFIED_schema.sql is a BOOTSTRAP, not an incremental migration:
+          # it is a from-scratch snapshot whose whole job is bare
+          # CREATE TABLE. Demanding idempotency of it is meaningless, and
+          # init.sql has the same character. Both are excluded for that
+          # reason, not to hide a failure.
+          python supabase/tools/verify_migration.py \
+            $(ls -1 supabase/migrations/*.sql | grep -v 'UNIFIED_schema')
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      # ── Step 2: apply -> rollback -> re-apply.
+      #    Proves the migrations are idempotent in both directions and that
+      #    their rollback actually reverses them.
+      - name: Apply all migrations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          for f in $(ls -1 supabase/migrations/*.sql | grep -v '/[A-Z_]*UNIFIED\|UNIFIED_schema'); do
+            echo "::group::apply $f"
+            psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Rollback W0.1
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -q \
+          -f supabase/migrations/20260927000001_rollback_missing_tables.sql
+
+      - name: Re-apply W0.1 (idempotency proof)
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -q \
+          -f supabase/migrations/20260927000000_add_missing_tables.sql
+
+      - name: Idempotency — apply every migration a second time
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # A migration that fails on its second run is not idempotent, and
+          # every migration in this repo promises to be. Fail loudly here
+          # rather than in production.
+          for f in $(ls -1 supabase/migrations/*.sql); do
+            echo "::group::re-apply $f"
+            psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Registry allowlist vs live schema
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Every table named in the sync allowlist must actually exist.
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -q -c \
+            "DO \$\$ DECLARE t text; BEGIN
+               FOR t IN SELECT table_name FROM public.sync_table_registry LOOP
+                 IF to_regclass('public.' || t) IS NULL THEN
+                   RAISE EXCEPTION 'registry lists %, which does not exist', t;
+                 END IF;
+               END LOOP;
+             END \$\$;"
+
+      # ── Step 3: the SQL assertion suites (RLS, isolation, sync).
+      - name: Install test requirements
+        run: pip install -r supabase/tests/requirements.txt
+
+      - name: Run SQL test suites
+        env:
+          PGPASSWORD: postgres
+          PGHOST: localhost
+          PGUSER: postgres
+          PGDATABASE: postgres
+        run: python supabase/tests/run_all.py

@@ -21,13 +21,18 @@ import psycopg2
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sqlsplit import split_statements, strip_tx  # noqa: E402
 
-HOST = "127.0.0.1"
-PORT = 5433
+HOST = os.environ.get("PGHOST", "127.0.0.1")
+PORT = int(os.environ.get("PGPORT", "5433"))
 USER = "postgres"
-DB = "madjana_test"
+DB = os.environ.get("PGDATABASE", "madjana_test")
 
-ROOT = r"C:\Users\MTC\Desktop\madjana"
-SUPABASE = os.path.join(ROOT, "supabase")
+# Derive the repo root from this file's own location instead of hardcoding
+# "C:\Users\MTC\Desktop\madjana". The hardcoded copy made this script run only
+# on one developer's machine: on the CI runner (ubuntu-latest) that path does
+# not exist, so every file below resolved to nothing.
+#   <repo>/supabase/tests/build_test_db.py -> SUPABASE = <repo>/supabase
+SUPABASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(SUPABASE)
 SHIM = os.path.join(SUPABASE, "tests", "supabase_test_shim.sql")
 GRANTS = os.path.join(SUPABASE, "tests", "test_grants.sql")
 FIXTURES = os.path.join(SUPABASE, "tests", "local_fixtures.sql")

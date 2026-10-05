@@ -1,0 +1,6 @@
+# Test-only dependency for the local/CI Postgres harness.
+#
+# psycopg2-binary, not psycopg2: the source build needs libpq-dev + pg_config on
+# the runner, which slows every job down for no benefit here. The harness only
+# speaks to a throwaway local database, never to production.
+psycopg2-binary>=2.9,<3
