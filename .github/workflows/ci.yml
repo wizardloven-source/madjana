@@ -88,6 +88,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
+      # Build the real test database first, so a broken migration surfaces
+      # with the statement that failed rather than as a bare exit code.
+      # Same script p0_rls_guard.yml uses, pointed at the same service.
+      - name: Build test database
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGDATABASE: madjana_test
+        run: |
+          python -m pip install --upgrade pip -r supabase/tests/requirements.txt
+          python supabase/tests/build_test_db.py
+
       # ── Step 2: apply -> rollback -> re-apply.
       #    Proves the migrations are idempotent in both directions and that
       #    their rollback actually reverses them.

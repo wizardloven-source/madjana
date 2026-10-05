@@ -173,6 +173,17 @@ def build(verbose=True, quiet_ok=True):
         print(f"\n{len(hard)} FILE(S) WITH ERRORS:")
         for name, fails in hard:
             print(f"  - {name}: {len(fails)} error(s)")
+            # The first few statements matter most: they are what tells you
+            # whether a dependency is missing (function not created yet,
+            # table not in the snapshot) or whether the statement itself is
+            # wrong. Print them even when not verbose, so a CI failure is
+            # diagnosable from the step log without downloading the archive.
+            for stmt, err in fails[:5]:
+                head = " ".join(stmt.split())[:140]
+                print(f"        {err}")
+                print(f"        > {head}")
+            if len(fails) > 5:
+                print(f"        ... and {len(fails) - 5} more")
         if base_fail:
             print(f"  (pass 1 of the base snapshot also had {len(base_fail)} "
                   f"errors, all forward references resolved by pass 2)")
