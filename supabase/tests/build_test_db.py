@@ -178,6 +178,11 @@ def build(verbose=True, quiet_ok=True):
             # table not in the snapshot) or whether the statement itself is
             # wrong. Print them even when not verbose, so a CI failure is
             # diagnosable from the step log without downloading the archive.
+            first = fails[0][1] if fails else "unknown"
+            # GitHub renders ::error:: lines as annotations on the run page,
+            # which needs no admin rights to read -- unlike the log archive.
+            print(f"::error title=migration build failed::"
+                  f"{name}: {len(fails)} error(s), first: {first}")
             for stmt, err in fails[:5]:
                 head = " ".join(stmt.split())[:140]
                 print(f"        {err}")
