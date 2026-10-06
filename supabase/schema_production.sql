@@ -891,6 +891,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_calc_total_eggs ON public.egg_production;
 CREATE TRIGGER trg_calc_total_eggs
     BEFORE INSERT OR UPDATE ON egg_production
     FOR EACH ROW EXECUTE FUNCTION public.calc_total_eggs();
@@ -913,6 +914,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_calc_dispatch_total ON public.egg_dispatch;
 CREATE TRIGGER trg_calc_dispatch_total
     BEFORE INSERT OR UPDATE ON egg_dispatch
     FOR EACH ROW EXECUTE FUNCTION public.calc_dispatch_total();

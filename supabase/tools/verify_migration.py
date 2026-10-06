@@ -108,7 +108,325 @@ def check_raise_placeholders(body):
     return issues
 
 
+def _find_dollar_end(sql, i):
+    """If a dollar-quoted tag opens at i, return the index after its
+    closing tag; otherwise -1."""
+    m = re.match(r"\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$", sql[i:])
+    if not m:
+        return -1
+    tag = m.group(0)
+    end = sql.find(tag, i + len(tag))
+    return end + len(tag) if end >= 0 else -1
+
+
+def _extract_arg_text(raw, paren_start):
+    """Return the text inside format( ... ) beginning at paren_start ('(').
+    Returns (text, end_position) or (None, None) if unmatched."""
+    i = paren_start + 1
+    depth = 1
+    n = len(raw)
+    while i < n and depth:
+        if raw.startswith("$$", i) or re.match(r"\$\w*\$", raw[i:]):
+            j = _find_dollar_end(raw, i)
+            if j < 0:
+                break
+            i = j
+            continue
+        if raw[i] == "'":
+            i += 1
+            while i < n:
+                if raw[i] == "'" and raw[i+1:i+2] != "'":
+                    break
+                if raw[i] == "'" and raw[i+1:i+2] == "'":
+                    i += 2
+                    continue
+                i += 1
+            continue
+        if raw[i] == "(":
+            depth += 1
+        elif raw[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return raw[paren_start+1:i], i
+        i += 1
+    return None, None
+
+
+def _count_format_args(arg_text):
+    """Count comma-separated arguments at parenthesis depth 0, ignoring
+    string literals and dollar-quoted bodies."""
+    depth = 0
+    commas = 0
+    i = 0
+    n = len(arg_text)
+    while i < n:
+        if arg_text.startswith("$$", i) or re.match(r"\$\w*\$", arg_text[i:]):
+            j = _find_dollar_end(arg_text, i)
+            if j < 0:
+                break
+            i = j
+            continue
+        if arg_text[i] == "'":
+            i += 1
+            while i < n:
+                if arg_text[i] == "'" and arg_text[i+1:i+2] != "'":
+                    break
+                if arg_text[i] == "'" and arg_text[i+1:i+2] == "'":
+                    i += 2
+                    continue
+                i += 1
+            continue
+        if arg_text[i] == "(":
+            depth += 1
+        elif arg_text[i] == ")":
+            depth -= 1
+        elif arg_text[i] == "," and depth == 0:
+            commas += 1
+        i += 1
+    return commas + 1
+
+
+def _collect_positional_specs(arg_text):
+    """Extract the positions used by %s/%I/%L specifiers in literal
+    strings. Returns max_position and set of explicit positions."""
+    sequential = 0
+    explicit = set()
+    i = 0
+    n = len(arg_text)
+    while i < n:
+        if arg_text.startswith("$$", i) or re.match(r"\$\w*\$", arg_text[i:]):
+            j = _find_dollar_end(arg_text, i)
+            if j < 0:
+                break
+            i = j
+            continue
+        if arg_text[i] == "'":
+            i += 1
+            chars = []
+            while i < n:
+                if arg_text[i] == "'" and arg_text[i+1:i+2] != "'":
+                    break
+                chars.append(arg_text[i])
+                if arg_text[i] == "'" and arg_text[i+1:i+2] == "'":
+                    chars.append(arg_text[i])
+                    i += 2
+                    continue
+                i += 1
+            s = "".join(chars).replace("''", "'").replace("%%", "%")
+            for m in re.finditer(r"(\d*)\$([sIL])", s):
+                if m.group(1):
+                    explicit.add(int(m.group(1)))
+                else:
+                    sequential += 1
+            continue
+        i += 1
+    max_position = max(explicit) if explicit else sequential
+    return max_position, explicit
+
+
+def check_format_placeholders(raw):
+    """Every format( call must have enough arguments for its %s/%I/%L
+    specifiers. Handles sequential (%s) and positional (%1$I) specifiers,
+    plus nested format() inside string literals."""
+    issues = []
+    for m in re.finditer(r"\bformat\s*\(", raw):
+        arg_text, _ = _extract_arg_text(raw, m.end() - 1)
+        if arg_text is None:
+            continue
+        n_args = _count_format_args(arg_text)
+        max_position, _ = _collect_positional_specs(arg_text)
+        if max_position > n_args:
+            issues.append(
+                f"format() has specifiers up to %{max_position}$ but only "
+                f"{n_args} argument(s) -> fails at run time")
+    return issues
+
+
 def check_matches_ref(raw, ref):
+    """Verify every table and column the migration depends on is real.
+    Re-declaring something production already has is flagged loudly."""
+    issues, declared, notes = [], set(), []
+    body = strip_line_comments(strip_dollar_quoted(raw))
+
+    for m in re.finditer(
+            r"ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?(\w+)\s+"
+            r"ADD\s+COLUMN\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)", body, re.I):
+        tbl, guarded, col = m.group(1).lower(), m.group(2), m.group(3).lower()
+        declared.add(f"{tbl}.{col}")
+        if tbl not in ref["tables"]:
+            continue
+        if col in ref["tables"][tbl]:
+            if not guarded:
+                issues.append(
+                    f"{tbl}.{col} exists in production AND the ADD COLUMN is "
+                    f"unguarded -- a re-run would fail")
+            else:
+                notes.append(f"{tbl}.{col} already present (guarded no-op)")
+
+    for m in re.finditer(r"REFERENCES\s+(?:public\.)?(\w+)\s*\(", body, re.I):
+        t = m.group(1).lower()
+        if t not in ref["tables"]:
+            issues.append(f"FK targets unknown table '{t}'")
+
+    for m in re.finditer(
+            r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?(\w+)",
+            body, re.I):
+        declared.add(m.group(1))
+
+    CATALOG = {"pg_class", "pg_attribute", "pg_proc", "pg_policies",
+               "pg_constraint", "pg_indexes", "pg_trigger", "pg_enum",
+               "pg_namespace", "pg_index", "pg_tables", "pg_roles",
+               "information_schema", "auth", "storage", "extensions",
+               "public", "graphql", "anon", "authenticated", "service_role",
+               "authenticator", "old", "new", "affected", "v_old", "v_new",
+               "regexp_matches", "jsonb_array_elements", "jsonb_each",
+               "unnest", "generate_series", "only", "table", "select",
+               "values", "conflict", "nothing", "returning", "excluded",
+               "on", "or", "and", "of", "in", "to", "as", "set", "where",
+               "by", "group", "order", "limit", "using", "when", "then",
+               "else", "do", "begin", "commit", "rollback", "returning",
+               "distinct", "having", "union", "join", "left", "right",
+               "inner", "outer", "cross", "exists", "all", "any", "case"}
+    ctes = {m.group(1).lower() for m in re.finditer(
+        r"(?:WITH|,)\s*(?:RECURSIVE\s+)?(\w+)\s+AS\s*\(", body, re.I)}
+    ctes |= {m.group(1).lower() for m in re.finditer(
+        r"\b(\w+)\s+AS\s*\(\s*SELECT", body, re.I)}
+    ctes |= {m.group(1).lower() for m in re.finditer(
+        r"^\s*(\w+)\s+(?:RECORD|RECORD|public\.\w+|TABLE|%\w+TYPE)",
+        body, re.I | re.M)}
+    ctes |= {m.group(1).lower() for m in re.finditer(
+        r"\bFOR\s+(\w+)\s+IN\s", body, re.I)}
+
+    for m in re.finditer(
+            r"\b(?:INSERT\s+INTO|FROM|UPDATE)\s+(?:public\.)?(\w+)", body, re.I):
+        t = m.group(1).lower()
+        if t in CATALOG or t in ctes or t in declared:
+            continue
+        if t not in ref["tables"]:
+            issues.append(f"references unknown table '{t}'")
+
+    return issues, sorted(declared), notes
+
+
+def check_strip_tx_unit():
+    """Regression test: file-level BEGIN/COMMIT are removed,
+    but BEGIN/COMMIT inside dollar-quoted PL/pgSQL bodies are preserved."""
+    res = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "supabase/tests/test_strip_tx.py")],
+        capture_output=True, text=True, cwd=ROOT)
+    return ["strip_tx unit test failed"] if res.returncode != 0 else []
+
+
+def check_on_delete(raw):
+    """FK delete rules: farm_id/flock_id/manager_id -> RESTRICT;
+    worker_id/created_by -> SET NULL; CASCADE forbidden."""
+    issues = []
+    # FOREIGN KEY (col, ...) REFERENCES tbl (...)[ON DELETE action]
+    # ON DELETE must appear immediately after the REFERENCES clause.
+    for m in re.finditer(
+        r"FOREIGN\s+KEY\s*\(([^)]*)\)\s*REFERENCES\s+(\w+)\s*\(([^)]*)\)"
+        r"(?:\s+ON\s+DELETE\s+(CASCADE|SET\s+NULL|SET\s+DEFAULT|NO\s+ACTION|RESTRICT))?",
+        raw, re.I):
+        cols = [c.strip().strip('"') for c in m.group(1).split(",")]
+        ref_tbl = m.group(2).strip().strip('"')
+        on_delete = (m.group(4) or "NO ACTION").upper().replace(" ", "_")
+        for col in cols:
+            if col in {"farm_id", "flock_id", "manager_id"}:
+                if on_delete != "RESTRICT":
+                    issues.append(f"FK {col!r} -> {ref_tbl!r}: must be RESTRICT, found {on_delete}")
+            elif col in {"worker_id", "created_by"}:
+                if on_delete not in {"SET NULL", "NO ACTION"}:
+                    issues.append(f"FK {col!r} -> {ref_tbl!r}: should be SET NULL, found {on_delete}")
+        if on_delete == "CASCADE":
+            issues.append(f"FK -> {ref_tbl!r}: ON DELETE CASCADE silently erases production records")
+    # ADD COLUMN col uuid REFERENCES tbl (...)[ON DELETE ...]
+    for m in re.finditer(
+        r"ADD\s+COLUMN\s+(\w+)\s+\w+\s+uuid\s+REFERENCES\s+(\w+)\s*\(([^)]*)\)"
+        r"(?:\s+ON\s+DELETE\s+(CASCADE|SET\s+NULL|SET\s+DEFAULT|NO\s+ACTION|RESTRICT))?",
+        raw, re.I):
+        col = m.group(1).strip().strip('"')
+        ref_tbl = m.group(2).strip().strip('"')
+        on_delete = (m.group(4) or "NO ACTION").upper().replace(" ", "_")
+        if col in {"farm_id", "flock_id", "manager_id"}:
+            if on_delete != "RESTRICT":
+                issues.append(f"ADD COLUMN {col!r} FK: must be RESTRICT, found {on_delete}")
+        elif col in {"worker_id", "created_by"}:
+            if on_delete not in {"SET NULL", "NO ACTION"}:
+                issues.append(f"ADD COLUMN {col!r} FK: should be SET NULL, found {on_delete}")
+        if on_delete == "CASCADE":
+            issues.append(f"ADD COLUMN {col!r}: ON DELETE CASCADE silently erases production records")
+    return issues
+
+
+def check_registry_ordering(raw):
+    """Parent tables must be inserted before their children in sync_table_registry."""
+    issues = []
+    m = re.search(r"INSERT\s+INTO\s+sync_table_registry", raw, re.I)
+    if not m:
+        return issues
+    body = raw[m.end():]
+    vm = re.search(r"VALUES\s*\((.+?)\)\s*;", body, re.I | re.S)
+    if not vm:
+        return issues
+    vals = vm.group(1)
+    rows = re.findall(r"'(\w+)'[^)]*\d+|\d+[^)]*'(\w+)'", vals)
+    parsed = [r[0] or r[1] for r in rows]
+    parent_before = {"farms": ["users", "user_farms", "flocks"],
+                     "users": ["user_farms"],
+                     "user_farms": [],
+                     "flocks": ["egg_production", "mortality", "feed_consumption", "feed_received",
+                                "egg_dispatch", "stock_adjustments", "medications", "expenses",
+                                "opening_balances", "record_lock"]}
+    positions = {t: i for i, t in enumerate(parsed)}
+    for p, children in parent_before.items():
+        if p not in positions:
+            continue
+        for c in children:
+            if c in positions and positions[c] < positions[p]:
+                issues.append(f"sync_table_registry: {c} ({positions[c]}) before parent {p} ({positions[p]})")
+    return issues
+
+
+def check_grants_coverage(ref_tables):
+    """test_grants.sql must grant per-table access for every production table."""
+    issues = []
+    p = os.path.join(ROOT, "supabase/tests/test_grants.sql")
+    try:
+        s = open(p, encoding="utf-8").read()
+    except FileNotFoundError:
+        return ["test_grants.sql not found"]
+    if re.search(r"GRANT\s+ALL\s+ON\s+(?:ALL\s+TABLES\s+IN\s+SCHEMA\s+public|TABLES\s+TO)", s, re.I):
+        return issues
+    if "information_schema.tables" in s:
+        return issues
+    issues.append("test_grants.sql grants no per-table access")
+    return issues
+
+
+def check_currency(raw):
+    """Every currency column must use ('dollar', 'lira').
+
+    'SAR', 'USD', 'EUR' (and any other value) is rejected because
+    the project's convention is dollar/lira only."""
+    issues = []
+    BAD = {"sar", "usd", "eur", "sr", "sek", "jpy", "gbp", "cad", "aud", "chf"}
+    # Find ADD COLUMN ... currency with a CHECK that allows bad values
+    for m in re.finditer(
+        r"ADD\s+COLUMN\s+(\w+)\s+TEXT\s+NOT\s+NULL\s+DEFAULT\s+'(\w+)'\s*"
+        r"CHECK\s*\(currency\s+IN\s*\(([^)]*)\)\)",
+        raw, re.I):
+        col, default, allowed = m.group(1), m.group(2).lower(), m.group(3)
+        vals = {v.strip().strip("'").lower() for v in allowed.split(",")}
+        bad = vals & BAD
+        if bad:
+            issues.append(
+                f"currency column {col!r} allows bad values {sorted(bad)} "
+                f"(must be 'dollar','lira')")
+        if default not in ("dollar", "lira"):
+            issues.append(
+                f"currency column {col!r} default is {default!r} "
+                f"(must be 'dollar' or 'lira')")
+    return issues
     """Verify every table and column the migration depends on is real.
     Re-declaring something production already has is flagged loudly."""
     issues, declared, notes = [], set(), []
@@ -208,6 +526,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from collections import defaultdict
 
@@ -285,11 +604,22 @@ def main():
         s_issues = check_structure(raw)
         i_issues = check_idempotency(raw)
         m_issues, declared, notes = check_matches_ref(raw, ref)
-        ok = not (s_issues or i_issues or m_issues)
+        f_issues = check_format_placeholders(raw)
+        o_issues = check_on_delete(raw)
+        r_issues = check_registry_ordering(raw)
+        g_issues = check_grants_coverage(ref["tables"])
+        c_issues = check_currency(raw)
+        sx_issues = check_strip_tx_unit()
+        ok = not (s_issues or i_issues or m_issues or f_issues
+                  or o_issues or r_issues or g_issues or c_issues
+                  or sx_issues)
         all_ok = all_ok and ok
         results.append({"file": os.path.relpath(path, ROOT), "ok": ok,
                         "structure": s_issues, "idempotency": i_issues,
                         "reference": m_issues, "declared": declared,
+                        "format": f_issues, "on_delete": o_issues,
+                        "registry": r_issues, "grants": g_issues,
+                        "currency": c_issues, "strip_tx": sx_issues,
                         "notes": notes})
 
     if args.json:
@@ -304,7 +634,13 @@ def main():
         print(f"\n{head}  {r['file']}")
         for label, key in (("structure", "structure"),
                            ("idempotency", "idempotency"),
-                           ("vs json_output", "reference")):
+                           ("vs json_output", "reference"),
+                           ("format placeholders", "format"),
+                           ("on_delete rules", "on_delete"),
+                           ("registry order", "registry"),
+                           ("grants coverage", "grants"),
+                           ("currency", "currency"),
+                           ("strip_tx unit", "strip_tx")):
             if r[key]:
                 print(f"   {YEL}{label}{RESET}")
                 for i in r[key]:

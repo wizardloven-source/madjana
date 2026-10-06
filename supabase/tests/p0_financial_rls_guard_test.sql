@@ -187,12 +187,12 @@ BEGIN
     PERFORM tests.set_user(v_worker_a);
     v_role := current_user_role();
     PERFORM tests.assert('STEP0 دور العامل يُقرأ صحيحاً', v_role = 'worker',
-                         format('role=%s', v_role));
+                         format('role=%ss', v_role));
 
     PERFORM tests.set_user(v_manager_a);
     v_role := current_user_role();
     PERFORM tests.assert('STEP0 دور المدير يُقرأ صحيحاً', v_role = 'manager',
-                         format('role=%s', v_role));
+                         format('role=%ss', v_role));
 
     -- 0c. THE decisive precondition. If access and manages disagree here, the
     --     helpers the policies depend on are not the ones we assume, and every
@@ -292,11 +292,18 @@ SELECT tests.expect_ok('seed: مصروف في مزرعة ب',
 -- Count as sysadmin: the last set_user above was manager_b, who can only see
 -- farm B's single payment, so asserting "2 payments" as manager_b would fail.
 SELECT tests.set_user('00000000-0000-0000-0000-00000000000e');
+-- A single % per value. The literal originally read "100%%", expecting
+-- C-style escaping, but PostgreSQL's format() treats %% as one literal
+-- percent and then has no specifier left for the argument, so it failed
+-- with: unrecognized format() type specifier " ". Because the file runs
+-- inside one transaction, that single error aborted every following
+-- assertion and the suite reported 54 failures instead of one.
 DO $seed_check$
 BEGIN
     PERFORM tests.assert('STEP1 زُرع صف مالي في كل مزرعة',
         (SELECT count(*) FROM payments) = 2,
-        format('payments=% expenses=% revenue=% opening_balances=% inventory=% adj=%',
+        format('payments=%ss expenses=%s revenue=%s opening_balances=%s '
+               'inventory=%s adj=%s',
                (SELECT count(*) FROM payments),
                (SELECT count(*) FROM expenses),
                (SELECT count(*) FROM revenue),
@@ -377,23 +384,23 @@ DO $no_writes$
 BEGIN
     PERFORM tests.assert('عامل لم يُدرج دفعة جديدة (لا دمج ولا حذف)',
         (SELECT count(*) FROM payments) = 2,
-        format('payments=%', (SELECT count(*) FROM payments)));
+        format('payments=%s', (SELECT count(*) FROM payments)));
     PERFORM tests.assert('العامل لم يُدرج مصروفاً في أي مزرعة',
         (SELECT count(*) FROM expenses) = 2,
-        format('expenses=%', (SELECT count(*) FROM expenses)));
+        format('expenses=%s', (SELECT count(*) FROM expenses)));
     PERFORM tests.assert('العامل لم يُدرج صنف مخزون',
         (SELECT count(*) FROM inventory_items) = 1,
-        format('inventory=%', (SELECT count(*) FROM inventory_items)));
+        format('inventory=%s', (SELECT count(*) FROM inventory_items)));
     PERFORM tests.assert('دفعة مزرعة أ لم تُعدَّل',
         (SELECT amount_paid FROM payments
           WHERE id = '00000000-0000-0000-0000-0000000000a3') = 100,
-        format('amount_paid=%',
+        format('amount_paid=%s',
                (SELECT amount_paid FROM payments
                 WHERE id = '00000000-0000-0000-0000-0000000000a3')));
     PERFORM tests.assert('مصروف مزرعة أ لم يُحذف',
         (SELECT amount FROM expenses
           WHERE id = '00000000-0000-0000-0000-0000000000a4') = 50,
-        format('amount=%',
+        format('amount=%s',
                (SELECT amount FROM expenses
                 WHERE id = '00000000-0000-0000-0000-0000000000a4')));
 END;
@@ -466,19 +473,19 @@ BEGIN
     PERFORM tests.assert('دفعة مزرعة ب لم تُعدَّل',
         (SELECT amount_paid FROM payments
           WHERE id = '00000000-0000-0000-0000-0000000000b3') = 200,
-        format('amount_paid=%',
+        format('amount_paid=%s',
                (SELECT amount_paid FROM payments
                 WHERE id = '00000000-0000-0000-0000-0000000000b3')));
     PERFORM tests.assert('مصروف مزرعة ب لم يُحذف',
         (SELECT amount FROM expenses
           WHERE id = '00000000-0000-0000-0000-0000000000b4') = 60,
-        format('amount=%',
+        format('amount=%s',
                (SELECT amount FROM expenses
                 WHERE id = '00000000-0000-0000-0000-0000000000b4')));
     PERFORM tests.assert('لا تسرّب من مزرعة أ إلى ب',
         (SELECT count(*) FROM expenses
           WHERE farm_id = '00000000-0000-0000-0000-000000000002') = 1,
-        format('expenses_B=%',
+        format('expenses_B=%s',
                (SELECT count(*) FROM expenses
                 WHERE farm_id = '00000000-0000-0000-0000-000000000002')));
 END;
@@ -530,17 +537,24 @@ $sync_ok$;
 --  no longer record production, the app would be broken rather than secured.
 -- ============================================================================
 SELECT tests.set_user('00000000-0000-0000-0000-00000000000b');
+-- farm_id is NOT NULL with no default on every operational table (the
+-- 00801 farm_id transition made the farm explicit rather than inferred from
+-- the active selection), so these INSERTs must name it. Omitting it was
+-- correct before that migration and has been failing since.
 SELECT tests.expect_ok('worker_a ما زال يُسجّل إنتاج بيض',
-    'INSERT INTO egg_production (flock_id, date, cartons, total_eggs, worker_id) '
-    'VALUES (''00000000-0000-0000-0000-0000000000a1'', ''2026-10-02'', 1, '
+    'INSERT INTO egg_production (farm_id, flock_id, date, cartons, total_eggs, worker_id) '
+    'VALUES (''00000000-0000-0000-0000-000000000001'', '
+    '''00000000-0000-0000-0000-0000000000a1'', ''2026-10-02'', 1, '
     '360, ''00000000-0000-0000-0000-00000000000b'')');
 SELECT tests.expect_ok('worker_a ما زال يُسجّل نفوقاً',
-    'INSERT INTO mortality (flock_id, date, count, reason, worker_id) VALUES '
-    '(''00000000-0000-0000-0000-0000000000a1'', ''2026-10-02'', 1, '
+    'INSERT INTO mortality (farm_id, flock_id, date, count, reason, worker_id) VALUES '
+    '(''00000000-0000-0000-0000-000000000001'', '
+    '''00000000-0000-0000-0000-0000000000a1'', ''2026-10-02'', 1, '
     '''unknown'', ''00000000-0000-0000-0000-00000000000b'')');
 SELECT tests.expect_ok('worker_a ما زال يُسجّل استهلاك علف',
-    'INSERT INTO feed_consumption (flock_id, date, entry_mode, quantity_kg, '
-    'worker_id) VALUES (''00000000-0000-0000-0000-0000000000a1'', '
+    'INSERT INTO feed_consumption (farm_id, flock_id, date, entry_mode, quantity_kg, '
+    'worker_id) VALUES (''00000000-0000-0000-0000-000000000001'', '
+    '''00000000-0000-0000-0000-0000000000a1'', '
     '''2026-10-02'', ''kg'', 5, '
     '''00000000-0000-0000-0000-00000000000b'')');
 
@@ -557,7 +571,7 @@ BEGIN
               WHERE worker_id = '00000000-0000-0000-0000-00000000000b') = 1
         AND (SELECT count(*) FROM feed_consumption
               WHERE worker_id = '00000000-0000-0000-0000-00000000000b') = 1,
-        format('egg=%s mort=%s feed=%s',
+        format('egg=%ss mort=%s feed=%s',
                (SELECT count(*) FROM egg_production
                  WHERE worker_id = '00000000-0000-0000-0000-00000000000b'),
                (SELECT count(*) FROM mortality

@@ -95,6 +95,7 @@ DECLARE
         'opening_balances', 'inventory_items', 'stock_adjustments'
     ];
     t text;
+    v_pol record;
 BEGIN
     FOREACH t IN ARRAY v_tables LOOP
         IF to_regclass('public.' || t) IS NULL THEN
@@ -107,28 +108,23 @@ BEGIN
         -- Drop EVERY policy on this table. See the header note: policies for the
         -- same command are OR-ed together, so any leftover permissive policy
         -- would defeat the recreate below.
-        EXECUTE format($drop$
-            DO $inner$
-            DECLARE p record;
-            BEGIN
-                FOR p IN
-                    SELECT policyname
-                      FROM pg_policies
-                     WHERE schemaname = 'public' AND tablename = %L
-                LOOP
-                    -- `t` is the table name and is used in three %L placeholders
-                    -- inside this DO body (the policyname lookup, the policy
-                    -- name, and the NOTICE), plus a fourth one in the outer
-                    -- body, so it must be supplied three times. It was passed
-                    -- only twice, which PostgreSQL rejects outright with
-                    -- "too few arguments for format()" and which left every
-                    -- financial table with its old, permissive policies.
-                    EXECUTE format('DROP POLICY IF EXISTS %%I ON public.%I',
-                                   p.policyname, %L);
-                    RAISE NOTICE 'dropped %% on public.%%', p.policyname, %L;
-                END LOOP;
-            END $inner$;
-        $drop$, t, t, t);
+        -- The DROP loop used to be a nested DO block BUILT as text by the
+        -- outer format(), with a second format() inside it. Escaping percent
+        -- signs through two format() layers is what made this file fail
+        -- three separate ways ("too few arguments", then "unrecognized
+        -- format() type specifier"). It is now a plain FOR loop over
+        -- pg_policies, executed directly: no generated text, no %% escaping,
+        -- nothing to get wrong. %I quotes identifiers, so a table or policy
+        -- name with unusual characters cannot break out of the statement.
+        FOR v_pol IN
+            SELECT policyname
+              FROM pg_policies
+             WHERE schemaname = 'public' AND tablename = t
+        LOOP
+            EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I',
+                           v_pol.policyname, t);
+            RAISE NOTICE 'dropped % on public.%', v_pol.policyname, t;
+        END LOOP;
 
         -- ── Recreate: manager-scoped for every verb ──────────────────────────
         -- user_manages_farm() already ORs in is_system_admin() (00800:74-84);

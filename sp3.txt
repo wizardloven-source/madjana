@@ -1,0 +1,19 @@
+  65 | DO $$
+ 111 |     -- so a $fix$ nested inside the surrounding $$ body woul
+ 112 |     -- the outer statement would run on to $fix$ and the rep
+ 116 | END;
+ 117 | $$;
+ 134 | DO $fix$
+ 180 | END;
+ 181 | $fix$;
+ 183 | DO $$
+ 207 | END;
+ 208 | $$;
+ 212 | DO $$
+ 222 | END;
+ 223 | $$;
+ 384 | END;
+ 385 | $$;
+ 463 | DO $$
+ 539 | END;
+ 540 | $$;

@@ -26,11 +26,29 @@ def split_statements(sql):
         ch = sql[i]
 
         # ── dollar-quoted body ────────────────────────────────────────────────
+        # ── closing a dollar quote ──────────────────────────────────────────
         if dollar_tag is not None:
             if sql.startswith(dollar_tag, i):
                 buf.append(dollar_tag)
                 i += len(dollar_tag)
                 dollar_tag = None
+                # A dollar-quoted body is a complete unit. When it closes at
+                # the end of a statement, the ';' that follows belongs to
+                # THAT statement, not to a new empty one. Consuming it here
+                # stops the splitter from emitting the whole block and then
+                # a stray '$$;' as the head of the next statement -- which is
+                # what made a following DO block look like it had run empty.
+                j = i
+                while j < n and sql[j] in " \t\r\n":
+                    j += 1
+                if j < n and sql[j] == ";":
+                    buf.append(sql[i:j])
+                    i = j + 1
+                    stmt = "".join(buf).strip()
+                    if stmt:
+                        stmts.append(stmt)
+                    buf = []
+                    continue
                 continue
             buf.append(ch)
             i += 1
@@ -129,6 +147,61 @@ def strip_tx(sql):
     """
     return re.sub(r"(?im)^[ \t]*(BEGIN|COMMIT|START TRANSACTION)[ \t]*;[ \t]*$",
                   "", sql)
+
+
+def strip_dollar_quoted(sql):
+    """Replaces every dollar-quoted body ($$ ... $$ AND $tag$ ... $tag$) with a
+    single space, so keyword scanning sees only real DDL and never the PL/pgSQL
+    source inside a function or DO block. Tagged quotes matter: init.sql and
+    the 00800/00801 migrations use $func$, not $$. """
+    out, i = [], 0
+    pat = re.compile(r"\$(\w*)\$")
+    while True:
+        m = pat.search(sql, i)
+        if not m:
+            out.append(sql[i:])
+            break
+        tag = m.group(0)
+        k = sql.find(tag, m.end())
+        if k < 0:
+            out.append(sql[i:])
+            break
+        out.append(sql[i:m.start()])
+        out.append(" ")
+        i = k + len(tag)
+    return "".join(out)
+
+
+def strip_tx(sql):
+    """Drop the file-level BEGIN/COMMIT/START TRANSACTION.
+
+    Dollar-quoted PL/pgSQL bodies (DO $tag$ ... END; $tag$) are preserved
+    entirely — we only strip BEGIN/COMMIT that appear at the start of a line
+    OUTSIDE any dollar quote. Without this, file-level stripping would delete
+    BEGIN/COMMIT inside DO blocks and silently corrupt every migration. """
+    out = []
+    in_dollar = False
+    for ln in sql.split("\n"):
+        if in_dollar:
+            # inside a dollar-quoted block: preserve the line as-is
+            if re.search(r"\$\w*\$", ln):
+                # closing tag seen -> block ends
+                in_dollar = False
+            out.append(ln)
+            continue
+
+        # outside dollar quotes: strip file-level transaction keywords
+        new = re.sub(r"^[ \t]*(BEGIN|COMMIT|START TRANSACTION)[ \t]*;[ \t]*$", "", ln)
+        out.append(new)
+
+        # does this line open a dollar quote (that is not self-closed)?
+        m = re.search(r"\$\w*\$", new)
+        if m:
+            tag = m.group(0)
+            if new[m.end():].find(tag) < 0:
+                in_dollar = True
+
+    return "\n".join(out)
 
 
 if __name__ == "__main__":

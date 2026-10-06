@@ -1,0 +1,13 @@
+expenses.expenses_read
+     (is_system_admin() OR user_manages_farm(farm_id))
+inventory_items.inventory_items_read
+     (is_system_admin() OR user_manages_farm(farm_id))
+opening_balances.opening_balances_read
+     (is_system_admin() OR user_manages_farm(farm_id))
+payments.payments_read
+     (is_system_admin() OR user_manages_farm(farm_id))
+revenue.revenue_read
+     (is_system_admin() OR user_manages_farm(farm_id))
+stock_adjustments.stock_adjustments_read
+     (is_system_admin() OR user_manages_farm(farm_id))
+total policies: 93

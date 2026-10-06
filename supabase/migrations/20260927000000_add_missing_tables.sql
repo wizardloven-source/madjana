@@ -88,14 +88,129 @@ BEGIN
             ON DELETE RESTRICT;
     END IF;
 
+    -- init.sql declares these three as
+    --     farm_id   ... ON DELETE CASCADE
+    --     flock_id  ... ON DELETE CASCADE
+    --     worker_id ... (no clause) => NO ACTION
+    -- and CREATE TABLE IF NOT EXISTS above is a no-op against that shape, so
+    -- they must be repaired here. All three are wrong for a ledger:
+    --
+    --   farm_id / flock_id  RESTRICT. CASCADE would silently erase a
+    --     flock's movement history the moment the flock was deleted, and
+    --     flocks are the units the whole cost model is built on. A refused
+    --     delete is recoverable; a vanished history is not.
+    --   worker_id  SET NULL. NO ACTION pins the account forever: nobody who
+    --     has ever recorded a movement could be removed. Attribution is
+    --     lost, the ledger is not.
+    --
+    -- confdeltype: a=NO ACTION, r=RESTRICT, c=CASCADE, n=SET NULL,
+    --              d=SET DEFAULT.
+    --
+    -- The repair itself is a SEPARATE top-level DO block below, not a nested
+    -- one. The statement splitter terminates a dollar-quoted body at the
+    -- next matching tag, so a differently-tagged block nested inside the
+    -- surrounding body would be swallowed: the outer statement would run on
+    -- past the inner tag and the repair would never execute on its own.
+    -- (Naming that inner tag in a COMMENT here is itself a trap, because the
+    -- splitter reads comments too -- it saw the tag and opened a body that
+    -- swallowed the rest of the file. Hence this wording.)
+    -- The column is named on_delete_action, not action, because `action`
+    -- collides with the pg_enum type of that name and PostgreSQL rejects the
+    -- reference with "syntax error at or near '.'".
+END;
+$$;
+
+-- ── Repair the three FKs init.sql got wrong ───────────────────────────────
+-- init.sql declares:
+--     farm_id   ... ON DELETE CASCADE
+--     flock_id  ... ON DELETE CASCADE
+--     worker_id ... (no clause) => NO ACTION
+-- and CREATE TABLE IF NOT EXISTS above is a no-op against that shape. All
+-- three are wrong for a ledger:
+--
+--   farm_id / flock_id  RESTRICT. CASCADE would silently erase a flock's
+--     movement history the moment the flock was deleted, and flocks are the
+--     units the entire cost model is built on. A refused delete is
+--     recoverable; a vanished history is not.
+--   worker_id  SET NULL. NO ACTION pins the account forever: nobody who has
+--     ever recorded a movement could ever be removed. Attribution is lost,
+--     the ledger is not.
+DO $fix$
+DECLARE
+    v_spec record;
+BEGIN
+    FOR v_spec IN
+        SELECT * FROM (VALUES
+            ('flock_movements_farm_id_fkey', 'RESTRICT', 'farm_id',
+             'public.farms(id)'),
+            ('flock_movements_flock_id_fkey', 'RESTRICT', 'flock_id',
+             'public.flocks(id)'),
+            ('flock_movements_worker_id_fkey', 'SET NULL', 'worker_id',
+             'public.users(id)')
+        ) AS want(cname, on_delete_action, col, reftable)
+    LOOP
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+             WHERE conname = v_spec.cname
+               AND conrelid = 'public.flock_movements'::regclass
+        ) THEN
+            CONTINUE;   -- not declared in this shape; nothing to fix
+        END IF;
+
+        -- Already correct? Leave it, so a re-run is a no-op.
+        IF EXISTS (
+            SELECT 1 FROM pg_constraint
+             WHERE conname = v_spec.cname
+               AND conrelid = 'public.flock_movements'::regclass
+               AND confdeltype = CASE v_spec.on_delete_action
+                                   WHEN 'RESTRICT' THEN 'r'::"char"
+                                   WHEN 'SET NULL' THEN 'n'::"char"
+                               END
+        ) THEN
+            CONTINUE;
+        END IF;
+
+        EXECUTE format('ALTER TABLE public.flock_movements '
+                       'DROP CONSTRAINT %I', v_spec.cname);
+        -- ON DELETE takes an identifier-like keyword, not a string literal,
+        -- so it is spliced from v_spec.on_delete_action with %s rather than
+        -- quoted with %I. The action comes from the VALUES list above, never
+        -- from user input, so the splice is safe.
+        EXECUTE format(
+            'ALTER TABLE public.flock_movements '
+            'ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %s ON DELETE %s',
+            v_spec.cname, v_spec.col, v_spec.reftable,
+            v_spec.on_delete_action);
+
+        RAISE NOTICE 'flock_movements: % -> ON DELETE %',
+            v_spec.cname, v_spec.on_delete_action;
+    END LOOP;
+END;
+$fix$;
+
+DO $$
+BEGIN
+    -- The count and type CHECKs are the other things init.sql does not carry
+    -- in the shape this migration targets. Without them a zero or negative
+    -- movement walks current_count backwards, and an unknown movement type is
+    -- accepted as if it were a real one.
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conname = 'flock_movements_farm_id_fkey'
-          AND conrelid = 'public.flock_movements'::regclass) THEN
+        WHERE conname = 'flock_movements_count_check'
+          AND conrelid = 'public.flock_movements'::regclass
+    ) THEN
         ALTER TABLE public.flock_movements
-            ADD CONSTRAINT flock_movements_farm_id_fkey
-            FOREIGN KEY (farm_id) REFERENCES public.farms(id)
-            ON DELETE RESTRICT;
+            ADD CONSTRAINT flock_movements_count_check CHECK (count > 0);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'flock_movements_type_check'
+          AND conrelid = 'public.flock_movements'::regclass
+    ) THEN
+        ALTER TABLE public.flock_movements
+            ADD CONSTRAINT flock_movements_type_check
+            CHECK (type IN ('addition', 'sale', 'transfer', 'destruction'));
     END IF;
 END;
 $$;
@@ -141,9 +256,19 @@ CREATE TABLE IF NOT EXISTS public.sync_table_registry (
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 
--- Seed with the production tables in dependency order. ON CONFLICT DO NOTHING
--- keeps an already-populated registry untouched: this migration declares the
--- SCHEMA, it must not rewrite the DATA.
+-- Seed with the production tables in dependency order.
+--
+-- 20260926000700 already creates this table and seeds it, but in a WRONG
+-- order: flocks=1 and customers=2 sit ahead of farms=10, and
+-- egg_production=3 precedes opening_balances=12. On a pull that means a
+-- device receives egg_production rows before the flock they belong to, and
+-- a movement ledger that arrives after the counts it explains.
+--
+-- ON CONFLICT DO UPDATE is therefore correct here, and is the whole point
+-- of this block: the row set was already right, the ordering was not.
+-- `users` and `user_farms` are absent from the 00700 seed and are added.
+-- The trailing WHERE keeps the update from touching rows that already have
+-- the intended order, so a re-run rewrites nothing.
 INSERT INTO public.sync_table_registry (table_name, sort_order) VALUES
     ('farms',                  10),
     ('users',                  20),
@@ -165,7 +290,9 @@ INSERT INTO public.sync_table_registry (table_name, sort_order) VALUES
     ('inventory_transactions',180),
     ('stock_adjustments',     190),
     ('dispatch_requests',     200)
-ON CONFLICT (table_name) DO NOTHING;
+ON CONFLICT (table_name) DO UPDATE
+    SET sort_order = EXCLUDED.sort_order
+    WHERE sync_table_registry.sort_order IS DISTINCT FROM EXCLUDED.sort_order;
 
 COMMENT ON TABLE public.sync_table_registry IS
     'Ordered allowlist of syncable tables. Parents precede children so a pull never orphans a row.';
@@ -184,88 +311,6 @@ CREATE POLICY sync_table_registry_read ON public.sync_table_registry
 
 COMMIT;
 
--- ===========================================================================
--- VERIFICATION (after COMMIT: a failure here never rolls the work back)
--- ===========================================================================
-
-DO $$
-DECLARE
-    v_missing text;
-BEGIN
-    -- Both tables must exist and be RLS-enabled.
-    IF to_regclass('public.flock_movements') IS NULL THEN
-        RAISE EXCEPTION 'FAIL: public.flock_movements still missing';
-    END IF;
-    IF to_regclass('public.sync_table_registry') IS NULL THEN
-        RAISE EXCEPTION 'FAIL: public.sync_table_registry still missing';
-    END IF;
-
-    -- RLS enabled on both.
-    IF NOT (SELECT relrowsecurity FROM pg_class
-             WHERE oid = 'public.flock_movements'::regclass) THEN
-        RAISE EXCEPTION 'FAIL: RLS not enabled on flock_movements';
-    END IF;
-
-    -- The consistency guard must exist, otherwise principle 5/6 is unguarded.
-    IF NOT EXISTS (SELECT 1 FROM pg_trigger
-                   WHERE tgrelid = 'public.flock_movements'::regclass
-                     AND tgname = 'trg_validate_flock_movements'
-                     AND NOT tgisinternal) THEN
-        -- Report WHY, because a bare "not installed" sent us looking in the
-        -- wrong place. The usual cause is that CREATE TRIGGER failed on a
-        -- missing function or a missing column, and the trigger was simply
-        -- never created.
-        RAISE EXCEPTION
-            'FAIL: trg_validate_flock_movements not installed. '
-            'validate_flock_farm() present: %; flock_id column present: %; '
-            'existing triggers: %; schema: %',
-            (SELECT count(*) > 0 FROM pg_proc p
-               JOIN pg_namespace n ON n.oid = p.pronamespace
-              WHERE n.nspname = 'public'
-                AND p.proname = 'validate_flock_farm'),
-            EXISTS (SELECT 1 FROM information_schema.columns
-                     WHERE table_schema = 'public'
-                       AND table_name = 'flock_movements'
-                       AND column_name = 'flock_id'),
-            (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger
-              WHERE tgrelid = 'public.flock_movements'::regclass
-                AND NOT tgisinternal),
-            -- Which schema actually holds the table? init.sql creates it
-            -- unqualified, so if search_path was ever anything other than
-            -- public the table would live elsewhere and every public.-scoped
-            -- statement here would have failed earlier rather than quietly.
-            (SELECT n.nspname FROM pg_class c
-               JOIN pg_namespace n ON n.oid = c.relnamespace
-              WHERE c.oid = 'public.flock_movements'::regclass);
-    END IF;
-
-    -- The sync triggers must exist, otherwise movements never sync at all.
-    -- Names come from json_output.txt, which lists four on this table plus
-    -- the two this migration adds. Only the ones we install are checked.
-    SELECT string_agg(t, ', ') INTO v_missing
-      FROM unnest(ARRAY['flock_movements_sync_insert',
-                        'flock_movements_sync_update',
-                        'flock_movements_tombstone',
-                        'flock_movements_updated_at',
-                        'trg_update_flock_count_movements',
-                        'trg_validate_flock_movements',
-                        'trg_guard_flock_movement_user_change']) AS t
-     WHERE NOT EXISTS (SELECT 1 FROM pg_trigger
-                        WHERE tgrelid = 'public.flock_movements'::regclass
-                          AND tgname = t AND NOT tgisinternal);
-    IF v_missing IS NOT NULL THEN
-        RAISE EXCEPTION
-            'FAIL: missing triggers on flock_movements: %. Present: %',
-            v_missing,
-            (SELECT COALESCE(string_agg(tgname, ', ' ORDER BY tgname), 'none')
-               FROM pg_trigger
-              WHERE tgrelid = 'public.flock_movements'::regclass
-                AND NOT tgisinternal);
-    END IF;
-
-    RAISE NOTICE 'OK: W0.1 verified - flock_movements + sync_table_registry present';
-END;
-$$;
 
 -- ── Triggers ──────────────────────────────────────────────────────────────
 -- Names below are the ONES ALREADY IN PRODUCTION (json_output.txt), so this
@@ -394,9 +439,9 @@ CREATE TRIGGER trg_validate_flock_feed_recv
 -- ── NEW GUARD (was absent in production) ──────────────────────────────────
 -- Principle 5/6 of the spec: no wrong linking, ever. Without this trigger a
 -- movement could name a flock belonging to ANOTHER farm and still be
--- accepted -- validate_flock_farm() is the project's existing guard and is
--- reused verbatim, exactly as init.sql does for egg_production/mortality/
--- feed_consumption/medications/opening_balances. It no-ops when
+-- accepted. validate_flock_farm() is the project's existing guard and is
+-- reused verbatim, exactly as init.sql does for egg_production / mortality /
+-- feed_consumption / medications / opening_balances. It no-ops when
 -- flock_id IS NULL; here flock_id is NOT NULL, so the guard always applies.
 DROP TRIGGER IF EXISTS trg_validate_flock_movements
     ON public.flock_movements;
@@ -404,25 +449,10 @@ CREATE TRIGGER trg_validate_flock_movements
     BEFORE INSERT OR UPDATE ON public.flock_movements
     FOR EACH ROW EXECUTE FUNCTION public.validate_flock_farm();
 
--- Same for the worker-attribution guard. The verification block at the end
--- reports any trigger that is missing, but only after the fact; these two
--- guarded blocks name the failing statement at the moment it fails, so a
--- build log points at the cause instead of at the summary.
-DO $$
-BEGIN
-    BEGIN
-        EXECUTE 'DROP TRIGGER IF EXISTS trg_validate_flock_movements
-                 ON public.flock_movements';
-        EXECUTE 'CREATE TRIGGER trg_validate_flock_movements
-                 BEFORE INSERT OR UPDATE ON public.flock_movements
-                 FOR EACH ROW
-                 EXECUTE FUNCTION public.validate_flock_farm()';
-    EXCEPTION WHEN OTHERS THEN
-        RAISE EXCEPTION
-            'FAIL: could not create trg_validate_flock_movements: %', SQLERRM;
-    END;
-END;
-$$;
+-- The verification block below is a DO body, and PostgreSQL runs the file
+-- top to bottom, so a guard declared AFTER it would be checked before it
+-- exists. Both guards are therefore installed HERE, before COMMIT, and the
+-- verification that follows only observes.
 
 -- ── RLS ───────────────────────────────────────────────────────────────────
 -- Production names are `*_select` (not `*_read`) for this table; kept as-is.
@@ -448,3 +478,85 @@ DROP POLICY IF EXISTS flock_movements_delete ON public.flock_movements;
 CREATE POLICY flock_movements_delete ON public.flock_movements
     FOR DELETE TO authenticated
     USING (public.user_manages_farm(farm_id));
+
+
+DO $$
+DECLARE
+    v_missing text;
+BEGIN
+    -- Both tables must exist and be RLS-enabled.
+    IF to_regclass('public.flock_movements') IS NULL THEN
+        RAISE EXCEPTION 'FAIL: public.flock_movements still missing';
+    END IF;
+    IF to_regclass('public.sync_table_registry') IS NULL THEN
+        RAISE EXCEPTION 'FAIL: public.sync_table_registry still missing';
+    END IF;
+
+    -- RLS enabled on both.
+    IF NOT (SELECT relrowsecurity FROM pg_class
+             WHERE oid = 'public.flock_movements'::regclass) THEN
+        RAISE EXCEPTION 'FAIL: RLS not enabled on flock_movements';
+    END IF;
+
+    -- The consistency guard must exist, otherwise principle 5/6 is unguarded.
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                   WHERE tgrelid = 'public.flock_movements'::regclass
+                     AND tgname = 'trg_validate_flock_movements'
+                     AND NOT tgisinternal) THEN
+        -- Report WHY, because a bare "not installed" sent us looking in the
+        -- wrong place. The usual cause is that CREATE TRIGGER failed on a
+        -- missing function or a missing column, and the trigger was simply
+        -- never created.
+        RAISE EXCEPTION
+            'FAIL: trg_validate_flock_movements not installed. '
+            'validate_flock_farm() present: %; flock_id column present: %; '
+            'existing triggers: %; schema: %',
+            (SELECT count(*) > 0 FROM pg_proc p
+               JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'public'
+                AND p.proname = 'validate_flock_farm'),
+            EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND table_name = 'flock_movements'
+                       AND column_name = 'flock_id'),
+            (SELECT string_agg(tgname, ', ' ORDER BY tgname) FROM pg_trigger
+              WHERE tgrelid = 'public.flock_movements'::regclass
+                AND NOT tgisinternal),
+            -- Which schema actually holds the table? init.sql creates it
+            -- unqualified, so if search_path was ever anything other than
+            -- public the table would live elsewhere and every public.-scoped
+            -- statement here would have failed earlier rather than quietly.
+            (SELECT n.nspname FROM pg_class c
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE c.oid = 'public.flock_movements'::regclass);
+    END IF;
+
+    -- The sync triggers must exist, otherwise movements never sync at all.
+    -- Names come from json_output.txt, which lists four on this table plus
+    -- the two this migration adds. Only the ones we install are checked.
+    SELECT string_agg(t, ', ') INTO v_missing
+      FROM unnest(ARRAY['flock_movements_sync_insert',
+                        'flock_movements_sync_update',
+                        'flock_movements_tombstone',
+                        'flock_movements_updated_at',
+                        'trg_update_flock_count_movements',
+                        'trg_validate_flock_movements',
+                        'trg_guard_flock_movement_user_change']) AS t
+     WHERE NOT EXISTS (SELECT 1 FROM pg_trigger
+                        WHERE tgrelid = 'public.flock_movements'::regclass
+                          AND tgname = t AND NOT tgisinternal);
+    IF v_missing IS NOT NULL THEN
+        RAISE EXCEPTION
+            'FAIL: missing triggers on flock_movements: %. Present: %',
+            v_missing,
+            (SELECT COALESCE(string_agg(tgname, ', ' ORDER BY tgname), 'none')
+               FROM pg_trigger
+              WHERE tgrelid = 'public.flock_movements'::regclass
+                AND NOT tgisinternal);
+    END IF;
+
+    RAISE NOTICE 'OK: W0.1 verified - flock_movements + sync_table_registry present';
+END;
+$$;
+
+-- ── Triggers ──────────────────────────────────────────────────────────────

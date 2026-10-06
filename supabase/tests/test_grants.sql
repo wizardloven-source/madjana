@@ -61,3 +61,24 @@ BEGIN
                    current_database());
 END
 $$;
+
+-- The two tables recovered by 20260927000000 were missing from the
+-- GRANT ALL ON ALL TABLES above, because that statement runs against the
+-- tables that existed when this file executes, and the recovery migration
+-- creates its tables with its own connection. test_runner then hit
+-- "permission denied for table flock_movements" and, because the suite runs
+-- inside a transaction, every statement after it was rejected as well.
+-- Naming them explicitly is the fix; the default privileges below cover
+-- anything created later.
+DO $$
+DECLARE
+    t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['flock_movements', 'sync_table_registry'] LOOP
+        IF to_regclass('public.' || t) IS NOT NULL THEN
+            EXECUTE format('GRANT ALL ON public.%I TO test_runner', t);
+            EXECUTE format('GRANT ALL ON public.%I TO service_role', t);
+        END IF;
+    END LOOP;
+END
+$$;

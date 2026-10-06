@@ -62,15 +62,25 @@ purchase. The app must not create one, and the cost query must not read
 Priority order, first match wins:
 
 1. `inventory_item_id` set → cost of the units actually drawn down
+   (`quantity * unit_cost` from `inventory_items`)
 2. otherwise `cost` (entered by the manager at treatment time)
 3. otherwise **0, with a visible warning to the manager**
 
 A silent 0 is how money disappears from a report. If the cost is unknown,
 the interface must say so.
 
----
+### Constraints enforced by the database
 
-## 5. Stock adjustments
+| Column | Rule |
+|---|---|
+| `cost` | NULL allowed; if set, must be ≥ 0 |
+| `currency` | NOT NULL, default `'dollar'`, CHECK (`'dollar'` \| `'lira'`) |
+| `inventory_item_id` | NULL allowed; FK → `inventory_items(id)` ON DELETE SET NULL |
+
+The currency convention matches `expenses` and `payments`: dollar/lira only.
+`SAR`, `USD`, `EUR` and any other code are rejected at insert time.
+
+---\n\n## 5. Stock adjustments
 
 ```
 stock cost for flock X = SUM(delta_qty * unit_price)   -- stock_adjustments
@@ -182,5 +192,7 @@ feed invoice that names a flock).
 | Date | Change |
 |---|---|
 | 2026-09-27 | Document created (M1). `expenses.flock_id` defined. |
+| 2026-10-03 | M2: `stock_adjustments` gets `flock_id`, `unit_price`, `currency`. `farm_id` FK fixed to RESTRICT. |
+| 2026-10-03 | M3: `medications` gets `cost`, `currency`, `inventory_item_id`. |
 
 
