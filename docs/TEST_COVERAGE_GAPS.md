@@ -124,6 +124,15 @@ there is no transaction, so the test shows a partial state — which is the bug.
 Authenticate as `role = 'worker'` and assert that `SELECT` and `INSERT` on
 `payments`, `expenses`, `revenue`, and `customers` are all rejected, while
 
+**LANDED — M8.** `supabase/tests/p0_financial_rls_guard_test.sql` (suite **4c**
+in `run_all.py`) is exactly this test, on all six money tables (`payments`,
+`expenses`, `revenue`, `opening_balances`, `inventory_items`,
+`stock_adjustments`): it must be run as a non-owner (`test_runner`) or it
+passes vacuously, and it FAILS if migration `20260926000800`'s weakened
+policies (`user_has_farm_access`) are ever reintroduced. `customers` is
+explicitly **not** covered (see the deliberate scope note in
+`20261002000000_restore_financial_rls.sql` §3).
+
 ---
 
 ## 5. Testing that should exist but is currently absent

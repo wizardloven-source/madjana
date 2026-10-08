@@ -122,6 +122,8 @@ enabled, and `sync_status` constrained to
 |---|---|
 | 2026-09-27 | Document created (W0.4). Drift checker added. Items 1-4 closed. |
 | 2026-09-27 | Added rollback `20260927000001_rollback_missing_tables.sql`, the `guard_worker_same_farm()` trigger, and the `db_migration_test` CI job. W0.1 marked untested. |
+| 2026-10-03 | M7: `revenue.worker_id` TEXT→UUID with FK `revenue_worker_id_fkey` (ON DELETE SET NULL) and `idx_revenue_worker`. Suite **4m**. Guards and rollback in `20261003000700/701`. |
+| 2026-10-03 | M8: financial RLS is manager-only again on payments/expenses/revenue/opening_balances/inventory_items/stock_adjustments. Forward `20261002000000`, rollback `20261002000001`, guard suite **4c**. |
 
 # SCHEMA_REFERENCE — Madjana
 
@@ -224,3 +226,101 @@ SQL semantics, index usage, lock behaviour and actual RLS evaluation all
 require a live PostgreSQL. See the testing-status note in §5.
 
 ---
+
+## 6. Validation triggers (W2 / M5)
+
+Every table that carries `flock_id` is guarded by `validate_flock_farm()`
+(`BEFORE INSERT OR UPDATE`): a row naming a flock of another farm is
+refused; `flock_id IS NULL` passes (farm-level rows are legitimate).
+
+| Table | Trigger | Introduced by |
+|---|---|---|
+| egg_production | `trg_validate_flock_farm` | `init.sql` §13 |
+| mortality | `trg_validate_flock_mortality` | `init.sql` §13 |
+| feed_consumption | `trg_validate_flock_feed` | `init.sql` §13 |
+| medications | `trg_validate_flock_med` | `init.sql` §13 |
+| opening_balances | `trg_validate_flock_ob` | `init.sql` §13 |
+| flock_movements | `trg_validate_flock_movements` | `20260927000000` (W0.1) |
+| egg_dispatch | `trg_validate_flock_dispatch` | `20260927000000` (W0.1) |
+| feed_received | `trg_validate_flock_feed_recv` | `20260927000000` (W0.1) |
+| expenses | `trg_validate_flock_expenses` | `20261003000100` (M1) |
+| stock_adjustments | `trg_validate_flock_sa` | `20261003000500` (M5) — was missing |
+
+`require_farm_id()` (`BEFORE INSERT OR UPDATE`) refuses `farm_id IS NULL`
+with a stable message (`farm_id is required (table %)`) on egg_dispatch,
+feed_received, stock_adjustments, expenses and medications. All five
+triggers and the function belong to `20261003000500` (M5).
+
+### `revenue.worker_id` is UUID (M7)
+
+`revenue.worker_id` is the **last** `worker_id` column to carry a loose
+`text` type; the other eight (`dispatch_requests`, `egg_dispatch`,
+`egg_production`, `feed_consumption`, `feed_received`, `flock_movements`,
+`medications`, `mortality`) are all `uuid REFERENCES users(id)`. M7 —
+`20261003000700` / rollback `20261003000701` — closes it:
+
+- **precheck** refuses the migration while any non-empty non-uuid value is
+  on file (`found % invalid worker_id values in revenue`);
+- **conversion** `ALTER COLUMN worker_id TYPE uuid USING
+  NULLIF(worker_id, '')::uuid` — `''` (what the app writes today) becomes
+  `NULL`, valid uuid strings are preserved;
+- **FK** `revenue_worker_id_fkey -> users(id) ON DELETE SET NULL` (a revenue
+  record must survive the user that logged it — the gate rejects CASCADE for
+  `worker_id`);
+- **index** `idx_revenue_worker` for the by-worker query pattern;
+- the conversion is **conditional on the column still being `text`**, so a
+  re-apply is a safe no-op (naively re-checking `worker_id <> ''` against a
+  uuid column raises `invalid input syntax for type uuid: ''`).
+
+`p0_revenue_worker_id_test.sql` (suite **4m** in `run_all.py`) verifies
+type/FK/index, all 9 `worker_id` columns being uuid, ON DELETE SET NULL,
+idempotent re-apply, the rollback, the `'' -> NULL` conversion with preserved
+counts, and that revenue's RLS is untouched.
+
+### Financial RLS is manager-only (M8)
+
+The six money tables — `payments`, `expenses`, `revenue`,
+`opening_balances`, `inventory_items`, `stock_adjustments` — carry exactly
+four policies each, all `TO authenticated`:
+
+| Command | Predicate |
+|---|---|
+| `SELECT` (`<table>_read`) | `is_system_admin() OR user_manages_farm(farm_id)` |
+| `INSERT` (`<table>_insert`) | same, as `WITH CHECK` |
+| `UPDATE` (`<table>_update`) | same, as `USING` + `WITH CHECK` |
+| `DELETE` (`<table>_delete`) | same, as `USING` |
+
+`user_manages_farm()` requires a `manager` (or `system_admin`) listed in
+`user_farms` for the farm, so a worker sees **zero** financial rows and
+cannot write one — the M8 `worker_financial_blind` invariant. Cross-farm
+reads/writes are also denied because the predicate is farm-scoped per row.
+
+History: `20260926000800` had weakened these tables to
+`user_has_farm_access` (true for any farm member, worker included).
+`20261002000000_restore_financial_rls.sql` (M8 forward) dropped **every**
+policy on the six tables — name-targeted DROPs are unsafe because PostgreSQL
+ORs matching policies — and recreated the manager-scoped shape above, then
+verifies none of the six tables is left permissive, `authenticated`-only.
+Rollback `20261002000001` restores the 00800 weakened shape verbatim.
+
+> **Deliberate exception — `customers` is *not* manager-gated.** The worker
+> must read and update the farm's address book (`customers.account_name`,
+> phone, `is_global`, custom `last_seen`) while dispatching production, so
+> `customers` keeps `user_has_farm_access`. This is a conscious product
+> decision (see SECURITY_AUDIT §4), not a SEC-002-style regression: it
+> exposes contact-book rows, never financial figures. Re-gating it would
+> require a UI/API path that reads the address book as the manager and would
+> break dispatch.
+
+`p0_financial_rls_guard_test.sql` (suite **4c**) proves the invariant:
+worker cannot read/insert/update/delete money; manager sees and writes only
+their farm; sysadmin bypasses; sync still pushes as the manager; worker can
+still record production. STEP 10 replays the rollback (asserting the pre-M8
+shape returns) and STEP 11 replays the forward (asserting the guard comes
+back), all inside `BEGIN/ROLLBACK`.
+
+Every new guard ships with a test: `supabase/tests/
+p0_validate_flock_farm_coverage_test.sql` (33 assertions, suite **4h**
+in `run_all.py`). Rollback ownership for each trigger is documented in
+`docs/SECURITY.md`.
+

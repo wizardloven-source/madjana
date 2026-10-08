@@ -54,6 +54,12 @@ DECLARE
     v_msg        text;
 BEGIN
     -- ── setup: one flock per farm ────────────────────────────────────────────
+    -- The suite runs as test_runner, so before this line there are no
+    -- request.jwt.claims: op_insert on flocks evaluates
+    -- (is_system_admin() OR farm_id = current_user_farm_id()) as FALSE and
+    -- the fixtures die with "new row violates row-level security policy".
+    -- Seeding FARM_A and FARM_B needs an identity that passes both farms.
+    PERFORM tests.set_user(v_sysadmin);
     INSERT INTO public.flocks (farm_id, breed, initial_count, current_count,
                                 start_date, status)
     VALUES (v_farm_a, 'Test Layer A', 1000, 1000, CURRENT_DATE - 100, 'active'),

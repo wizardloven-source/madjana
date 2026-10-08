@@ -61,8 +61,12 @@ purchase. The app must not create one, and the cost query must not read
 
 Priority order, first match wins:
 
-1. `inventory_item_id` set → cost of the units actually drawn down
-   (`quantity * unit_cost` from `inventory_items`)
+1. `inventory_item_id` set → cost of the units actually drawn down,
+   priced by the stock movement that consumed them
+   (`stock_adjustments.unit_price` × quantity). `inventory_items`
+   carries **no** price column of its own — there is no `unit_cost` to
+   multiply — so when no movement price exists the row falls through to
+   rule 2. (Valuation is still an open gap: `docs/ERP_GAP_MATRIX.md` §17.)
 2. otherwise `cost` (entered by the manager at treatment time)
 3. otherwise **0, with a visible warning to the manager**
 

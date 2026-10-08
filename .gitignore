@@ -40,3 +40,14 @@ Thumbs.db
 
 # Supabase CLI local state (project link, cached CLI versions)
 supabase/.temp/
+# Python
+__pycache__/
+*.pyc
+
+# scratch/analysis files (never commit)
+analyze_err.txt
+analyze_out.txt
+fix_do_block.py
+
+# deployment backups
+backups/

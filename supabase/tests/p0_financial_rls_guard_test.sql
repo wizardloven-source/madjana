@@ -14,6 +14,12 @@
 --  This file closes the gap. It is the test that must FAIL before
 --  20261002000000_restore_financial_rls.sql and PASS after it.
 --
+--  Since M8 it also proves the pair: STEP 10 replays the rollback
+--  (20261002000001) and asserts the pre-M8 (00800) shape is faithfully
+--  restored — deliberately the state under which this suite FAILS — and
+--  STEP 11 replays the forward, proving a rollback-then-reapply cycle ends
+--  manager-scoped again.
+--
 --  HOW TO RUN
 --  ----------
 --    MUST run as a NON-SUPERUSER (test_runner), exactly like every other suite
@@ -628,6 +634,272 @@ BEGIN
     END LOOP;
 END;
 $structural$;
+
+-- ============================================================================
+--  STEP 10) التراجع يردّ الجداول الستة إلى الشكل السابق للـ M8 بأمانة
+--  Replay the rollback migration 20261002000001 exactly as a re-apply would
+--  (DDL under SET ROLE postgres, like every other suite in run_all.py). If the
+--  rollback did not restore the pre-M8 (00800) shape, the $rb_replay_verify$
+--  block below raises and this suite fails.
+-- ============================================================================
+SET ROLE postgres;
+
+DO $rb_replay$
+DECLARE
+    v_tables text[] := ARRAY[
+        'payments', 'expenses', 'revenue',
+        'opening_balances', 'inventory_items', 'stock_adjustments'
+    ];
+    t text;
+    v_pol record;
+BEGIN
+    FOREACH t IN ARRAY v_tables LOOP
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+
+        FOR v_pol IN
+            SELECT policyname
+              FROM pg_policies
+             WHERE schemaname = 'public' AND tablename = t
+        LOOP
+            EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I',
+                           v_pol.policyname, t);
+        END LOOP;
+
+        EXECUTE format($preM8$
+            CREATE POLICY %1$I_read ON public.%1$I
+                FOR SELECT TO authenticated
+                USING (public.user_has_farm_access(farm_id));
+
+            CREATE POLICY %1$I_insert ON public.%1$I
+                FOR INSERT TO authenticated
+                WITH CHECK (public.user_has_farm_access(farm_id));
+
+            CREATE POLICY %1$I_update ON public.%1$I
+                FOR UPDATE TO authenticated
+                USING (public.user_has_farm_access(farm_id))
+                WITH CHECK (public.user_has_farm_access(farm_id));
+
+            CREATE POLICY %1$I_delete ON public.%1$I
+                FOR DELETE TO authenticated
+                USING (public.user_manages_farm(farm_id));
+        $preM8$, t);
+    END LOOP;
+END
+$rb_replay$;
+
+DO $rb_replay_verify$
+DECLARE
+    v_tables text[] := ARRAY[
+        'payments', 'expenses', 'revenue',
+        'opening_balances', 'inventory_items', 'stock_adjustments'
+    ];
+    t text;
+    p record;
+    v_pred text;
+    v_seen int;
+BEGIN
+    FOREACH t IN ARRAY v_tables LOOP
+        v_seen := 0;
+        FOR p IN
+            SELECT policyname, cmd, roles::text AS roles_txt,
+                   coalesce(qual, '') AS q,
+                   coalesce(with_check, '') AS wc
+              FROM pg_policies
+             WHERE schemaname = 'public' AND tablename = t
+        LOOP
+            v_pred := CASE WHEN p.cmd = 'INSERT' THEN p.wc
+                           ELSE p.q || ' ' || p.wc END;
+
+            IF v_pred = '' THEN
+                RAISE EXCEPTION
+                    'rollback replay: public.% policy % (%) has no predicate.',
+                    t, p.policyname, p.cmd;
+            END IF;
+
+            IF p.cmd = 'DELETE' THEN
+                PERFORM tests.assert(
+                    format('rollback: %s.%s (%s) عادت إلى user_manages_farm',
+                           t, p.policyname, p.cmd),
+                    v_pred ILIKE '%user_manages_farm%', left(v_pred, 120));
+            ELSE
+                PERFORM tests.assert(
+                    format('rollback: %s.%s (%s) عادت إلى user_has_farm_access',
+                           t, p.policyname, p.cmd),
+                    v_pred ILIKE '%user_has_farm_access%', left(v_pred, 120));
+            END IF;
+
+            PERFORM tests.assert(
+                format('rollback: %s.%s مقصورة على authenticated', t, p.policyname),
+                position('anon' in p.roles_txt) = 0
+                AND position('public' in p.roles_txt) = 0,
+                p.roles_txt);
+
+            v_seen := v_seen + 1;
+        END LOOP;
+        PERFORM tests.assert(format('rollback: الجدول %s له 4 سياسات', t),
+            v_seen = 4, 'policies=' || v_seen);
+    END LOOP;
+END
+$rb_replay_verify$;
+
+SET ROLE test_runner;
+
+-- ============================================================================
+--  STEP 11) وإعادة تطبيق M8 (0102) تعيد الحارس  —  idempotent متراجع
+--  Replay the forward migration 20261002000000 verbatim, as a re-apply would.
+--  Build already applied it once; this proves a second apply on top of the
+--  rollback works and ends in the manager-scoped state STEP 9 asserted.
+-- ============================================================================
+SET ROLE postgres;
+
+DO $fwd_replay$
+DECLARE
+    v_tables text[] := ARRAY[
+        'payments', 'expenses', 'revenue',
+        'opening_balances', 'inventory_items', 'stock_adjustments'
+    ];
+    t text;
+    v_pol record;
+BEGIN
+    FOREACH t IN ARRAY v_tables LOOP
+        IF to_regclass('public.' || t) IS NULL THEN
+            RAISE EXCEPTION
+                'ABORT: public.% is missing. init.sql must be applied first.', t;
+        END IF;
+
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+
+        FOR v_pol IN
+            SELECT policyname
+              FROM pg_policies
+             WHERE schemaname = 'public' AND tablename = t
+        LOOP
+            EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I',
+                           v_pol.policyname, t);
+        END LOOP;
+
+        EXECUTE format($pol$
+            CREATE POLICY %1$I_read ON public.%1$I
+                FOR SELECT TO authenticated
+                USING (public.is_system_admin()
+                       OR public.user_manages_farm(farm_id));
+
+            CREATE POLICY %1$I_insert ON public.%1$I
+                FOR INSERT TO authenticated
+                WITH CHECK (public.is_system_admin()
+                            OR public.user_manages_farm(farm_id));
+
+            CREATE POLICY %1$I_update ON public.%1$I
+                FOR UPDATE TO authenticated
+                USING (public.is_system_admin()
+                       OR public.user_manages_farm(farm_id))
+                WITH CHECK (public.is_system_admin()
+                            OR public.user_manages_farm(farm_id));
+
+            CREATE POLICY %1$I_delete ON public.%1$I
+                FOR DELETE TO authenticated
+                USING (public.is_system_admin()
+                       OR public.user_manages_farm(farm_id));
+        $pol$, t);
+    END LOOP;
+END
+$fwd_replay$;
+
+DO $fwd_replay_verify$
+DECLARE
+    v_tables text[] := ARRAY[
+        'payments', 'expenses', 'revenue',
+        'opening_balances', 'inventory_items', 'stock_adjustments'
+    ];
+    t text;
+    p record;
+    v_pred text;
+    v_seen int;
+BEGIN
+    FOREACH t IN ARRAY v_tables LOOP
+        v_seen := 0;
+        FOR p IN
+            SELECT policyname, cmd, roles::text AS roles_txt,
+                   coalesce(qual, '') AS q,
+                   coalesce(with_check, '') AS wc
+              FROM pg_policies
+             WHERE schemaname = 'public' AND tablename = t
+        LOOP
+            v_pred := CASE WHEN p.cmd = 'INSERT' THEN p.wc
+                           ELSE p.q || ' ' || p.wc END;
+
+            IF v_pred = '' THEN
+                RAISE EXCEPTION
+                    'ABORT: public.% policy % (%) has no predicate — it allows every row.',
+                    t, p.policyname, p.cmd;
+            END IF;
+
+            IF v_pred NOT ILIKE '%user_manages_farm%'
+               AND v_pred NOT ILIKE '%system_admin%' THEN
+                RAISE EXCEPTION
+                    'ABORT: public.% policy % (%) is not manager-gated: %',
+                    t, p.policyname, p.cmd, left(v_pred, 200);
+            END IF;
+
+            IF position('anon' in p.roles_txt) > 0
+               OR position('public' in p.roles_txt) > 0 THEN
+                RAISE EXCEPTION
+                    'ABORT: public.% policy % (%) is granted to % (must be authenticated only).',
+                    t, p.policyname, p.cmd, p.roles_txt;
+            END IF;
+
+            v_seen := v_seen + 1;
+        END LOOP;
+        PERFORM tests.assert(format('forward replay: الجدول %s له سياسات', t),
+            v_seen > 0, '');
+    END LOOP;
+END
+$fwd_replay_verify$;
+
+SET ROLE test_runner;
+
+-- ============================================================================
+--  STEP 12) الفحص البنيوي النهائي — الحارس عاد بعد التراجع وإعادة التطبيق
+-- ============================================================================
+DO $structural_final$
+DECLARE
+    v_tables text[] := ARRAY[
+        'payments', 'expenses', 'revenue',
+        'opening_balances', 'inventory_items', 'stock_adjustments'
+    ];
+    t text;
+    p record;
+    v_pred text;
+    v_seen int := 0;
+BEGIN
+    FOREACH t IN ARRAY v_tables LOOP
+        FOR p IN
+            SELECT policyname, cmd, roles::text AS roles_txt,
+                   coalesce(qual, '') AS q,
+                   coalesce(with_check, '') AS wc
+              FROM pg_policies
+             WHERE schemaname = 'public' AND tablename = t
+        LOOP
+            v_pred := CASE WHEN p.cmd = 'INSERT' THEN p.wc
+                           ELSE p.q || ' ' || p.wc END;
+            PERFORM tests.assert(
+                format('final: سياسة %s.%s (%s) مُقيّدة بمدير', t, p.policyname, p.cmd),
+                v_pred <> ''
+                AND (v_pred ILIKE '%user_manages_farm%'
+                     OR v_pred ILIKE '%system_admin%'),
+                left(v_pred, 120));
+            PERFORM tests.assert(
+                format('final: سياسة %s.%s مقصورة على authenticated', t, p.policyname),
+                position('anon' in p.roles_txt) = 0
+                AND position('public' in p.roles_txt) = 0,
+                p.roles_txt);
+            v_seen := v_seen + 1;
+        END LOOP;
+        PERFORM tests.assert(format('final: الجدول %s له سياسات', t), v_seen > 0, '');
+        v_seen := 0;
+    END LOOP;
+END;
+$structural_final$;
 
 -- ============================================================================
 --  النتيجة

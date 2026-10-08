@@ -48,6 +48,14 @@ SQL_SUITES = [
     ("4c. P0 financial RLS guard", "p0_financial_rls_guard_test.sql"),
     ("4d. W0.1 recovered tables", "w0_1_missing_tables_test.sql"),
     ("4e. P0 expenses.flock_id", "p0_expenses_flock_test.sql"),
+    ("4f. P0 medications.cost", "p0_medications_cost_test.sql"),
+    ("4g. P0 flocks.archived", "p0_flock_archived_test.sql"),
+    ("4h. M5 flock/farm guard coverage", "p0_validate_flock_farm_coverage_test.sql"),
+    ("4i. M6a PIN secret v2", "p0_pin_secret_test.sql"),
+    ("4j. M6 deploy simulation (M6a+M6b)", "p0_deploy_m6_test.sql"),
+    ("4k. M6b login throttle", "p0_throttle_test.sql"),
+    ("4l. M6c security alerts RLS + admin surface", "p0_security_alerts_rls_test.sql"),
+    ("4m. M7 revenue.worker_id uuid", "p0_revenue_worker_id_test.sql"),
 ]
 
 
@@ -114,6 +122,17 @@ def run_sql(title, filename):
 
 
 def main():
+    # Windows console code pages (cp1256/cp1252) cannot encode every
+    # character the suites emit -- a single '⇒' in a NOTICE line crashed
+    # this script mid-run on the dev box while CI (UTF-8) was fine.
+    # Reconfigure before any print; 'replace' keeps a truncated line
+    # readable rather than fatal.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass  # Python <3.7 or a stream that forbids reconfigure
+
     no_build = "--no-build" in sys.argv
     if not no_build:
         run("1. build test database", "build_test_db.py")

@@ -82,3 +82,16 @@ BEGIN
     END LOOP;
 END
 $$;
+
+-- w0_1_missing_tables_test.sql section 3 deletes an auth.users row to prove
+-- flock_movements.worker_id is SET NULL rather than cascaded, then re-inserts
+-- that user and its user_farms membership to restore the fixture for the
+-- suites that follow. Neither target is covered by the grants above: the shim
+-- has no GoTrue owning auth.users (only service_role was granted there), and
+-- authenticated holds SELECT, not INSERT/DELETE, on user_farms. Without these
+-- two statements the suite dies mid-transaction with
+-- "permission denied for table users" and every assertion after it is lost.
+-- Grants open the TABLE only: RLS still decides which rows may move, so the
+-- isolation suites that assert "must be denied" are unaffected.
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.users TO test_runner;
+GRANT INSERT, DELETE ON public.user_farms TO test_runner;

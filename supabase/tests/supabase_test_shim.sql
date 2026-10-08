@@ -34,8 +34,42 @@ CREATE TABLE IF NOT EXISTS auth.users (
     raw_user_meta_data jsonb NOT NULL DEFAULT '{}'::jsonb,
     aud                text DEFAULT 'authenticated',
     role               text DEFAULT 'authenticated',
-    created_at         timestamptz NOT NULL DEFAULT now()
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    -- GoTrue columns the app's writer functions touch (M6a p0 suite):
+    encrypted_password text,
+    email_confirmed_at  timestamptz,
+    raw_app_meta_data  jsonb NOT NULL DEFAULT '{}'::jsonb,
+    last_sign_in_at    timestamptz,
+    updated_at         timestamptz
 );
+
+-- the block above only applies on a fresh build; a re-run against an existing
+-- database (where CREATE TABLE IF NOT EXISTS is a no-op) still gets the columns
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS encrypted_password text;
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email_confirmed_at timestamptz;
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_app_meta_data jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS last_sign_in_at timestamptz;
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+
+-- ── M6a app.* GUCs ─────────────────────────────────────────────────────────
+-- The deploy suites verify the FIRST of these is set after the build and that
+-- the SECOND was persisted by M6a (it auto-seeds app.v1_grace_until = now+7d).
+-- Setting via ALTER ROLE postgres mirrors the Supabase instruction in
+-- docs/SECURITY.md §8 (ALTER ROLE works from the SQL Editor; ALTER DATABASE
+-- does not). This secret is a TEST-ONLY fake, never a real secret.
+ALTER ROLE postgres SET app.pin_secret = 'madjana-test-secret';
+
+-- app.v1_grace_until is auto-seeded by M6a to now+7d, but only while the GUC
+-- is unset, and the role-level setting survives a DROP DATABASE rebuild -- so a
+-- rebuild hours later would keep a stale grace and 4j's "grace = now + 7d"
+-- window (+/-2h) would fail. Refresh the role-level value to a fresh now+7d on
+-- every build, the same way pin_secret above is (re)set as a literal.
+DO $$
+BEGIN
+    EXECUTE format('ALTER ROLE postgres SET app.v1_grace_until = %L',
+                   (NOW() + interval '7 days')::text);
+END
+$$;
 
 -- auth.uid(): reads the sub claim out of request.jwt.claims, exactly the way
 -- PostgREST exposes it. Supports both the JSON and the legacy scalar setting.

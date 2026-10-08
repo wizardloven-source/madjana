@@ -335,7 +335,7 @@ def check_on_delete(raw):
                 if on_delete != "RESTRICT":
                     issues.append(f"FK {col!r} -> {ref_tbl!r}: must be RESTRICT, found {on_delete}")
             elif col in {"worker_id", "created_by"}:
-                if on_delete not in {"SET NULL", "NO ACTION"}:
+                if on_delete not in {"SET_NULL", "NO_ACTION"}:
                     issues.append(f"FK {col!r} -> {ref_tbl!r}: should be SET NULL, found {on_delete}")
         if on_delete == "CASCADE":
             issues.append(f"FK -> {ref_tbl!r}: ON DELETE CASCADE silently erases production records")
@@ -351,7 +351,7 @@ def check_on_delete(raw):
             if on_delete != "RESTRICT":
                 issues.append(f"ADD COLUMN {col!r} FK: must be RESTRICT, found {on_delete}")
         elif col in {"worker_id", "created_by"}:
-            if on_delete not in {"SET NULL", "NO ACTION"}:
+            if on_delete not in {"SET_NULL", "NO_ACTION"}:
                 issues.append(f"ADD COLUMN {col!r} FK: should be SET NULL, found {on_delete}")
         if on_delete == "CASCADE":
             issues.append(f"ADD COLUMN {col!r}: ON DELETE CASCADE silently erases production records")

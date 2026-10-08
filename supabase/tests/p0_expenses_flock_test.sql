@@ -52,11 +52,18 @@ DECLARE
     v_flock_b  uuid;
     v_admin_a  uuid := '00000000-0000-0000-0000-00000000000a';
     v_worker_a uuid := '00000000-0000-0000-0000-00000000000b';
+    v_sysadm   uuid := '00000000-0000-0000-0000-00000000000e';
     v_direct   numeric;
     v_farmlvl  numeric;
     v_worker_can_write boolean;
 BEGIN
     -- ── setup ───────────────────────────────────────────────────────────────
+    -- The suite runs as test_runner: with no request.jwt.claims, op_insert
+    -- on flocks is FALSE for every farm and the fixtures die with
+    -- "new row violates row-level security policy". Seeding FARM_A and
+    -- FARM_B needs the one identity that passes both. Sections 7 and 8
+    -- switch to a worker and to manager A further down.
+    PERFORM tests.set_user(v_sysadm);
     INSERT INTO public.flocks (farm_id, breed, initial_count, current_count,
                                 start_date, status)
     VALUES (v_farm_a, 'T Flock A', 1000, 1000, CURRENT_DATE - 100, 'active'),

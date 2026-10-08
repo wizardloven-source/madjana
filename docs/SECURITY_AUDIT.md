@@ -167,22 +167,49 @@ CREATE POLICY op_update ON %I FOR UPDATE TO authenticated
 `WITH CHECK` on `UPDATE` prevents moving a row to another farm — correct, and
 frequently omitted elsewhere.
 
-### Financial tables (manager-only)
-`ensure_manager_policies` applied to `payments`, `expenses`, `revenue`,
-`opening_balances`, `inventory_items`:
+### Financial tables (manager-only — restored by M8)
+`payments`, `expenses`, `revenue`, `opening_balances`, `inventory_items` and
+`stock_adjustments` are manager-scoped **and** farm-scoped. Migration
+`20260926000800` had weakened them to `user_has_farm_access` — true for any
+`user_farms` member, worker included — which reopened SEC-002.
+`20261002000000_restore_financial_rls.sql` (M8) dropped every policy on the
+six tables and recreated four per table:
 ```sql
-CREATE POLICY mgr_all ON %I FOR ALL TO authenticated
-  USING (is_system_admin() OR current_user_role() = 'manager')
-  WITH CHECK (is_system_admin() OR current_user_role() = 'manager');
+CREATE POLICY <table>_read ON <table> FOR SELECT TO authenticated
+  USING (public.is_system_admin() OR public.user_manages_farm(farm_id));
+CREATE POLICY <table>_insert ON <table> FOR INSERT TO authenticated
+  WITH CHECK (public.is_system_admin() OR public.user_manages_farm(farm_id));
+CREATE POLICY <table>_update ON <table> FOR UPDATE TO authenticated
+  USING (public.is_system_admin() OR public.user_manages_farm(farm_id))
+  WITH CHECK (public.is_system_admin() OR public.user_manages_farm(farm_id));
+CREATE POLICY <table>_delete ON <table> FOR DELETE TO authenticated
+  USING (public.is_system_admin() OR public.user_manages_farm(farm_id));
 ```
+`user_manages_farm(farm_id)` requires a `manager` (or `system_admin`) who is
+a member of `user_farms` for that farm, so the worker is blind to money and
+a manager is limited to their own farms. `p0_financial_rls_guard_test.sql`
+(suite 4c) proves the worker-blind / manager-farm-scoped / sysadmin-bypass
+behaviour on all six tables, plus rollback-and-reapply (steps 10-11 in
+`20261002000001` and `20261002000000`). **This section was factually wrong
+about production while the weakened policies stood; M8 makes it true again.**
 
-**SEC-004 — P2 — `mgr_all` is not farm-scoped.** Note the contrast: the
-operational policies filter on `farm_id = current_user_farm_id()`, but `mgr_all`
-filters on **role only**. A `manager` linked to several farms via `user_farms` can
-read **and write every financial record in all of them**, including farms where
-they are not the active manager.
+**SEC-004 — FIXED in M8 — Was: `mgr_all` not farm-scoped.** The pre-00800
+`mgr_all` policy filtered on **role only**: a `manager` linked to several
+farms via `user_farms` could read **and write every financial record in all
+of them, including farms where they are not the active manager. M8's shape
+above is farm-scoped as well as role-scoped, so SEC-004 no longer applies to
+the financial tables. (Whether one manager may legitimately oversee several
+farms remains a product decision — the policies now enforce it either way.)
 
-Whether this is intentional (a manager legitimately overseeing several farms) is
+**Deliberate decision — `customers` stays worker-accessible.** Unlike the
+six financial tables, `customers` is intentionally **not** manager-gated in
+M8: the worker must read and update the farm's address book
+(`account_name`, phone, `is_global` rows, custom `last_seen`) while
+dispatching production, and the brief assigns customers to dispatch rather
+than to profit. The operational policy below still farm-scopes it and the
+manager-only `DELETE` holds. This exposes contact-book rows, never financial
+figures; re-gating it to managers would break dispatch and is deferred to a
+future phase (see SCHEMA_REFERENCE §6, M8 “deliberate exception”).
 
 ---
 

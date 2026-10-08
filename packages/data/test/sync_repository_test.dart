@@ -149,8 +149,9 @@ void main() {
           'UPDATE sync_queue SET farm_id = NULL, next_retry_at = ?', [now]);
 
       final repo = buildRepo(MockClient((request) async {
+        // fail() returns Never, so no return statement follows: the handler
+        // must never produce a response for a row with no known farm.
         fail('يجب ألا يُرفع سجل بلا مزرعة معروفة إطلاقاً');
-        return jsonReply('{}', request);
       }));
 
       final records = await repo.getPendingChanges();

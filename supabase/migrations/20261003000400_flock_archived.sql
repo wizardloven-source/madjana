@@ -52,13 +52,29 @@ CREATE TRIGGER trg_guard_flock_archive
     BEFORE UPDATE OF status ON flocks
     FOR EACH ROW EXECUTE FUNCTION public.trg_guard_flock_archive();
 
--- 5. RLS: workers don't see archived; managers and admins do
-DROP POLICY IF EXISTS op_select ON public.flocks;
-CREATE POLICY op_select ON public.flocks FOR SELECT TO authenticated
+-- 5. RLS: farm-scoped read; workers don't see archived, managers do.
+--    v1 of this policy read `current_user_role() = 'manager'` UNSCOPED.
+--    Policies are PERMISSIVE and compose with OR, so that one branch
+--    granted every manager of every farm a read on EVERY flock -- a
+--    cross-farm leak that p0_isolation_and_sync_test (suite 4a) caught.
+--
+--    flocks_read must carry the same scope, for two reasons:
+--      * it alone would keep handing archived rows to workers -- the
+--        union of permissive policies is what a role actually sees; and
+--      * without the manager clause a manager could no longer open her
+--        own archived flocks through the base policy either.
+--
+--    The leaky op_select on flocks is dropped, not repaired: flocks
+--    already has a properly named read policy, and a second one with
+--    identical scope is one more thing to keep in sync for no gain.
+DROP POLICY IF EXISTS flocks_read ON public.flocks;
+CREATE POLICY flocks_read ON public.flocks FOR SELECT TO authenticated
     USING (
         is_system_admin()
-        OR current_user_role() = 'manager'
-        OR (farm_id = current_user_farm_id() AND status <> 'archived')
+        OR (user_has_farm_access(farm_id) AND
+            (current_user_role() = 'manager' OR status <> 'archived'))
     );
+
+DROP POLICY IF EXISTS op_select ON public.flocks;
 
 COMMIT;
