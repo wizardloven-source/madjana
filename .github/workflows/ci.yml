@@ -125,9 +125,12 @@ jobs:
         run: |
           # Rollbacks are excluded: they share the 14-digit prefix but undo
           # the migration beside them. Including them would create
-          # flock_movements and drop it again in the same run.
+          # flock_movements and drop it again in the same run. UPGRADE_* files
+          # are one-off production data fixes (they reference real farms) --
+          # same reason build_test_db.py skips them as "not part of the
+          # numbered chain".
           for f in $(ls -1 supabase/migrations/*.sql \
-                       | grep -v 'rollback' | grep -v 'UNIFIED_schema'); do
+                       | grep -v 'rollback' | grep -v 'UNIFIED_schema' | grep -v 'UPGRADE'); do
             echo "::group::apply $f"
             # incremental ALTERs -- they need the schema build_test_db
             # created in madjana_test; the bare `postgres` db is empty.
@@ -155,7 +158,7 @@ jobs:
           # every migration in this repo promises to be. Fail loudly here
           # rather than in production. Rollbacks excluded, as above.
           for f in $(ls -1 supabase/migrations/*.sql \
-                       | grep -v 'rollback' | grep -v 'UNIFIED_schema'); do
+                       | grep -v 'rollback' | grep -v 'UNIFIED_schema' | grep -v 'UPGRADE'); do
             echo "::group::re-apply $f"
             psql -h "$PGHOST" -p "$PGPORT" -U postgres -d madjana_test -v ON_ERROR_STOP=1 -q -f "$f"
             echo "::endgroup::"

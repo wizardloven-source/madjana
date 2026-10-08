@@ -19,6 +19,7 @@ ALTER TABLE stock_adjustments
 
 -- flock_id: nullable (feed adjustments may not have a flock)
 ALTER TABLE stock_adjustments
+    DROP CONSTRAINT IF EXISTS stock_adjustments_flock_id_fkey,
     ADD COLUMN IF NOT EXISTS flock_id UUID,
     ADD CONSTRAINT stock_adjustments_flock_id_fkey
         FOREIGN KEY (flock_id) REFERENCES flocks(id) ON DELETE RESTRICT;
