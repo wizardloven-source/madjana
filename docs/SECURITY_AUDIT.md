@@ -116,7 +116,7 @@ This is the most significant *authorization* gap, and it is a product gap rather
 than a defect — but it is the reason a farm owner would either over-grant (a
 manager with delete rights on all money) or under-use the software.
 
-### SEC-002 — P1 — Client-side role checks are decorative
+### SEC-002 — P1 — Client-side role checks are decorative — ✅ FIXED in production (2026-10-08)
 `canViewFinancials` and `canEdit` hide navigation items, but every presentation
 file calls repositories directly:
 ```dart
@@ -135,6 +135,17 @@ correct design** — but two consequences follow:
 `payments`, `expenses`, `revenue`, and `customers.total_debt` are rejected for
 both `SELECT` and `INSERT`. Roughly 40 lines, and the highest-value security
 test in the project.
+
+**Deployment record:**
+
+| Field | Value |
+|---|---|
+| Date | 2026-10-08 |
+| Migration | `20261002000000_restore_financial_rls.sql` (introduced in commit `456dad3`) |
+| Applied via | `supabase/tools/deploy_sec002_fix.py --apply` (backup + precheck + apply + verify) |
+| Result | 24 manager-scoped policies live — 4 per money table (`payments`, `expenses`, `revenue`, `opening_balances`, `inventory_items`, `stock_adjustments`), every predicate `(is_system_admin() OR user_manages_farm(farm_id))`, `TO authenticated` only |
+| Verification | `--verify` PASSED; worker-role probe → 0 rows on `payments`/`revenue`/`expenses`; `verify_schema_drift` drift = 0 |
+| Reference | `json_output.txt` regenerated from live production (24 policy lines refreshed; 981 lines / 92 policies preserved) |
 
 ### SEC-003 — P1 — No granular permission model
 `ensure_manager_policies(p_table)` is all-or-nothing: `FOR ALL` to managers on
@@ -305,7 +316,7 @@ by a plain GRANT without a role check. Worth a periodic sweep, not urgent.
 |---|---|---|---|
 | SEC-001 | **P0** | 4-digit PIN (10⁴) as sole credential for all financial data | `UNIFIED_schema.sql:2300` |
 | SEC-005 | **P1** | `find_user_by_phone` + `app_user_email` granted to `anon` → user enumeration and UUID→email oracle | `UNIFIED_schema.sql` GRANT block |
-| SEC-002 | **P1** | Client role checks decorative; RLS untested, so the boundary is unverified | presentation layer + no tests |
+| SEC-002 | **P1 → ✅ FIXED** | ~~Client role checks decorative; RLS untested~~ → worker blocked on all six money tables in production (2026-10-08) | `20261002000000_restore_financial_rls.sql` (commit `456dad3`) |
 | SEC-003 | **P1** | No granular permissions — no cashier/accountant role exists | `ensure_manager_policies` |
 | SEC-004 | **P2** | `mgr_all` on financial tables is role-scoped but **not farm-scoped** | `UNIFIED_schema.sql:3157-3165` |
 | SEC-006 | **P2** | Verify no table is guarded by GRANT alone without a role check | audit follow-up |

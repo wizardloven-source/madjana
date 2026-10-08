@@ -140,7 +140,12 @@ curl -X POST "$SUPABASE_URL/rest/v1/expenses" -H "apikey: $ANON" -H "Authorizati
 - Watch the desktop Sync Center for 30 seconds: `0 failures`.
 - Update `docs/DEPLOYMENT.md`'s "last applied" date here when done.
 
-**Last applied to production:** _not yet_.
+**Last applied to production:** 2026-10-08 — SEC-002 fix `20261002000000_restore_financial_rls.sql`.
+
+On 2026-10-08, after the apply:
+- **SEC-002 applied on 2026-10-08** (worker blocked on all six money tables).
+- **Drift = 0 after apply** — `verify_schema_drift.py` passes against `json_output.txt`.
+- **`json_output.txt` regenerated** from live production (24 RLS policy lines refreshed; 981 lines / 92 policies preserved).
 
 ### 2.6 Emergency revert (only if the deploy breaks the app)
 
