@@ -207,3 +207,17 @@ invariant check and the ACC-006 class cannot recur silently.
 
 **This is real testing, not test theatre.** The infrastructure-quality work in
 this repo is genuinely verified.
+
+---
+
+## 8. T4 lint debt — packages/data
+
+> This T4 is a **lint** gap, distinct from the ACC-005 T4 in §4. Tracking it
+> here so the "no CI-exemptions without a gap record" rule stays true.
+
+| Field | Detail |
+|---|---|
+| **Status** | 31 `info` lints in `auth_repository_impl.dart`, `mortality_repository_impl.dart`, `payment_dao.dart`, `supabase_auth_datasource.dart`, `backup_models.dart`, `daos_rest_test.dart`, `daos_occ_test.dart`, `repositories_impl_test.dart`, `repositories_impl_rest_test.dart`, `remote_contract_test.dart` (const/override/braces/interpolation/library-directive). |
+| **Origin** | Pre-W2; none touch W2 files (`sync_repository_test.dart` is clean). |
+| **CI handling** | `flutter analyze --no-fatal-infos` in `.github/workflows/ci.yml` — style infos no longer fail the job; errors and warnings still block. |
+| **Fix owner** | **W5** — `TODO(W5)` in `packages/data/lib/data.dart` references this section. |

@@ -1,5 +1,10 @@
 # Analyzer configuration for the data package.
 #
+# NOTE: 31 info lints (const/override/braces/interpolation/library-doc) are
+# non-blocking. CI runs `flutter analyze --no-fatal-infos`, so style infos are
+# reported but do not fail the job; errors and warnings still do.
+# TODO(W5): fix the 31 lints. See docs/TEST_COVERAGE_GAPS.md §8 (T4 lint debt).
+#
 # This file was MISSING while the other three packages had one, which left
 # `flutter analyze` running with the analyzer's defaults instead of
 # package:flutter_lints -- the reason CI's "Analyze (packages/data)" step

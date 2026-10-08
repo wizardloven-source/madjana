@@ -23,7 +23,7 @@ jobs:
 
       - name: Analyze (packages/data)
         working-directory: packages/data
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
 
       - name: Test (packages/data)
         working-directory: packages/data

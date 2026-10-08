@@ -1,5 +1,8 @@
 // حزمة البيانات - طبقة الوصول للمصادر
 //
+// TODO(W5): fix the 31 info lints in packages/data
+// See: docs/TEST_COVERAGE_GAPS.md §8 (T4 lint debt)
+//
 // المصادر المحلية (SQLite)
 export 'src/datasources/local/local_database.dart';
 export 'src/datasources/local/daos/egg_production_dao.dart';
