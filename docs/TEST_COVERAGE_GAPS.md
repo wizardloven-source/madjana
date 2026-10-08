@@ -221,3 +221,27 @@ this repo is genuinely verified.
 | **Origin** | Pre-W2; none touch W2 files (`sync_repository_test.dart` is clean). |
 | **CI handling** | `flutter analyze --no-fatal-infos` in `.github/workflows/ci.yml` — style infos no longer fail the job; errors and warnings still block. |
 | **Fix owner** | **W5** — `TODO(W5)` in `packages/data/lib/data.dart` references this section. |
+
+---
+
+## 9. Test alignment — payment receivables-safety (2026-10-08)
+
+Two tests in `repositories_impl_test.dart` were asserting **stale** behaviour
+and failing:
+
+1. `PaymentRepositoryImpl-قبض المدير > save` expected `sync_status = pending`
+   after a save, but the implementation (`payment_repository_impl.dart:41-43`)
+   deliberately marks a directly-uploaded row `synced` so it does not sit as
+   `pending` forever (added by the repo owner, commit `2816d51`, with the
+   explanatory comment "لا يبقى pending للأبد").
+2. `... > getAll` expected an **empty** online result when the server had
+   nothing, but `getAll` (`payment_repository_impl.dart:128-159`) deliberately
+   merges pending local rows into online reads so offline-recorded receipts
+   never disappear from the list ("حتى لا تختفي المقبوضات المسجلة دون اتصال").
+
+Both tests were updated to assert the intended receivables-safety behaviour.
+The implementation was **not** touched — merging pending local receipts and
+flipping direct uploads to `synced` are intentional product decisions, and
+reverting them (or the `flush()`-style assertions that made them fail) would
+break the no-lost-collection guarantee. | Implementation | Unchanged |
+| Tests | Aligned to current intent |

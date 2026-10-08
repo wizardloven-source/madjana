@@ -182,11 +182,12 @@ void main() {
 
       await repo.save(payment(dispatchId: dispatchId));
 
-      // محلياً: منفصل pending
+      // محلياً: نجح الرفع المباشر فيُكفأ الصف synced كي لا يبقى pending إلى
+      // الأبد (payment_repository_impl.dart:41-43 — receivables-safety).
       final db = await LocalDatabase.database;
       final rows = await db.query('payments');
       expect(rows, hasLength(1));
-      expect(rows.first['sync_status'], SyncStatus.pending.name);
+      expect(rows.first['sync_status'], SyncStatus.synced.name);
 
       // البعيد: سطر مدرج
       expect(fake.tables['payments'], hasLength(1));
@@ -225,10 +226,13 @@ void main() {
       fake.failWrites = false;
       fake.clearCalls();
 
-      // المزامنة ناجحة: البعيد فارغ
+      // المزامنة متاحة: البعيد فارغ، لكن getAll تدمج المعلّق محلياً كي لا تختفي
+      // المقبوضات المسجّلة دون اتصال (payment_repository_impl.dart:128-159 —
+      // receivables-safety merge).
       fake.failReads = false;
       final online = await repo.getAll(farmId: 'farm-1');
-      expect(online, isEmpty);
+      expect(online, hasLength(1));
+      expect(online.first.amountPaid, 100);
 
       // انقطاع: يُرتجع المحلي
       fake.failReads = true;
