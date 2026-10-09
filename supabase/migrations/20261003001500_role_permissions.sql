@@ -53,9 +53,19 @@ CREATE TABLE IF NOT EXISTS public.role_permissions (
 -- NULLS NOT DISTINCT: (role, capability, NULL) is the single GLOBAL default
 -- for that capability. PG 13+; the local PG15 and the Supabase PG15 both
 -- accept it. A farm-scoped row must never shadow-global twice.
-ALTER TABLE public.role_permissions
-    ADD CONSTRAINT role_permissions_unique UNIQUE NULLS NOT DISTINCT
-    (role, capability, farm_id);
+DO $m16$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conname = 'role_permissions_unique'
+           AND conrelid = 'public.role_permissions'::regclass
+    ) THEN
+        ALTER TABLE public.role_permissions
+            ADD CONSTRAINT role_permissions_unique UNIQUE NULLS NOT DISTINCT
+            (role, capability, farm_id);
+    END IF;
+END;
+$m16$;
 
 -- ── 2) per-user overrides ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.user_permissions (
