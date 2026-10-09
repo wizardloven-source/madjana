@@ -32,7 +32,7 @@ class SaveEggProductionUseCase {
     try {
       await repository.saveLocal(record);
       return SaveEggProductionResult.success();
-    } catch (e) {
+    } on Exception catch (e) {
       return SaveEggProductionResult.failure('فشل الحفظ: $e');
     }
   }

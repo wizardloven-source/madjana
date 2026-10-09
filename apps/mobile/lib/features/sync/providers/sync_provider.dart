@@ -18,7 +18,7 @@ class SyncState {
 
   /// نص آخر خطأсинcatch، لعرضه في شاشة المزامنة.
   ///
-  /// كان `catch (_)` في _syncOnce يبتلع الاستثناء بالكامل: أي فشل شبكة أو
+  /// كان `catch (…)` في _syncOnce يبتلع الاستثناء بالكامل: أي فشل شبكة أو
   /// RPC أو Edge Function 404 كان يختفي بلا أثر، فتظهر الواجهة كأن شيئاً لم
   /// يحدث ولا يمكن تشخيصه. هذه القيمة هي ما يجعل الخطأ مرئياً.
   final String? lastError;
@@ -110,7 +110,8 @@ class SyncNotifier extends StateNotifier<SyncState> {
             : SyncConnectionStatus.disconnected,
       );
       if (connected && autoSyncEnabled) _startPeriodicSync();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: sync probeConnectivity: $e');
       // فحص فاشل = لا نعرف؛ نبقى على الحالة الافتراضية ولا نبدأ شيئاً.
     }
   }
@@ -121,7 +122,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
     try {
       final prefs = await SharedPreferences.getInstance();
       autoSyncEnabled = prefs.getBool('auto_sync_enabled') ?? true;
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: sync loadAutoSyncPref: $e');
+    }
   }
 
   /// يُستدعى عند تسجيل الخروج: يوقف المؤقتات الدورية (رفع كل 30 ثانية)
@@ -200,7 +203,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
         // حدّث البيانات المرجعية المخزّنة مؤقتاً بعد نجاح السحب.
         try {
           onSynced?.call();
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('madjana: sync onSynced callback: $e');
+        }
       }
       await _refreshCounts();
       // ═══ H-4 FIX: لا تُحدّث lastSyncAt إلا عند نجاح المزامنة الكاملة ═══

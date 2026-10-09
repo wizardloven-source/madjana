@@ -19,7 +19,7 @@ class SupabaseMedicationDatasource {
       try {
         await insert(r);
         successIds.add(r.id ?? '');
-      } catch (_) {
+      } on Exception {
         failedIds.add(r.id ?? '');
       }
     }

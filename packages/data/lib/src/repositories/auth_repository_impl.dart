@@ -53,7 +53,9 @@ class AuthRepositoryImpl implements AuthRepository {
         await _settingsDao.set('offline_pin_hash', pinHash);
         await _settingsDao.set('offline_user_json', jsonEncode(user.toJson()));
         await _settingsDao.set('offline_farm_id', user.farmId ?? '');
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('madjana: save offline login creds: $e');
+      }
 
       return LoginResult.success(user);
     } on AuthException catch (e) {
@@ -63,6 +65,7 @@ class AuthRepositoryImpl implements AuthRepository {
       }
       return LoginResult.failure(e.message);
     } catch (e) {
+      debugPrint('madjana: login unexpected: $e');
       if (_isNetworkError(e.toString())) {
         return _tryOfflineLogin(phone, pin);
       }
@@ -115,6 +118,7 @@ class AuthRepositoryImpl implements AuthRepository {
 
       return LoginResult.success(user);
     } catch (e) {
+      debugPrint('madjana: offline login: $e');
       return LoginResult.failure('خطأ في الدخول بدون إنترنت: $e');
     }
   }
@@ -172,6 +176,7 @@ class AuthRepositoryImpl implements AuthRepository {
     } on AuthException catch (e) {
       return LoginResult.failure(e.message);
     } catch (e) {
+      debugPrint('madjana: createFirstAdmin failed: $e');
       return LoginResult.failure('فشل إنشاء الحساب: $e');
     }
   }
@@ -184,7 +189,8 @@ class AuthRepositoryImpl implements AuthRepository {
     try {
       uid =
           _remoteDatasource?.currentUid ?? localSession?['user_id'] as String?;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: currentUid fallback to local: $e');
       uid = localSession?['user_id'] as String?;
     }
     if (uid == null || uid.isEmpty) return null;
@@ -194,7 +200,9 @@ class AuthRepositoryImpl implements AuthRepository {
     if (remote != null) {
       try {
         await _sessionDao.saveUserJson(jsonEncode(remote.toJson()));
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('madjana: save remote user json: $e');
+      }
       return remote;
     }
 
@@ -203,7 +211,9 @@ class AuthRepositoryImpl implements AuthRepository {
     if (cached != null) {
       try {
         return UserModel.fromJson(cached);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('madjana: cached user parse fallback: $e');
+      }
     }
     return null;
   }
@@ -218,7 +228,8 @@ class AuthRepositoryImpl implements AuthRepository {
           .timeout(const Duration(seconds: 8), onTimeout: () => null);
       if (response == null) return null;
       return UserModel.fromJson(response);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: fetchUserById fallback: $e');
       return null;
     }
   }
@@ -254,7 +265,9 @@ class AuthRepositoryImpl implements AuthRepository {
       }
       await _settingsDao.set('offline_farm_id', user.farmId ?? farmId);
       await _settingsDao.set('offline_user_json', jsonEncode(user.toJson()));
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: save session after setActiveFarm: $e');
+    }
     return user;
   }
 
@@ -268,7 +281,9 @@ class AuthRepositoryImpl implements AuthRepository {
       await _settingsDao.set('offline_pin_hash', '');
       await _settingsDao.set('offline_user_json', '');
       await _settingsDao.set('offline_farm_id', '');
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: logout clear offline creds: $e');
+    }
     await _remoteDatasource?.logout();
   }
 }

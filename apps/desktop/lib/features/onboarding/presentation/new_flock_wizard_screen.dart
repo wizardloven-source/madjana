@@ -61,7 +61,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
     try {
       final farm = await ref.read(farmRepositoryProvider).getFarm(_farmId);
       _farmNameCtrl.text = farm.name;
-    } catch (_) {}
+    } catch (e) { debugPrint('madjana: farm name load skipped: $e'); }
     try {
       final users =
           await ref.read(userAdminRepositoryProvider).getUsers(_farmId);
@@ -69,7 +69,8 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
           .where((u) =>
               u.role == UserRole.worker)
           .toList();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: workers load skipped: $e');
       _workers = [];
     }
     if (mounted) setState(() => _loadingWorkers = false);
@@ -149,7 +150,7 @@ class _NewFlockWizardScreenState extends ConsumerState<NewFlockWizardScreen> {
                 cartonLowThreshold: farm.cartonLowThreshold,
               ));
         }
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: farm name update skipped: $e'); }
 
       // 2. إنشاء القطيع
       final initialBirds = _toInt(_initialBirdsCtrl);

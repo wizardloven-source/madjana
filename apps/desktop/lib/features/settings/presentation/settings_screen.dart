@@ -314,7 +314,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           SnackBar(content: Text('تم إنشاء نسخة احتياطية: ${p.basename(target)}')));
       setState(() {});
     } catch (e) {
-      try { await LocalDatabase.database; } catch (_) {}
+      try { await LocalDatabase.database; } catch (e) { debugPrint('madjana: db warm skipped: $e'); }
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('فشل النسخ: $e')));
@@ -352,7 +352,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           content: Text(
               'تمت الاستعادة. أعد تشغيل التطبيق لتطبيق البيانات المستعادة.')));
     } catch (e) {
-      try { await LocalDatabase.database; } catch (_) {}
+      try { await LocalDatabase.database; } catch (e) { debugPrint('madjana: db warm skipped: $e'); }
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('فشلت الاستعادة: $e')));
@@ -494,7 +494,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('تم رفع النسخة الاحتياطية بنجاح')));
     } catch (e) {
-      try { await LocalDatabase.database; } catch (_) {}
+      try { await LocalDatabase.database; } catch (e) { debugPrint('madjana: db warm skipped: $e'); }
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('فشل الرفع السحابي: $e')));
@@ -616,7 +616,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('تم حذف جميع البيانات. أعد تشغيل التطبيق.')));
     } catch (e) {
-      try { await LocalDatabase.database; } catch (_) {}
+      try { await LocalDatabase.database; } catch (e) { debugPrint('madjana: db warm skipped: $e'); }
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('فشل الحذف: $e')));

@@ -56,7 +56,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       _notices = ((rows as List).cast<Map<String, dynamic>>())
           .map(AppNotificationModel.fromJson)
           .toList();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: notifications load skipped: $e');
       _notices = [];
     }
 

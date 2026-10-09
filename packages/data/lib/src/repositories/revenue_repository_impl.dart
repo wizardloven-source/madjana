@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/local/daos/revenue_dao.dart';
 import '../datasources/remote/supabase_revenue_datasource.dart';
 
@@ -28,7 +29,8 @@ class RevenueRepositoryImpl implements RevenueRepository {
         await _localDao.saveAll(revenues, farmId);
       }
       return revenues;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getRevenues offline fallback: $e');
       return _localDao.getAll(
         farmId: farmId,
         fromDate: fromDate,
@@ -44,13 +46,17 @@ class RevenueRepositoryImpl implements RevenueRepository {
       try {
         final saved = await _remoteDatasource.insert(revenue.copyWith(id: localId));
         await _localDao.update(localId, RevenueModel.fromJson(saved).copyWith(syncStatus: SyncStatus.synced));
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('madjana: revenue remote insert offline: $e');
+      }
     } else {
       await _localDao.update(revenue.id!, revenue.copyWith(syncStatus: SyncStatus.pending));
       try {
         await _remoteDatasource.update(revenue.id!, revenue);
         await _localDao.update(revenue.id!, revenue.copyWith(syncStatus: SyncStatus.synced));
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('madjana: revenue remote update offline: $e');
+      }
     }
   }
 
@@ -59,7 +65,9 @@ class RevenueRepositoryImpl implements RevenueRepository {
     await _localDao.delete(id);
     try {
       await _remoteDatasource.delete(id);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: revenue remote delete offline: $e');
+    }
   }
 
   @override
@@ -73,7 +81,9 @@ class RevenueRepositoryImpl implements RevenueRepository {
       try {
         await _remoteDatasource.insert(revenue);
         await _localDao.updateSyncStatus(id, SyncStatus.synced);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('madjana: revenue sync pending failed: $e');
+      }
     }
   }
 

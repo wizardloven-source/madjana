@@ -50,7 +50,7 @@ class SaveMortalityUseCase {
         highMortalityWarning: highMortalityWarning,
         mortalityPercentage: mortalityPercentage,
       );
-    } catch (e) {
+    } on Exception catch (e) {
       return SaveMortalityResult.failure('فشل الحفظ: $e');
     }
   }

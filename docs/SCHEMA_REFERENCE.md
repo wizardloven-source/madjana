@@ -124,6 +124,7 @@ enabled, and `sync_status` constrained to
 | 2026-09-27 | Added rollback `20260927000001_rollback_missing_tables.sql`, the `guard_worker_same_farm()` trigger, and the `db_migration_test` CI job. W0.1 marked untested. |
 | 2026-10-03 | M7: `revenue.worker_id` TEXT→UUID with FK `revenue_worker_id_fkey` (ON DELETE SET NULL) and `idx_revenue_worker`. Suite **4m**. Guards and rollback in `20261003000700/701`. |
 | 2026-10-03 | M8: financial RLS is manager-only again on payments/expenses/revenue/opening_balances/inventory_items/stock_adjustments. Forward `20261002000000`, rollback `20261002000001`, guard suite **4c**. |
+| 2026-10-08 | M9: client/server schema-version marker. Table `app_schema_version` + `current_schema_version()` RPC (SECURITY DEFINER, STABLE, `SET search_path = public`), read-open RLS by design, **anon excluded**. Metadata-only — deliberately not in `sync_table_registry`. Local DB v29→30 + `local_schema_meta`. Forward `20261003000900`, rollback `20261003000901`, suite **4n**. Full contract in `docs/SYNC.md`. |
 
 # SCHEMA_REFERENCE — Madjana
 
@@ -323,4 +324,44 @@ Every new guard ships with a test: `supabase/tests/
 p0_validate_flock_farm_coverage_test.sql` (33 assertions, suite **4h**
 in `run_all.py`). Rollback ownership for each trigger is documented in
 `docs/SECURITY.md`.
+
+### Schema version marker (M9)
+
+`app_schema_version` (`20261003000900`) is the project's **read-open
+exception** — deliberately. A version number is not farm data:
+
+| Column | Type | Notes |
+|---|---|---|
+| `version` | `integer NOT NULL PRIMARY KEY` | highest value is the live schema |
+| `min_client_version` | `integer NOT NULL` | lowest client that may sync |
+| `applied_at` | `timestamptz NOT NULL DEFAULT now()` | row landing time |
+| `notes` | `text` | human note (first row: `'initial'`) |
+
+- `current_schema_version()` = `SELECT version ... ORDER BY version DESC
+  LIMIT 1`, `LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public`.
+  Granted `EXECUTE` to `authenticated` **only** — `anon` gets neither it nor
+  `SELECT`, so the value is not exposed pre-auth. PostgREST exposes it at
+  `/rest/v1/rpc/current_schema_version`.
+- RLS `app_schema_version_read FOR SELECT USING (true)` `TO authenticated` —
+  read-open so any logged-in user proves their client against the server.
+- The table is **metadata**, not a synced table: it is absent from
+  `sync_table_registry`, so it never replicates. Clients read the RPC at
+  boot, never the table.
+- The migration ends with a hard-verification `DO` block (1 row, function
+  returns 1) — raises otherwise, per §6 conventions.
+
+Client side (v30): `packages/data/.../local_database.dart` writes
+`schema_version` = `_dbVersion` into `local_schema_meta` and exposes
+`LocalDatabase.getLocalSchemaVersion()`. Both apps compare it against
+`fetchServerSchemaVersion()` at boot and **block** on a mismatch, while any
+fetch error is treated as offline (never blocks). The Sync Center (mobile)
+shows both versions. Bump procedure, messages and gate semantics:
+`docs/SYNC.md`.
+
+`p0_schema_version_test.sql` (suite **4n**) proves: table + single `(1, 1,
+'initial')` row exist; the function returns `1` as `test_runner` and as any
+`authenticated` identity; the read-open policy; `anon` blocked on both
+`SELECT` and `EXECUTE`; the table absent from `sync_table_registry`; the
+idempotent re-apply keeps one row; the rollback removes table + function;
+and a forward re-apply restores everything.
 

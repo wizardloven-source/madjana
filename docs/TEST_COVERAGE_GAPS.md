@@ -245,3 +245,24 @@ flipping direct uploads to `synced` are intentional product decisions, and
 reverting them (or the `flush()`-style assertions that made them fail) would
 break the no-lost-collection guarantee. | Implementation | Unchanged |
 | Tests | Aligned to current intent |
+
+---
+
+## 10. Legacy double-encoded Arabic comments (2026-10-09)
+
+> Tracking per the "no CI-exemptions without a gap record" rule. **Do not touch
+> in M10/W3 work** — follow-up task.
+
+| Field | Detail |
+|---|---|
+| **Status** | Some files carry **double-encoded** Arabic in comments/doc-comments (UTF-8 bytes decoded as CP1256 then re-encoded as UTF-8, e.g. `ط±ظپط¹` = `±/¹`-style glyphs). |
+| **Proven scope** | Verified byte-identical between `HEAD` and the working tree (raw-byte redirection, not pipeline decode): 14 remote datasources (`supabase_dispatch/_egg/_expense/_farm/_feed/_flock/_inventory/_medication/_mortality/_notification/_opening_balance/_payment/_user_admin _datasource.dart`), `packages/data/lib/data.dart`, and `apps/desktop/lib/features/revenue/presentation/revenue_screen.dart`. **Pre-existing at HEAD; M10 introduced none.** |
+| **M10 impact** | None — M10 catch sweeps touched only catch lines; the corrupt comment lines are unchanged context in every diff. |
+| **Impact** | Cosmetic only (comments); no code identifiers/strings affected. |
+| **Fix plan** | Follow-up (W4+): decode-round-trip each corrupt file (`UTF8` → `CP1256` → `UTF8`) and diff outcomes carefully. |
+| **Guard** | `packages/data/test/static_catch_rules_test.dart` + `docs/ERROR_HANDLING.md` (§«ملاحظة معروفة») reference this section. |
+
+Related lint fact (also in `docs/ERROR_HANDLING.md`): the intended M10 lint
+`avoid_catches_without_on_clauses` is inert in the current analyzer and the
+compound variant is `unrecognized_error_code`; enforcement of the «لا silent
+catch» rule rests on `static_catch_rules_test.dart`, not on the analyzer.

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -68,7 +69,8 @@ class SupabaseConfig {
     if (!_initialized) return null;
     try {
       return Supabase.instance.client;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: SupabaseConfig.client: $e');
       return null;
     }
   }

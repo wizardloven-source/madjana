@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// مصدر بيانات المصادقة عبر Supabase Auth الحقيقي
@@ -28,7 +29,7 @@ class SupabaseAuthDatasource {
         throw AuthException('انتهت مهلة الاتصال بالسيرفر');
       });
       return res == true;
-    } catch (_) {
+    } on Exception {
       // تعذّر الوصول -> لا نجزم بوجود/عدم وجود (فلا نعرض شاشة إنشاء بطريقة خاطئة)
       return null;
     }
@@ -75,7 +76,7 @@ class SupabaseAuthDatasource {
       }
     } on PostgrestException catch (e) {
       throw AuthException('فشل إنشاء الحساب: ${e.message}');
-    } catch (e) {
+    } on Exception catch (e) {
       if (e is AuthException) rethrow;
       final msg = e.toString();
       if (msg.contains('SocketException') || msg.contains('errno = 7')) {
@@ -139,8 +140,9 @@ class SupabaseAuthDatasource {
       // 2b) تسجيل النجاح: تصفير العدّاد ورفع القفل
       try {
         await _client.rpc('record_login_success', params: {'p_uid': uid});
-      } catch (_) {
+      } on Exception catch (e) {
         // عدم نجاح التسجيل لا يمنع الدخول
+        debugPrint('madjana: login: record_login_success failed: $e');
       }
 
       // 3) الدور/المزرعة تُقرأ من الـ JWT (مصدر مُصادَق) وليس من البحث المكشوف
@@ -174,7 +176,9 @@ class SupabaseAuthDatasource {
         // تسجيل المحاولة الفاشلة (لقفل الحساب عند التكرار)
         try {
           await _client.rpc('record_login_failure', params: {'p_phone': phone});
-        } catch (_) {}
+        } on Exception catch (e) {
+          debugPrint('madjana: login: record_login_failure failed: $e');
+        }
         throw AuthException('الرمز السري غير صحيح');
       }
       if (msg.contains('not confirmed')) {
@@ -187,7 +191,7 @@ class SupabaseAuthDatasource {
         throw AuthException('محاولات كثيرة — انتظر قليلاً ثم أعد المحاولة');
       }
       throw AuthException('خطأ في الاتصال: ${e.message}');
-    } catch (e) {
+    } on Exception catch (e) {
       if (e is AuthException) rethrow;
       final msg = e.toString();
       if (msg.contains('SocketException') || msg.contains('errno = 7')) {
@@ -222,7 +226,7 @@ class SupabaseAuthDatasource {
           .map((e) => e.toString())
           .where((e) => e.isNotEmpty)
           .toList();
-    } catch (_) {
+    } on Exception {
       return const [];
     }
   }
@@ -270,7 +274,7 @@ class SupabaseAuthDatasource {
         if (farmIds.isNotEmpty) map['farm_ids'] = farmIds;
       }
       return map;
-    } catch (_) {
+    } on Exception {
       return null;
     }
   }

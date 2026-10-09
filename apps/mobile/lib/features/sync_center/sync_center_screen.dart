@@ -44,6 +44,10 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
               _buildStatusCard(syncState),
               const SizedBox(height: 24),
 
+              // بطاقة إصدار المخطط (M9): الخادم مقابل المحلي
+              _buildVersionCard(),
+              const SizedBox(height: 24),
+
               // إحصائيات مفصلة
               _buildStatsGrid(syncState),
               const SizedBox(height: 24),
@@ -197,6 +201,65 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVersionCard() {
+    final server = ref.watch(serverSchemaVersionProvider);
+    final local = ref.watch(localSchemaVersionProvider);
+
+    final serverValue = server.value;
+    final localValue = local.value;
+
+    String status = 'جاري قراءة الإصدارات...';
+    Color color = AppColors.info;
+    IconData icon = Icons.sync_problem;
+
+    if (serverValue != null && localValue != null) {
+      if (serverValue == localValue) {
+        status = 'الإصداران متطابقان — المزامنة مسموحة';
+        color = AppColors.success;
+        icon = Icons.check_circle;
+      } else if (serverValue > localValue) {
+        status = 'الخادم أحدث من التطبيق — حدّث التطبيق';
+        color = AppColors.warning;
+        icon = Icons.system_update_alt;
+      } else {
+        status = 'التطبيق أحدث من الخادم — ينتظر دعم الخادم';
+        color = AppColors.warning;
+        icon = Icons.hourglass_empty;
+      }
+    } else if (server.hasError) {
+      status = 'الخادم غير متاح — تُحفظ التغييرات وتُرفع عند الاتصال';
+      color = AppColors.warning;
+      icon = Icons.cloud_off;
+    }
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ListTile(
+        leading: Icon(icon, color: color, size: 32),
+        title: const Text(
+          'إصدار المخطط',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(status),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              'الخادم: ${serverValue?.toString() ?? '…'}',
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+            ),
+            Text(
+              'المحلي: ${localValue?.toString() ?? '…'}',
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
             ),
           ],
         ),

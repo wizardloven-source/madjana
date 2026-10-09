@@ -503,7 +503,8 @@ class _FarmList extends ConsumerWidget {
     try {
       final repo = ref.read(userAdminRepositoryProvider);
       return await repo.getAllFarms();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: farms load skipped: $e');
       return [];
     }
   }
@@ -645,7 +646,8 @@ class _AllFarmsOverview extends ConsumerWidget {
     try {
       final repo = ref.read(userAdminRepositoryProvider);
       return await repo.getAllFarms();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: farms load skipped: $e');
       return [];
     }
   }
@@ -695,7 +697,8 @@ class _FarmDetailViewState extends ConsumerState<_FarmDetailView> {
         _farm = found;
         _users = users;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: farm detail load skipped: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

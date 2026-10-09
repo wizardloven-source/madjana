@@ -225,7 +225,8 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
         _trayWeightBuffer = '';
         _notesController.clear();
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: dispatch save request: $e');
       if (!mounted) return;
       AppSnack.error(context, 'تعذر حفظ الطلب محلياً');
     }

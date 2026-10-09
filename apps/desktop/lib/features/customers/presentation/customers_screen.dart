@@ -46,7 +46,8 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
       final customers = await repo.getCustomers(_farmId);
       if (!mounted) return;
       setState(() => _customers = customers);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: customers sync skipped: $e');
       final customers = await repo.getCustomers(_farmId);
       if (!mounted) return;
       setState(() => _customers = customers);

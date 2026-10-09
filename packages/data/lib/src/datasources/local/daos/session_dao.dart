@@ -62,7 +62,7 @@ class SessionDao {
     if (json == null || json.isEmpty) return null;
     try {
       return jsonDecode(json) as Map<String, dynamic>;
-    } catch (_) {
+    } on Exception {
       return null;
     }
   }

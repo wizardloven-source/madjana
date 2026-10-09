@@ -25,7 +25,7 @@ class SupabaseDispatchDatasource {
       try {
         final id = await insert(r);
         successIds.add(r.id ?? id);
-      } catch (_) {
+      } on Exception {
         failedIds.add(r.id ?? '');
       }
     }

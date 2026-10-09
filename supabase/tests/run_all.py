@@ -56,6 +56,8 @@ SQL_SUITES = [
     ("4k. M6b login throttle", "p0_throttle_test.sql"),
     ("4l. M6c security alerts RLS + admin surface", "p0_security_alerts_rls_test.sql"),
     ("4m. M7 revenue.worker_id uuid", "p0_revenue_worker_id_test.sql"),
+    ("4n. M9 schema version marker", "p0_schema_version_test.sql"),
+    ("4o. M10 catch/error contract", "p0_catch_test.sql"),
 ]
 
 

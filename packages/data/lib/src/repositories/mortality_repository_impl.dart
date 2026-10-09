@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/local/daos/mortality_dao.dart';
 import '../datasources/remote/supabase_mortality_datasource.dart';
 
@@ -48,6 +49,7 @@ class MortalityRepositoryImpl implements MortalityRepository {
     try {
       return await _remoteDatasource.uploadImage(imageFile, recordId, farmId);
     } catch (e) {
+      debugPrint('madjana: mortality uploadImage failed: $e');
       // في حالة فشل الرفع، نكمل بدون صورة (Offline-first)
       return null;
     }
@@ -75,7 +77,8 @@ class MortalityRepositoryImpl implements MortalityRepository {
     await _localDao.delete(id);
     try {
       await _remoteDatasource.delete(id);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: mortality delete remote offline: $e');
       // سيتم مزامنتها لاحقاً
     }
   }

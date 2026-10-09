@@ -47,7 +47,7 @@ class SupabaseMortalityDatasource {
       try {
         final id = await insert(record);
         successIds.add(record.id ?? id);
-      } catch (_) {
+      } on Exception {
         failedIds.add(record.id ?? '');
       }
     }

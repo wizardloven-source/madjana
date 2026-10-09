@@ -61,7 +61,7 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
       try {
         final farm = await ref.read(farmRepositoryProvider).getFarm(_farmId);
         farmName = farm.name;
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: farm name load skipped: $e'); }
       if (!mounted) return;
       setState(() {
         _users = users;

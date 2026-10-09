@@ -13,6 +13,13 @@ abstract interface class SupabaseApi {
   /// استدعاء دالة في قاعدة البيانات (RPC).
   Future<dynamic> rpc(String name, {Map<String, dynamic>? params});
 
+  /// إصدار مخطط الخادم الحالي (عقد M9 — docs/SYNC.md).
+  ///
+  /// يستدعي RPC `current_schema_version()` على الخادم ويحوّل الناتج إلى
+  /// عدد صحيح. أي فشل (غير متصل / خطأ) يتصاعد — المتصل يقرّر: بوابة
+  /// الإقلاع تعامل الفشل على أنه «غير متصل» ولا تمنع التطبيق من العمل.
+  Future<int> fetchServerSchemaVersion();
+
   /// واجهة تخزين الملفات.
   SupabaseStorageApi get storage;
 }
@@ -96,6 +103,18 @@ class SupabaseClientApiAdapter implements SupabaseApi {
   Future<dynamic> rpc(String name, {Map<String, dynamic>? params}) {
     _throwIfOffline();
     return _client!.rpc(name, params: params).timeout(requestTimeout);
+  }
+
+  @override
+  Future<int> fetchServerSchemaVersion() async {
+    _throwIfOffline();
+    final result = await _client!
+        .rpc('current_schema_version')
+        .timeout(requestTimeout);
+    // PostgREST يعيد عدداً صحيحاً لـ int/registry دوال SQL — مع تأمين للشكل
+    // النصي احتياطياً (بعض الوسطاء قد يمرّرون الجدول كـ "1").
+    if (result is num) return result.toInt();
+    return int.tryParse('$result') ?? 0;
   }
 
   @override

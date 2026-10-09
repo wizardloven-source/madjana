@@ -24,7 +24,7 @@ class _MedicinesScreenState extends ConsumerState<MedicinesScreen> {
     try {
       final repo = ref.read(medicationRepositoryProvider);
       _medicines = await repo.getMedicinesCatalog();
-    } catch (_) {}
+    } catch (e) { debugPrint('madjana: medicines catalog skipped: $e'); }
     if (mounted) setState(() => _loading = false);
   }
 

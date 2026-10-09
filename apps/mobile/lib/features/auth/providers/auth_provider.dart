@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/providers.dart';
@@ -66,7 +67,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
             ? AuthState(currentUser: user)
             : const AuthState(error: 'انتهت الجلسة، سجّل الدخول مجدداً');
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: auth restoreSession: $e');
       if (!_sessionRestored && mounted) {
         _sessionRestored = true;
         state = const AuthState(error: 'تعذر استرجاع الجلسة، سجّل الدخول');
@@ -107,7 +109,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (user == null) return;
     try {
       await _repository.setActiveFarm(farmId);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: auth setActiveFarm: $e');
+    }
     if (!mounted) return;
     state = AuthState(
       currentUser: user.copyWith(
@@ -121,7 +125,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> logout() async {
     try {
       await _repository.logout();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: auth logout: $e');
+    }
     _sessionRestored = false;
     // أوقف المزامنة التلقائية ونظّف حالة المزامنة قبل إفراغ الجلسة
     _ref.read(syncProvider.notifier).handleLoggedOut();

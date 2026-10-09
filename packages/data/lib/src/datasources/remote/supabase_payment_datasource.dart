@@ -51,7 +51,7 @@ class SupabasePaymentDatasource {
       try {
         final result = await insert(r);
         successIds.add(r.id ?? result['id'] as String);
-      } catch (_) {
+      } on Exception {
         failedIds.add(r.id ?? '');
       }
     }

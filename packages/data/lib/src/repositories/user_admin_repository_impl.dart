@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/local/daos/settings_dao.dart';
 import '../datasources/local/daos/user_dao.dart';
 import '../datasources/remote/supabase_user_admin_datasource.dart';
@@ -23,7 +24,9 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
     try {
       final msg = (e as dynamic).message as String?;
       if (msg != null && msg.trim().isNotEmpty) return msg.trim();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: extract real message failed: $e');
+    }
     return e.toString().replaceFirst('Exception: ', '');
   }
 
@@ -33,9 +36,12 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
       final remote = await _remoteDatasource.getUsers(farmId);
       try {
         await _userDao.upsertAll(farmId, remote);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('madjana: cache users failed: $e');
+      }
       return remote;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getUsers offline fallback: $e');
       return _userDao.getByFarm(farmId);
     }
   }
@@ -44,7 +50,8 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
   Future<List<UserModel>> getAllUsers() async {
     try {
       return await _remoteDatasource.getAllUsers();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getAllUsers offline: $e');
       return [];
     }
   }
@@ -53,7 +60,8 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
   Future<List<FarmModel>> getAllFarms() async {
     try {
       return await _remoteDatasource.getAllFarms();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getAllFarms offline: $e');
       return [];
     }
   }
@@ -130,7 +138,8 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
         return farms;
       }
       return await _cachedFarmsOrEmpty();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getCurrentUserFarms offline fallback: $e');
       return await _cachedFarmsOrEmpty();
     }
   }
@@ -141,7 +150,9 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
       await dao.set('cached_farms', jsonEncode(farms.map((f) {
             return {'id': f.id, 'name': f.name};
           }).toList()));
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: cache farms failed: $e');
+    }
   }
 
   Future<List<FarmModel>> _cachedFarmsOrEmpty() async {
@@ -156,7 +167,8 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
                 name: (e)['name']?.toString() ?? '',
               ))
           .toList();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: cached farms parse fallback: $e');
       return [];
     }
   }
@@ -172,7 +184,8 @@ class UserAdminRepositoryImpl implements UserAdminRepository {
       return raw
           .map((e) => SyncHealthEntry.fromJson(e))
           .toList();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getSyncHealth offline: $e');
       return [];
     }
   }

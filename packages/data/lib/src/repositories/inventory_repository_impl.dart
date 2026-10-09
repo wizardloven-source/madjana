@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:uuid/uuid.dart';
 import '../datasources/local/daos/inventory_dao.dart';
 import '../datasources/remote/supabase_inventory_datasource.dart';
@@ -28,7 +29,8 @@ class InventoryRepositoryImpl implements InventoryRepository {
         }
       }
       return items;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: inventory getItems fallback: $e');
       return _localDao.getItems(farmId);
     }
   }
@@ -50,7 +52,8 @@ class InventoryRepositoryImpl implements InventoryRepository {
         // يرسل نفس الـ ID إلى الخادم لمنع التكرار
         await _remoteDatasource.insertItem(normalized);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: inventory remote save offline: $e');
       // Offline: saved locally, will sync later
     }
   }
@@ -60,7 +63,8 @@ class InventoryRepositoryImpl implements InventoryRepository {
     await _localDao.deleteItem(id);
     try {
       await _remoteDatasource.deleteItem(id);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: inventory remote delete offline: $e');
       // Offline: deleted locally
     }
   }
@@ -98,7 +102,8 @@ class InventoryRepositoryImpl implements InventoryRepository {
 
     try {
       await _remoteDatasource.insertTransaction(tx, newQuantity: newQuantity);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: inventory remote txn offline: $e');
       // Offline: saved locally
     }
 
@@ -109,7 +114,8 @@ class InventoryRepositoryImpl implements InventoryRepository {
   Future<List<InventoryTransactionModel>> getTransactions(String itemId) async {
     try {
       return await _remoteDatasource.getTransactions(itemId);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: inventory getTransactions fallback: $e');
       return _localDao.getTransactions(itemId);
     }
   }

@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/remote/supabase_notification_datasource.dart';
 
 /// تنفيذ مستودع الإشعارات
@@ -14,7 +15,8 @@ class NotificationRepositoryImpl implements NotificationRepository {
     try {
       return await _remoteDatasource.getActiveNotifications(farmId)
           .timeout(const Duration(seconds: 8), onTimeout: () => <AppNotificationModel>[]);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getActiveNotifications offline: $e');
       return <AppNotificationModel>[];
     }
   }
@@ -24,7 +26,8 @@ class NotificationRepositoryImpl implements NotificationRepository {
     try {
       return await _remoteDatasource.getNotifications(farmId)
           .timeout(const Duration(seconds: 8), onTimeout: () => <AppNotificationModel>[]);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getAllNotifications offline: $e');
       return <AppNotificationModel>[];
     }
   }
@@ -34,7 +37,9 @@ class NotificationRepositoryImpl implements NotificationRepository {
     try {
       await _remoteDatasource.createNotification(notification)
           .timeout(const Duration(seconds: 10));
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: sendNotification failed: $e');
+    }
   }
 
   @override
@@ -42,7 +47,9 @@ class NotificationRepositoryImpl implements NotificationRepository {
     try {
       await _remoteDatasource.deleteNotification(id)
           .timeout(const Duration(seconds: 8));
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: deleteNotification failed: $e');
+    }
   }
 
   @override
@@ -50,6 +57,8 @@ class NotificationRepositoryImpl implements NotificationRepository {
     try {
       await _remoteDatasource.toggleActive(id, isActive)
           .timeout(const Duration(seconds: 8));
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: toggleNotification failed: $e');
+    }
   }
 }

@@ -47,7 +47,8 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         await _player.play(DeviceFileSource(audioPath));
         if (mounted) setState(() => _playingNoteId = id);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: note playback: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('تعذر تشغيل التسجيل')),
@@ -84,7 +85,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       try {
         final f = File(note.audioPath as String);
         if (await f.exists()) await f.delete();
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('madjana: note file delete: $e');
+      }
     }
 
     ref.read(notesProvider.notifier).delete(note);

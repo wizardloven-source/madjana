@@ -12,10 +12,32 @@ import 'features/shell/presentation/system_admin_shell.dart';
 
 /// التطبيق الرئيسي لتطبيق سطح المكتب (للمدير)
 class MadjanaDesktopApp extends ConsumerWidget {
-  const MadjanaDesktopApp({super.key});
+  const MadjanaDesktopApp({super.key, this.startupBlockMessage});
+
+  /// رسالة حظر الإقلاع عند تعارض إصدار المخطط (M9 — docs/SYNC.md).
+  /// عندما تكون غير null تُعرض شاشة حجب كاملة بدل الواجهة.
+  final String? startupBlockMessage;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // بوابة الإصدار لها الأولوية: لا نفتح أي شيء قبل حل التعارض.
+    final blockMessage = startupBlockMessage;
+    if (blockMessage != null) {
+      return MaterialApp(
+        title: 'YAseen Farm',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        locale: const Locale('ar'),
+        supportedLocales: const [Locale('ar')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: _StartupBlockScreen(message: blockMessage),
+      );
+    }
+
     final authState = ref.watch(authProvider);
     final themeMode = ref.watch(themeModeProvider);
 
@@ -108,6 +130,38 @@ class _UnauthenticatedGateState extends ConsumerState<_UnauthenticatedGate> {
               onBackToLogin: () => setState(() => _forceLogin = true),
             )
           : const LoginScreen(),
+    );
+  }
+}
+
+/// شاشة حجب الإقلاع — تعارض إصدار المخطط بين التطبيق والخادم.
+/// لا تُمكّن التفاعل؛ المستخدم يُحدِّث التطبيق أو ينتظر دعم الخادم.
+class _StartupBlockScreen extends StatelessWidget {
+  const _StartupBlockScreen({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.sync_problem, size: 64, color: Colors.orangeAccent),
+              const SizedBox(height: 16),
+              const Text(
+                'توقف المزامنة — تعارض الإصدار',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Text(message, textAlign: TextAlign.center),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

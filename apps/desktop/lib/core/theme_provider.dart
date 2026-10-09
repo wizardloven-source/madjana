@@ -24,13 +24,13 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
       if (raw != null && mounted) {
         state = raw == 'light' ? ThemeMode.light : ThemeMode.dark;
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('madjana: theme load skipped: $e'); }
   }
 
   Future<void> setMode(ThemeMode mode) async {
     state = mode;
     try {
       await _dao.set(kThemeModeKey, mode == ThemeMode.light ? 'light' : 'dark');
-    } catch (_) {}
+    } catch (e) { debugPrint('madjana: theme save skipped: $e'); }
   }
 }

@@ -60,12 +60,12 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
               fromDate: _fromDate,
               toDate: _toDate,
             );
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: egg payments load skipped: $e'); }
       try {
         final list =
             await ref.read(dispatchRepositoryProvider).getCustomers(_farmId);
         customers = {for (final c in list) c.id! : c};
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: customers load skipped: $e'); }
 
       final eggRows = payments.where((p) => p.amountPaid > 0).map((p) {
         final name = customers[p.customerId]?.name;
@@ -167,13 +167,13 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
     if (category == RevenueCategory.liveChicken) {
       try {
         flocks = await ref.read(flockRepositoryProvider).getFlocks(_farmId);
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: flocks load skipped: $e'); }
     }
     if (category == RevenueCategory.equipment) {
       try {
         inventoryItems =
             await ref.read(inventoryRepositoryProvider).getItems(_farmId);
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: inventory items load skipped: $e'); }
     }
 
     double toDollar(double value) =>
@@ -572,7 +572,7 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
                   version: flock.version,
                 ),
               );
-        } catch (_) {}
+        } catch (e) { debugPrint('madjana: flock count adjust skipped: $e'); }
       }
 
       if (category == RevenueCategory.equipment &&
@@ -587,7 +587,7 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
                 quantity: quantity,
                 note: 'بيع عبر الإيرادات',
               );
-        } catch (_) {}
+        } catch (e) { debugPrint('madjana: stock adjust skipped: $e'); }
       }
 
       _load();

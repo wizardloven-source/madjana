@@ -57,14 +57,14 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       List<FlockModel> flocks = [];
       try {
         flocks = await flockRepo.getFlocks(_farmId, includeEnded: true);
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: flocks load skipped: $e'); }
       String farmName = '';
       double bagWeightKg = AppConstants.kgPerBag;
       try {
         final farm = await farmRepo.getFarm(_farmId);
         farmName = farm.name;
         bagWeightKg = farm.feedBagWeightKg;
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: farm load skipped: $e'); }
 
       if (!mounted) return;
       setState(() {
@@ -504,7 +504,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     if (farmId != null && farmId.isNotEmpty) {
       try {
         currency = await ref.read(farmRepositoryProvider).getInputCurrency();
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: input currency skipped: $e'); }
     }
     if (!mounted) return;
 

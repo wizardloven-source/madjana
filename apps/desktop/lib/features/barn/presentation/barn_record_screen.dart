@@ -66,7 +66,8 @@ class _BarnRecordScreenState extends ConsumerState<BarnRecordScreen> {
         _feed = results[2] as List<FeedConsumptionModel>;
         _medications = results[3] as List<MedicationModel>;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: barn records load skipped: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }

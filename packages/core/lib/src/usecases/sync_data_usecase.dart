@@ -31,7 +31,7 @@ class SyncDataUseCase {
         failedCount: result.failedCount - result.conflictIds.length,
         conflictCount: result.conflictIds.length,
       );
-    } catch (e) {
+    } on Exception catch (e) {
       return SyncResult.failure('فشل المزامنة: $e');
     }
   }

@@ -1,4 +1,6 @@
-﻿import 'package:core/core.dart';
+﻿import 'package:flutter/foundation.dart';
+
+import 'package:core/core.dart';
 import 'supabase_api.dart';
 
 /// ظ…طµط¯ط± ط¨ظٹط§ظ†ط§طھ ط¥ظ†طھط§ط¬ ط§ظ„ط¨ظٹط¶ ط¹ط¨ط± Supabase
@@ -31,6 +33,7 @@ class SupabaseEggDatasource {
         final id = await insert(record);
         successIds.add(record.id ?? id);
       } catch (e) {
+        debugPrint('madjana: insertBatch record failed: $e');
         failedIds.add(record.id ?? '');
       }
     }

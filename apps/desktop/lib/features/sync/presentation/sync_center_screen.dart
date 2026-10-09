@@ -64,7 +64,8 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
         _failed = results[3] as int;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: queue load skipped: $e');
       if (!mounted) return;
       setState(() => _loading = false);
     }

@@ -1,4 +1,5 @@
 ﻿import 'package:core/core.dart';
+import 'package:flutter/foundation.dart';
 import 'supabase_api.dart';
 
 /// ط¥ط¯ط§ط±ط© ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ† ط¹ط¨ط± ط¯ظˆط§ظ„ admin_* ظپظٹ ظ‚ط§ط¹ط¯ط© ط§ظ„ط¨ظٹط§ظ†ط§طھ
@@ -57,8 +58,9 @@ class SupabaseUserAdminDatasource {
         users.sort((a, b) => a.createdAt.compareTo(b.createdAt));
         return users;
       }
-    } catch (_) {
+    } on Exception catch (e) {
       // قاعدة قديمة بلا get_farm_users — نعود للمسار القديم أدناه.
+      debugPrint('madjana: getUsers: get_farm_users failed: $e');
     }
 
     final linkRows = await _api

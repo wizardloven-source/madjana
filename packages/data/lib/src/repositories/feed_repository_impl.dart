@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/local/daos/feed_dao.dart';
 import '../datasources/remote/supabase_feed_datasource.dart';
 
@@ -95,7 +96,8 @@ class FeedRepositoryImpl implements FeedRepository {
     await _localDao.updateReceivedPrice(id, pricePerKg);
     try {
       await _remoteDatasource.updateReceivedPrice(id, pricePerKg);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: setReceivedPrice remote offline: $e');
       // سيتم مزامنتها لاحقاً عند توفر الاتصال
     }
   }
@@ -118,7 +120,8 @@ class FeedRepositoryImpl implements FeedRepository {
     await _localDao.deleteConsumption(id);
     try {
       await _remoteDatasource.deleteConsumption(id);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: deleteConsumption remote offline: $e');
       // سيتم مزامنتها لاحقاً
     }
   }

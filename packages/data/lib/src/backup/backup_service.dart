@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -61,7 +62,7 @@ class BackupService {
     // تهيئة القاعدة إن لم تُفتح بعد (تُنشئ ملف الـ .db)
     try {
       await LocalDatabase.database;
-    } catch (_) {
+    } on Exception {
       return BackupResult.error('تعذّر فتح قاعدة البيانات المحلية');
     }
 
@@ -81,12 +82,12 @@ class BackupService {
       final db = await LocalDatabase.database;
       // VACUUM INTO يتطلب SQLite 3.27.0+ (متوفر في sqflite)
       await db.execute("VACUUM INTO '$backupPath'");
-    } catch (vacuumError) {
+    } on Exception catch (vacuumError) {
       // بديل: نسخ الملف مباشرة في حال تعذر VACUUM
       // (مخاطرة: قد يكون الملف نشطاً أثناء النسخ)
       try {
         await dbFile.copy(backupPath);
-      } catch (copyError) {
+      } on Exception catch (copyError) {
         return BackupResult.error(
             'فشل النسخ الاحتياطي: ${vacuumError.toString()} (fallback: ${copyError.toString()})');
       }
@@ -114,7 +115,7 @@ class BackupService {
       if (tables.isEmpty) {
         return BackupResult.error('النسخة الاحتياطية فارغة — لا تحتوي على جدول egg_production');
       }
-    } catch (e) {
+    } on Exception catch (e) {
       return BackupResult.error('النسخة الاحتياطية تالفة: $e');
     }
 
@@ -163,8 +164,9 @@ class BackupService {
         final metaJson = await File(metaPath).readAsString();
         metadata = BackupMetadata.fromJson(
             jsonDecode(metaJson) as Map<String, dynamic>);
-      } catch (_) {
+      } on Exception catch (e) {
         // ملف الوصف تالف أو غير موجود — نكمل بدون وصف
+        debugPrint('madjana: restoreBackup: metadata read failed: $e');
       }
     }
 
@@ -191,7 +193,7 @@ class BackupService {
       if (tables.isEmpty) {
         return RestoreResult.error('النسخة الاحتياطية فارغة — لا تحتوي على جداول');
       }
-    } catch (e) {
+    } on Exception catch (e) {
       return RestoreResult.error('النسخة الاحتياطية تالفة: $e');
     }
 
@@ -228,13 +230,14 @@ class BackupService {
         try {
           final count = await restoredDb.rawQuery('SELECT COUNT(*) as c FROM $table');
           totalRecords += (count.first['c'] as int?) ?? 0;
-        } catch (_) {
+        } on Exception catch (e) {
           // جدول غير موجود — طبيعي في بعض النسخ
+          debugPrint('madjana: restoreBackup: record count failed: $e');
         }
       }
 
       return RestoreResult.ok(recordsAffected: totalRecords);
-    } catch (e) {
+    } on Exception catch (e) {
       return RestoreResult.error('فشلت الاستعادة: $e');
     }
   }
@@ -254,8 +257,9 @@ class BackupService {
         final json = await file.readAsString();
         backups.add(
             BackupMetadata.fromJson(jsonDecode(json) as Map<String, dynamic>));
-      } catch (_) {
+      } on Exception catch (e) {
         // ملف تالف — نتجاهله
+        debugPrint('madjana: listBackups: meta parse failed: $e');
       }
     }
 
@@ -283,8 +287,9 @@ class BackupService {
         final metaFile = File(p.join(dir.path, '${backup.id}$_metadataExt'));
         if (dbFile.existsSync()) await dbFile.delete();
         if (metaFile.existsSync()) await metaFile.delete();
-      } catch (_) {
+      } on Exception catch (e) {
         // فشل الحذف — نتجاهله
+        debugPrint('madjana: pruneOldBackups: delete failed: $e');
       }
     }
   }

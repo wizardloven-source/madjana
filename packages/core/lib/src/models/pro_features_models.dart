@@ -114,7 +114,10 @@ class WorkerShiftModel {
       try {
         final decoded = tasksJson.replaceAll('"', '').split(',');
         tasks = decoded.where((e) => e.isNotEmpty).toList();
-      } catch (_) {}
+      } on Exception catch (e) {
+        // ignore: avoid_print
+        print('madjana: WorkerShiftModel.fromJson: $e');
+      }
     }
 
     return WorkerShiftModel(

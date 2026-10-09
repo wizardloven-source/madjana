@@ -14,6 +14,10 @@ class FakeSupabaseApi implements SupabaseApi {
   /// محاكاة استجابة دالة RPC (تُرجع null افتراضياً).
   dynamic Function(String name, Map<String, dynamic> params)? onRpc;
 
+  /// إصدار مخطط الخادم الذي تبلغ عنه fetchServerSchemaVersion() افتراضياً
+  /// (ما لم يضبط onRpc). يحاكي عقد M9 — docs/SYNC.md.
+  int serverSchemaVersion = 1;
+
   /// هل يرمي خطأً في عمليات الكتابة?
   bool failWrites = false;
 
@@ -41,6 +45,16 @@ class FakeSupabaseApi implements SupabaseApi {
     final p = params ?? const <String, dynamic>{};
     calls.add('rpc $name ${jsonEncode(p)}');
     return onRpc?.call(name, p);
+  }
+
+  @override
+  Future<int> fetchServerSchemaVersion() async {
+    if (failReads) throw StateError('fake read failure');
+    calls.add('rpc current_schema_version {}');
+    final result = onRpc?.call('current_schema_version', const {});
+    if (result is num) return result.toInt();
+    if (result is String) return int.tryParse(result) ?? serverSchemaVersion;
+    return serverSchemaVersion;
   }
 
   @override

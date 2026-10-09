@@ -205,6 +205,19 @@ final connectivityServiceProvider = Provider<ConnectivityService>(
   (ref) => ConnectivityServiceImpl(),
 );
 
+// ─────────────── إصدار المخطط (M9 — docs/SYNC.md) ───────────────
+/// إصدار مخطط الخادم (current_schema_version RPC) — يعرضه مركز المزامنة
+/// ويستعمله مدخل الإقلاع في main.dart. أي خطأ يتصاعد كقيمة error للـ Future
+/// (لا كرسالة حظر على سطح الجهاز).
+final serverSchemaVersionProvider = FutureProvider<int>((ref) {
+  return ref.watch(supabaseApiProvider).fetchServerSchemaVersion();
+});
+
+/// إصدار المخطط المحلي المسجّل في local_schema_meta (DB v30 فما فوق).
+final localSchemaVersionProvider = FutureProvider<int>((ref) {
+  return LocalDatabase.getLocalSchemaVersion();
+});
+
 final syncRepositoryProvider = Provider<SyncRepository>(
   (ref) => SyncRepositoryImpl(
     eggDao: ref.watch(eggProductionDaoProvider),

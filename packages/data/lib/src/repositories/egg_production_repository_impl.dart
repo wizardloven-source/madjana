@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/local/daos/egg_production_dao.dart';
 import '../datasources/remote/supabase_egg_datasource.dart';
 
@@ -70,7 +71,8 @@ class EggProductionRepositoryImpl implements EggProductionRepository {
     await _localDao.delete(id);
     try {
       await _remoteDatasource.delete(id);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: egg delete remote offline: $e');
       // سيتم مزامنتها لاحقاً
     }
   }

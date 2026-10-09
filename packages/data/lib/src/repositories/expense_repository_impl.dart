@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/local/daos/expense_dao.dart';
 import '../datasources/remote/supabase_expense_datasource.dart';
 
@@ -32,7 +33,8 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
         await _localDao.saveAll(expenses, farmId);
       }
       return expenses;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getExpenses offline fallback: $e');
       return _localDao.getAll(
         farmId: farmId,
         fromDate: fromDate,
@@ -51,7 +53,8 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
       try {
         final saved = await _remoteDatasource.insert(expense.copyWith(id: localId));
         await _localDao.update(localId, ExpenseModel.fromJson(saved).copyWith(syncStatus: SyncStatus.synced));
-      } catch (_) {
+      } catch (e) {
+        debugPrint('madjana: expense remote insert offline: $e');
         // Offline: saved locally with pending status
       }
     } else {
@@ -59,7 +62,8 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
       try {
         await _remoteDatasource.update(expense.id!, expense);
         await _localDao.update(expense.id!, expense.copyWith(syncStatus: SyncStatus.synced));
-      } catch (_) {
+      } catch (e) {
+        debugPrint('madjana: expense remote update offline: $e');
         // Offline: saved locally with pending status
       }
     }
@@ -70,7 +74,8 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
     await _localDao.delete(id);
     try {
       await _remoteDatasource.delete(id);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: expense remote delete offline: $e');
       // Offline: deleted locally, will sync later
     }
   }
@@ -87,7 +92,8 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
       try {
         await _remoteDatasource.insert(expense);
         await _localDao.updateSyncStatus(id, SyncStatus.synced);
-      } catch (_) {
+      } catch (e) {
+        debugPrint('madjana: expense sync pending failed: $e');
         // يبقى pending للمحاولة التالية
       }
     }

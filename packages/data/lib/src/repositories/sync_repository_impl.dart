@@ -137,7 +137,8 @@ class SyncRepositoryImpl implements SyncRepository {
       );
       if (rows.isEmpty) return '';
       return (rows.first['farm_id'] ?? '').toString().trim();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: recoverFarmId query failed: $e');
       return '';
     }
   }
@@ -428,7 +429,8 @@ class SyncRepositoryImpl implements SyncRepository {
               whereArgs: [id],
             );
           }
-        } catch (_) {
+        } catch (e) {
+          debugPrint('madjana: normalize failed payload: $e');
           // payload غير صالح للتحليل: نحاول الرفع كما هو، وسيعيد رفضه الخادم.
         }
       }
@@ -658,6 +660,7 @@ class SyncRepositoryImpl implements SyncRepository {
         throw Exception('Invalid response from sync function');
       }
     } catch (e) {
+      debugPrint('madjana: uploadBatch failed: $e');
       // خطأ شبكة/خادم عام: لا نُحوِّل العمليات إلى failed فوراً.
       // نعيدها إلى pending مع زيادة attempts + جدولة retry لاحق.
       final msg = e.toString();
@@ -868,6 +871,7 @@ class SyncRepositoryImpl implements SyncRepository {
         latestVersion: latestVersion,
       );
     } catch (e) {
+      debugPrint('madjana: pullAndMerge failed: $e');
       return PullResult(errorMessage: e.toString());
     }
   }
@@ -1204,6 +1208,7 @@ class SyncRepositoryImpl implements SyncRepository {
       await _recordHistory(result);
       return result;
     } catch (e) {
+      debugPrint('madjana: syncNow failed: $e');
       final result = FullSyncResult(
         uploadedCount: 0,
         downloadedCount: 0,

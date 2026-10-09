@@ -17,7 +17,7 @@ class SaveFeedConsumptionUseCase {
     try {
       await repository.saveConsumptionLocal(record);
       return SaveFeedResult.success();
-    } catch (e) {
+    } on Exception catch (e) {
       return SaveFeedResult.failure('فشل الحفظ: $e');
     }
   }

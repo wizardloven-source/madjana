@@ -135,7 +135,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         final farm = await farmRepo.getFarm(_farmId);
         bagWeight = farm.feedBagWeightKg;
         cartonThreshold = farm.cartonLowThreshold;
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: farm thresholds skipped: $e'); }
 
       if (!mounted) return;
       setState(() {

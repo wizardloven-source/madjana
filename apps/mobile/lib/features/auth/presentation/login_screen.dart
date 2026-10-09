@@ -103,7 +103,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         try {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString(_phoneKey, phone);
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('madjana: login save phone: $e');
+        }
         // _RootGate سيُحوّل تلقائياً للرئيسية عند تغيير الحالة
       } else {
         HapticFeedback.heavyImpact();

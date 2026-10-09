@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/local/daos/dispatch_dao.dart';
 import '../datasources/local/daos/payment_dao.dart';
 import '../datasources/remote/supabase_payment_datasource.dart';
@@ -41,7 +42,8 @@ class PaymentRepositoryImpl implements PaymentRepository {
         // نجح الرفع المباشر — كافئ الصف محلياً حتى لا يبقى pending للأبد
         // (والـ reconcile لن يحذف سوى synced، فيبقى محسوباً ويضخّم لوحة التحكم).
         await _paymentDao.updateSyncStatus(localId, SyncStatus.synced);
-      } catch (_) {
+      } catch (e) {
+        debugPrint('madjana: payment remote insert offline: $e');
         // Offline: queued for next sync
       }
     } else {
@@ -50,7 +52,8 @@ class PaymentRepositoryImpl implements PaymentRepository {
       try {
         await _remoteDatasource.update(payment.id!, localPayment);
         await _paymentDao.updateSyncStatus(payment.id!, SyncStatus.synced);
-      } catch (_) {
+      } catch (e) {
+        debugPrint('madjana: payment remote update offline: $e');
         // Offline: queued for next sync
       }
     }
@@ -102,7 +105,8 @@ class PaymentRepositoryImpl implements PaymentRepository {
         // نجح التحديث — خفف معلقة الصف محلياً للرفع المباشر
         await _paymentDao.updateSyncStatus(row.id!, SyncStatus.synced);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: invoice update remote offline: $e');
       // Offline: التعديل محفوظ محلياً ومؤجّل في طابور المزامنة
     }
 
@@ -153,7 +157,8 @@ class PaymentRepositoryImpl implements PaymentRepository {
       }
       return byId.values.toList()
         ..sort((a, b) => b.date.compareTo(a.date));
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getPayments offline fallback: $e');
       return local;
     }
   }

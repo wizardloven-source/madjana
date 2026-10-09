@@ -56,12 +56,12 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       try {
         final farm = await farmRepo.getFarm(_farmId);
         farmName = farm.name;
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: farm name load skipped: $e'); }
 
       List<FlockModel> flocks = [];
       try {
         flocks = await flockRepo.getFlocks(_farmId, includeEnded: true);
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: flocks load skipped: $e'); }
 
       // المخزون الحي = كل الإنتاج - كل التخريج + صافي رصيد القطعان القديمة
       try {
@@ -77,7 +77,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
         stock += openingNet;
         if (stock < 0) stock = 0;
         _currentStock = stock;
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: stock calc skipped: $e'); }
 
       if (!mounted) return;
       setState(() {

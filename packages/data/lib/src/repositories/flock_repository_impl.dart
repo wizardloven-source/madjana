@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:uuid/uuid.dart';
 import '../datasources/local/daos/flock_dao.dart';
 import '../datasources/remote/supabase_flock_datasource.dart';
@@ -26,7 +27,8 @@ class FlockRepositoryImpl implements FlockRepository {
       final flocks = await _remoteDatasource.getFlocks(farmId);
       await _localDao.saveAll(flocks);
       return flocks;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getFlocks offline fallback: $e');
       // انقطاع اتصال: نعرض النسخة المحلية (النشطة فقط متوفرة محلياً)
       final local = await _localDao.getByFarm(farmId);
       if (includeEnded) {
@@ -47,7 +49,8 @@ class FlockRepositoryImpl implements FlockRepository {
     await _localDao.insert(f);
     try {
       await _remoteDatasource.insert(f);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: createFlock remote offline: $e');
       // غير متصل: بقي محلياً وسيُزامَن لاحقاً
     }
   }
@@ -76,7 +79,8 @@ class FlockRepositoryImpl implements FlockRepository {
     await _localDao.insert(flock);
     try {
       await _remoteDatasource.update(flock);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: updateFlock remote offline: $e');
       // غير متصل: بقي محلياً وسيُزامَن لاحقاً
     }
   }
@@ -86,7 +90,8 @@ class FlockRepositoryImpl implements FlockRepository {
     await _localDao.markEnded(flockId);
     try {
       await _remoteDatasource.endFlock(flockId);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: endFlock remote offline: $e');
       // غير متصل: تحديث محلي فقط
     }
   }

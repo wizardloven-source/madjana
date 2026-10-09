@@ -30,7 +30,8 @@ final activeNoticesProvider =
         .toList();
     _activeNoticesCache[farmId] = notices;
     return notices;
-  } catch (_) {
+  } catch (e) {
+    debugPrint('madjana: activeNotices fetch: $e');
     // Offline: نسخ من ذاكرة الجلسة الحالية، وإلا قائمة فارغة
     return _activeNoticesCache[farmId] ?? const <AppNotificationModel>[];
   }

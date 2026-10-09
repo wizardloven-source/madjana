@@ -44,7 +44,8 @@ class _EquipmentScreenState extends ConsumerState<EquipmentScreen> {
         _items = items;
         _flocks = flocks;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: equipment load skipped: $e');
       // التصفير يبقى على ما كان؛ الشاشة تعرض حالة فارغة قابلة للتجربة.
     } finally {
       if (mounted) setState(() => _loading = false);

@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/local/daos/medication_dao.dart';
 import '../datasources/remote/supabase_medication_datasource.dart';
 
@@ -30,7 +31,8 @@ class MedicationRepositoryImpl implements MedicationRepository {
         await _localDao.seedCatalog(remote);
         return remote;
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: medicines catalog remote failed: $e');
       // نستخدم القائمة الافتراضية
       return _defaultCatalog();
     }

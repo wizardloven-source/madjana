@@ -149,21 +149,21 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
         // رفع المصروفات المحفوظة محلياً أثناء الانقطاع (المدير فقط)
         try {
           await ref.read(expenseRepositoryProvider).syncPendingRecords();
-        } catch (_) {}
+        } catch (e) { debugPrint('madjana: expense sync skipped: $e'); }
         try {
           await ref.read(revenueRepositoryProvider).syncPendingRecords();
-        } catch (_) {}
+        } catch (e) { debugPrint('madjana: revenue sync skipped: $e'); }
         // إعدادات المدجنة (وزن الكيس...) لا تمرّ بطابور المزامنة العام؛
         // نعيد رفعها إن كان تعديل سابق لم يصل للخادم.
         try {
           await ref.read(farmRepositoryProvider).pushPendingSettings(farmId);
-        } catch (_) {}
+        } catch (e) { debugPrint('madjana: farm settings push skipped: $e'); }
 
         final pulled = await ref.read(syncRepositoryProvider).syncNow(farmId);
         if (pulled.uploadedCount > 0 || (pulled.downloadedCount > 0 && mounted)) {
           ref.read(dataRefreshTickProvider.notifier).state++;
         }
-      } catch (_) {}
+      } catch (e) { debugPrint('madjana: periodic sync skipped: $e'); }
       await _refreshFailedCount();
     });
   }
@@ -174,7 +174,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
       if (mounted && count != _failedSyncCount) {
         setState(() => _failedSyncCount = count);
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('madjana: failed count refresh skipped: $e'); }
   }
 
   @override

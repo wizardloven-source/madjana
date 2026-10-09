@@ -1,5 +1,8 @@
 library core;
 
+// الخطأ
+export 'src/errors/sync_failure.dart';
+
 // الثوابت
 export 'src/constants/app_constants.dart';
 export 'src/constants/enums.dart';

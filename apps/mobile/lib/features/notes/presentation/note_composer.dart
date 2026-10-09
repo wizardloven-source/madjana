@@ -89,7 +89,8 @@ class _NoteComposerState extends ConsumerState<NoteComposer>
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() => _recordSeconds++);
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: note audio start: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('تعذر بدء التسجيل')),
@@ -106,7 +107,9 @@ class _NoteComposerState extends ConsumerState<NoteComposer>
       try {
         final f = File(path);
         if (await f.exists()) await f.delete();
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('madjana: note audio delete: $e');
+      }
     }
   }
 

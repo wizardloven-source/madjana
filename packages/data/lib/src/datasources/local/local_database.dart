@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -14,7 +15,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 29;
+  static const int _dbVersion = 30;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -478,6 +479,19 @@ CREATE TABLE inventory_items (
       )
     ''');
 
+    // v30: سجل إصدار المخطط المحلي — يُقارن مع current_schema_version()
+    // (إصدار الخادم) قبل المزامنة. يُسجَّل عند الإنشاء والترقية من v29.
+    await db.execute('''
+      CREATE TABLE local_schema_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    ''');
+    await db.insert('local_schema_meta', {
+      'key': 'schema_version',
+      'value': '$_dbVersion',
+    });
+
     // جدول الجلسة
     await db.execute('''
       CREATE TABLE session (
@@ -745,7 +759,9 @@ CREATE TABLE inventory_items (
       try {
         await db.execute(
             'ALTER TABLE egg_production ADD COLUMN section_no INTEGER');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v5 egg_production.section_no: $e');
+      }
     }
 
     // v6: وزن الصحن في التخريج (وزن 30 بيضة بالكيلوغرام)
@@ -774,14 +790,18 @@ CREATE TABLE inventory_items (
       ]) {
         try {
           await db.execute('ALTER TABLE $table ADD COLUMN updated_at TEXT');
-        } catch (_) {}
+        } on Exception catch (e) {
+          debugPrint('madjana: migration v8 add updated_at to $table: $e');
+        }
       }
       // إضافة sync_status للجداول التي تفتقر إليه
       for (final table in ['customers', 'payments']) {
         try {
           await db.execute(
               'ALTER TABLE $table ADD COLUMN sync_status TEXT DEFAULT \'synced\'');
-        } catch (_) {}
+        } on Exception catch (e) {
+          debugPrint('madjana: migration v8 add sync_status to $table: $e');
+        }
       }
       // فهارس إضافية
       for (final idx in [
@@ -806,7 +826,9 @@ CREATE TABLE inventory_items (
       ]) {
         try {
           await db.execute(idx);
-        } catch (_) {}
+        } on Exception catch (e) {
+          debugPrint('madjana: migration v8 create index: $e');
+        }
       }
     }
     // v9: جدول طلبات التخريج
@@ -827,21 +849,29 @@ CREATE TABLE inventory_items (
       try {
         await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_dispatch_requests_farm ON dispatch_requests(farm_id)');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v9 idx_dispatch_requests_farm: $e');
+      }
       try {
         await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_dispatch_requests_status ON dispatch_requests(status)');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v9 idx_dispatch_requests_status: $e');
+      }
     }
     // v10: أعمدة مفقودة في _onCreate
     if (oldVersion < 10) {
       try {
         await db.execute('ALTER TABLE expenses ADD COLUMN updated_at TEXT');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v10 expenses.updated_at: $e');
+      }
       try {
         await db.execute(
             'ALTER TABLE flocks ADD COLUMN sections_count INTEGER DEFAULT 1');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v10 flocks.sections_count: $e');
+      }
     }
     // v11: الأرصدة الافتتاحية للقطعان القديمة
     if (oldVersion < 11) {
@@ -877,10 +907,14 @@ CREATE TABLE inventory_items (
       try {
         await db.execute(
             'ALTER TABLE customers ADD COLUMN sync_status TEXT DEFAULT \'synced\'');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v12 customers.sync_status: $e');
+      }
       try {
         await db.execute('ALTER TABLE customers ADD COLUMN updated_at TEXT');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v12 customers.updated_at: $e');
+      }
     }
     // v13: أعمدة المزامنة المفقودة في جدول المدفوعات
     // (كانت مفقودة في _onCreate مما كسر getPendingRecords – أصلحناها)
@@ -888,10 +922,14 @@ CREATE TABLE inventory_items (
       try {
         await db.execute(
             'ALTER TABLE payments ADD COLUMN sync_status TEXT DEFAULT \'synced\'');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v13 payments.sync_status: $e');
+      }
       try {
         await db.execute('ALTER TABLE payments ADD COLUMN updated_at TEXT');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v13 payments.updated_at: $e');
+      }
     }
     // v14: version + deleted_at للجداول التشغيلية (version-based conflict detection)
     if (oldVersion < 14) {
@@ -911,33 +949,47 @@ CREATE TABLE inventory_items (
         try {
           await db.execute(
               'ALTER TABLE $table ADD COLUMN version INTEGER DEFAULT 1');
-        } catch (_) {}
+        } on Exception catch (e) {
+          debugPrint('madjana: migration v14 add version to $table: $e');
+        }
         try {
           await db.execute('ALTER TABLE $table ADD COLUMN deleted_at TEXT');
-        } catch (_) {}
+        } on Exception catch (e) {
+          debugPrint('madjana: migration v14 add deleted_at to $table: $e');
+        }
       }
       // section_no for mortality/feed_consumption/feed_received
       try {
         await db.execute('ALTER TABLE mortality ADD COLUMN section_no INTEGER');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v14 mortality.section_no: $e');
+      }
       try {
         await db.execute(
             'ALTER TABLE feed_consumption ADD COLUMN section_no INTEGER');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v14 feed_consumption.section_no: $e');
+      }
       try {
         await db
             .execute('ALTER TABLE feed_received ADD COLUMN section_no INTEGER');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v14 feed_received.section_no: $e');
+      }
     }
     // v15: flock_id for feed_consumption + medications
     if (oldVersion < 15) {
       try {
         await db
             .execute('ALTER TABLE feed_consumption ADD COLUMN flock_id TEXT');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v15 feed_consumption.flock_id: $e');
+      }
       try {
         await db.execute('ALTER TABLE medications ADD COLUMN flock_id TEXT');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v15 medications.flock_id: $e');
+      }
     }
     // v16: سجل عمليات المزامنة + أعمدة إعادة المحاولة في sync_queue
     if (oldVersion < 16) {
@@ -1078,7 +1130,9 @@ CREATE TABLE inventory_items (
       try {
         await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_revenue_farm_date ON revenue(farm_id, date)');
-      } catch (_) {}
+      } on Exception catch (e) {
+        debugPrint('madjana: migration v22 idx_revenue_farm_date: $e');
+      }
     }
 
     // v23: عمود farm_id لطابور المزامنة — يمنع رفع سجلات مدجنة أخرى
@@ -1147,6 +1201,22 @@ CREATE TABLE inventory_items (
         'ON inventory_items(flock_id)',
       );
     }
+
+    // v30: سجل إصدار المخطط المحلي + تسجيل الإصدار الحالي (بعد أي ترقية).
+    // إدخالٌ واحد — يُكتب فوق الشق السابق، فالقيمة الأخيرة هي الصحيحة.
+    if (oldVersion < 30) {
+      await db.execute('''
+            CREATE TABLE IF NOT EXISTS local_schema_meta (
+              key TEXT PRIMARY KEY,
+              value TEXT
+            )
+          ''');
+      await db.insert(
+        'local_schema_meta',
+        {'key': 'schema_version', 'value': '$_dbVersion'},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
   }
 
   /// يتحقق من وجود عمود في جدول (بدلاً من إخفاء أخطاء migration عبر catch عام)
@@ -1163,6 +1233,32 @@ CREATE TABLE inventory_items (
       [table],
     );
     return rows.isNotEmpty;
+  }
+
+  /// إصدار المخطط المحلي الحالي المسجّل في local_schema_meta.
+  ///
+  /// يُقارن مع current_schema_version() للخادم قبل المزامنة (انظر
+  /// مدخلي الإقلاع في التطبيقين). عند غياب السجل (قاعدة قديمة جداً) —
+  /// أو فشل القراءة — نعيد الرقم المجمَّع الثابت، فيتطابق الإصدار المحلي
+  /// مع ما تعرفه هذه النسخة من الكود ضمناً.
+  static Future<int> getLocalSchemaVersion() async {
+    try {
+      final db = await database;
+      final rows = await db.query(
+        'local_schema_meta',
+        where: 'key = ?',
+        whereArgs: ['schema_version'],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) {
+        final v = int.tryParse(rows.first['value']?.toString() ?? '');
+        if (v != null) return v;
+      }
+    } on Exception catch (e) {
+      // القيمة لا تُقرأ — نعود للرقم المجمَّع.
+      debugPrint('madjana: getLocalSchemaVersion: $e');
+    }
+    return _dbVersion;
   }
 
   /// مسح قاعدة البيانات (عند تسجيل الخروج)
@@ -1195,6 +1291,7 @@ CREATE TABLE inventory_items (
       'opening_balances',
       'sync_state',
       'conflicts',
+      'local_schema_meta',
     ];
     for (final table in tables) {
       await db.delete(table);
@@ -1217,7 +1314,7 @@ CREATE TABLE inventory_items (
       if (rows.isEmpty) return false;
       final status = rows.first.values.first?.toString() ?? '';
       return status == 'ok';
-    } catch (_) {
+    } on Exception {
       return false;
     }
   }
@@ -1254,12 +1351,13 @@ CREATE TABLE inventory_items (
             const JsonEncoder.withIndent('  ').convert(result),
           );
         }
-      } catch (_) {
+      } on Exception catch (e) {
         // نسخ الاحتياطي للطابور فشل — لكن نسخة القاعدة نجحت
+        debugPrint('madjana: backupDatabase pending-changes copy: $e');
       }
 
       return backupPath;
-    } catch (_) {
+    } on Exception {
       return null;
     }
   }
@@ -1284,7 +1382,7 @@ CREATE TABLE inventory_items (
       await backups.first.copy(src);
       await database;
       return true;
-    } catch (_) {
+    } on Exception {
       return false;
     }
   }
@@ -1303,7 +1401,9 @@ CREATE TABLE inventory_items (
         final farmId = session.first['farm_id']?.toString() ?? '';
         if (farmId.isNotEmpty) return farmId;
       }
-    } catch (_) {}
+    } on Exception catch (e) {
+      debugPrint('madjana: getActiveFarmId: $e');
+    }
     return '';
   }
 
@@ -1375,7 +1475,7 @@ CREATE TABLE inventory_items (
         queueRow['farm_id'] = effectiveFarmId;
       }
       await db.insert('sync_queue', queueRow);
-    } catch (e) {
+    } on Exception {
       // لا نبتلع فشل إدراج الطابور: الحفظ المحلي نجح لكن السجل لن يُرفع
       // للخادم أبداً. نعيد رمي الخطأ حتى يظهر للمستخدم بدل فقدان صامت.
       rethrow;

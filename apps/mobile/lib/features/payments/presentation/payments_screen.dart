@@ -65,7 +65,9 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
       final cur = await ref.read(farmRepositoryProvider).getInputCurrency();
       if (!mounted) return;
       setState(() => _currency = cur);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: payments input currency: $e');
+    }
   }
 
   @override

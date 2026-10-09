@@ -89,7 +89,7 @@ class OpeningBalanceDao {
             .map((e) => OpeningSectionModel.fromJson(
                 Map<String, dynamic>.from(e as Map)))
             .toList();
-      } catch (_) {
+      } on Exception {
         sections = const [];
       }
     }

@@ -19,3 +19,9 @@ analyzer:
     unused_import: warning
     unused_local_variable: warning
     dead_code: warning
+    # M10: منع الـ catch الصامت في packages/data. بعد التحقق العملي يتبيّن
+    # أن `avoid_catches_without_on_clauses` لا يُفعَّل في هذه النسخة من
+    # المحلّل (لا يُبلغ عن أي مخالفة)، وأن الاسم المشابه غير معرَّف أصلاً
+    # (unrecognized_error_code). أبقيناه أدناه للتوثيق فقط؛ التفريض الفعلي
+    # عبر test/static_catch_rules_test.dart. تفاصيل في docs/ERROR_HANDLING.md.
+    avoid_catches_without_on_clauses: error

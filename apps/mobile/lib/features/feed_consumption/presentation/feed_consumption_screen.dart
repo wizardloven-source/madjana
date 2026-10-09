@@ -64,7 +64,8 @@ class _FeedConsumptionScreenState extends ConsumerState<FeedConsumptionScreen> {
           .read(feedRepositoryProvider)
           .getCurrentFeedStock(farmId);
       if (mounted) setState(() => _stockKg = stock);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: feed loadStock: $e');
       if (mounted) setState(() => _stockKg = 0);
     } finally {
       if (mounted) setState(() => _stockLoading = false);

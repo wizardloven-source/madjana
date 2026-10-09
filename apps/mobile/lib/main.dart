@@ -45,7 +45,8 @@ class _MadjanaBootstrapState extends State<MadjanaBootstrap> {
     // 1. تحميل .env (اختياري — قد لا يوجد في الوضع المحلي)
     try {
       await dotenv.load(fileName: '.env');
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: bootstrap .env load: $e');
       // لا يوجد ملف .env — يستمر بدون مفاتيح
     }
 
@@ -61,7 +62,9 @@ class _MadjanaBootstrapState extends State<MadjanaBootstrap> {
     // نسخة احتياطية أولية لحماية البيانات المحلية (بما فيها طابور المزامنة)
     try {
       await LocalDatabase.backupDatabase();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: bootstrap initial backup: $e');
+    }
 
     // 3. Supabase: اختياري — التطبيق يعمل دون قطع الوصول حتى لو فشلت التهيئة.
     //    استعادة الجلسة تتم لاحقاً عبر authProvider في شاشة التحميل.
@@ -73,7 +76,40 @@ class _MadjanaBootstrapState extends State<MadjanaBootstrap> {
     }
 
     if (!mounted) return;
+
+    // 4. بوابة إصدار المخطط (M9 — docs/SYNC.md): تقارن إصدار الخادم
+    //    (current_schema_version RPC) مع إصدار المخطط المحلي قبل فتح
+    //    الواجهة. عند التطابق → تمرير. عند اختلاف الرقمين → حظر المزامنة
+    //    حتى يُحدَّث الجانب الأقدم. عند فشل الاتصال → لا حظر (Offline-first).
+    final versionBlock = await _checkSchemaVersionGate();
+    if (!mounted) return;
+    if (versionBlock != null) {
+      setState(() => _error = versionBlock);
+      return;
+    }
+
     setState(() => _ready = true);
+  }
+
+  /// بإرجاع رسالة حظر إن اختلف إصدارا المخطط (الخادم مقابل المحلي)،
+  /// و null عند تطابقهما أو تعذّر قراءة أيٍّ منهما (offline).
+  Future<String?> _checkSchemaVersionGate() async {
+    final client = SupabaseConfig.client;
+    if (client == null) return null;
+    try {
+      final server =
+          await SupabaseClientApiAdapter(client).fetchServerSchemaVersion();
+      final local = await LocalDatabase.getLocalSchemaVersion();
+      if (server > local) {
+        return 'إصدار الخادم ($server) أحدث من التطبيق ($local) — حدّث التطبيق';
+      }
+      if (local > server) {
+        return 'التطبيق ($local) أحدث من الخادم ($server) — ينتظر دعم الخادم';
+      }
+    } catch (e) {
+      debugPrint('M9 schema version gate: skipped (offline): $e');
+    }
+    return null;
   }
 
   /// فتح قاعدة البيانات مع فحص السلامة ونسخ احتياطي قبل أي محاولة حذف.
@@ -89,7 +125,8 @@ class _MadjanaBootstrapState extends State<MadjanaBootstrap> {
           return await LocalDatabase.restoreLatestBackup();
         }
         return true;
-      } catch (_) {
+      } catch (e) {
+        debugPrint('madjana: local db open/verify: $e');
         return false;
       }
     }
@@ -100,13 +137,16 @@ class _MadjanaBootstrapState extends State<MadjanaBootstrap> {
     try {
       await LocalDatabase.close();
       if (await tryOpenAndVerify()) return true;
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: local db close/reopen: $e');
+    }
 
     // ملاذ أخير: نسخ احتياطي ثم محاولة الاسترجاع
     try {
       await LocalDatabase.backupDatabase();
       return await LocalDatabase.restoreLatestBackup();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: local db restore fallback: $e');
       return false;
     }
   }

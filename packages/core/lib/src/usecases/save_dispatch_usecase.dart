@@ -36,7 +36,7 @@ class SaveDispatchUseCase {
       final dispatchId = await repository.saveLocal(record);
       await _openInvoice(dispatchId, record);
       return SaveDispatchResult.success();
-    } catch (e) {
+    } on Exception catch (e) {
       return SaveDispatchResult.failure('فشل الحفظ: $e');
     }
   }
@@ -72,8 +72,10 @@ class SaveDispatchUseCase {
           managerId: record.workerId,
         ),
       );
-    } catch (_) {
+    } on Exception catch (e) {
       // best-effort: لا نمنع حفظ التخريج
+      // ignore: avoid_print
+      print('madjana: SaveDispatchUseCase._openInvoice: $e');
     }
   }
 
@@ -101,7 +103,7 @@ class SaveDispatchUseCase {
         }
       }
       return null;
-    } catch (e) {
+    } on Exception {
       // If we can't check medications, allow the dispatch (best-effort)
       return null;
     }

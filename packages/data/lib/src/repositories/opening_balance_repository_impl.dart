@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/local/daos/opening_balance_dao.dart';
 import '../datasources/local/daos/flock_dao.dart';
 import '../datasources/remote/supabase_opening_balance_datasource.dart';
@@ -23,7 +24,8 @@ class OpeningBalanceRepositoryImpl implements OpeningBalanceRepository {
       final remote = await _remoteDatasource.getForFlock(farmId, flockId);
       if (remote != null) await _localDao.save(remote);
       return remote ?? await _localDao.getForFlock(farmId, flockId);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getForFlock offline fallback: $e');
       return _localDao.getForFlock(farmId, flockId);
     }
   }
@@ -36,7 +38,8 @@ class OpeningBalanceRepositoryImpl implements OpeningBalanceRepository {
         await _localDao.save(b);
       }
       return remote;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getForFarm offline fallback: $e');
       return _localDao.getForFarm(farmId);
     }
   }
@@ -56,13 +59,15 @@ class OpeningBalanceRepositoryImpl implements OpeningBalanceRepository {
           await _flockDao.updateCurrentCount(flock.id, newCount);
         }
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: flock count recalc failed: $e');
       // Best-effort: if flock update fails, sync trigger will fix it
     }
 
     try {
       await _remoteDatasource.upsert(balance);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: opening balance remote upsert offline: $e');
       // بدون اتصال: يبقى محلياً ويُرفع لاحقاً
     }
   }
@@ -72,6 +77,8 @@ class OpeningBalanceRepositoryImpl implements OpeningBalanceRepository {
     await _localDao.deleteForFlock(farmId, flockId);
     try {
       await _remoteDatasource.delete(farmId, flockId);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: opening balance remote delete offline: $e');
+    }
   }
 }

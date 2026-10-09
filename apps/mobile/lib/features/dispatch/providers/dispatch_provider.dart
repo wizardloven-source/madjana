@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/providers.dart';
@@ -70,7 +71,8 @@ class DispatchNotifier extends StateNotifier<bool> {
           notes: notes,
         ),
       );
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: dispatch addNewCustomer: $e');
       return null;
     }
   }

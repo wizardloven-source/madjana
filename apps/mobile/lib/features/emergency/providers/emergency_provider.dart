@@ -1,4 +1,5 @@
 import 'package:data/data.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -54,7 +55,9 @@ class EmergencyNotifier extends StateNotifier<EmergencyState> {
   Future<void> _init() async {
     try {
       await dao.pruneSent();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: emergency pruneSent: $e');
+    }
     await _refreshPending();
   }
 
@@ -98,7 +101,8 @@ class EmergencyNotifier extends StateNotifier<EmergencyState> {
         'created_by': createdBy,
       });
       return const EmergencySubmitResult(EmergencySubmitOutcome.sent);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: emergency submit offline fallback: $e');
       // Offline/فشل: الحفظ محلياً وإعادة المحاولة لاحقاً
       try {
         await dao.add(
@@ -108,7 +112,9 @@ class EmergencyNotifier extends StateNotifier<EmergencyState> {
           createdBy: createdBy,
         );
         await _refreshPending();
-      } catch (_) {}
+      } catch (queueError) {
+        debugPrint('madjana: emergency queue local: $queueError');
+      }
       return const EmergencySubmitResult(EmergencySubmitOutcome.queued);
     }
   }
@@ -139,12 +145,15 @@ class EmergencyNotifier extends StateNotifier<EmergencyState> {
           });
           await dao.markSent(record.id);
           sent++;
-        } catch (_) {
+        } catch (e) {
+          debugPrint('madjana: emergency retry send: $e');
           // لا تزال غير متصل — نوقف ونعيد المحاولة لاحقاً
           break;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('madjana: emergency retryPending: $e');
+    }
 
     await _refreshPending();
     state = state.copyWith(lastSentCount: state.lastSentCount + sent);

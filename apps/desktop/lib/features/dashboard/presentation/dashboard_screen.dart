@@ -155,7 +155,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         );
         _currentEggStock += openingNet;
         if (_currentEggStock < 0) _currentEggStock = 0;
-      } catch (_) {
+      } catch (e) {
+        debugPrint('madjana: opening balances skipped: $e');
         _openingBalances = [];
       }
 
@@ -169,7 +170,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _pendingApprovals = (rows as List).length;
         ref.read(pendingApprovalsProvider.notifier).state =
             _pendingApprovals;
-      } catch (_) {
+      } catch (e) {
+        debugPrint('madjana: pending approvals skipped: $e');
         _pendingApprovals = 0;
       }
     } catch (e) {

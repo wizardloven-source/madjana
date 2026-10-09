@@ -1,5 +1,6 @@
 import 'package:core/core.dart';
 import 'package:data/data.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'dart:convert';
 
 /// تنفيذ مستودع التعارضات (SQLite محلي عبر LocalDatabase)
@@ -88,7 +89,8 @@ class ConflictRepositoryImpl implements ConflictRepository {
       if (raw == null || raw.isEmpty) return <String, dynamic>{};
       try {
         return Map<String, dynamic>.from(jsonDecode(raw));
-      } catch (_) {
+      } catch (e) {
+        debugPrint('madjana: decode conflict payload fallback: $e');
         return <String, dynamic>{};
       }
     }

@@ -1,4 +1,5 @@
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/local/daos/customer_dao.dart';
 import '../datasources/local/daos/dispatch_dao.dart';
 import '../datasources/remote/supabase_dispatch_datasource.dart';
@@ -28,7 +29,8 @@ class DispatchRepositoryImpl implements DispatchRepository {
     try {
       await _remoteDatasource.insertCustomer(localId, customer);
       await _customerDao.updateSyncStatus(localId, SyncStatus.synced);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: addCustomer remote insert offline: $e');
       // Offline-first: يبقى pend في طابور المزامنة ويرتفع لاحقاً تلقائياً
     }
     return localId;
@@ -45,7 +47,8 @@ class DispatchRepositoryImpl implements DispatchRepository {
       for (final customer in remote) {
         await _customerDao.upsertFromRemote(customer);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: getCustomers offline fallback: $e');
       // انقطاع اتصال: نعرض النسخة المحلية
       return _customerDao.getByFarm(farmId);
     }
@@ -73,7 +76,8 @@ class DispatchRepositoryImpl implements DispatchRepository {
     await _customerDao.update(customer);
     try {
       await _remoteDatasource.updateCustomer(customer);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: updateCustomer remote offline: $e');
       // يبقى محلياً وينتظر المزامنة القادمة
     }
   }
@@ -83,7 +87,8 @@ class DispatchRepositoryImpl implements DispatchRepository {
     await _customerDao.deleteById(id);
     try {
       await _remoteDatasource.deleteCustomer(id);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: deleteCustomer remote offline: $e');
       // يبقى محذوفاً محلياً على الأقل
     }
   }

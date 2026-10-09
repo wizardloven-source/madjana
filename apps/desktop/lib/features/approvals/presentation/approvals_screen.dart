@@ -62,7 +62,8 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
       _requests = ((rows as List).cast<Map<String, dynamic>>())
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: approvals load skipped: $e');
       _requests = [];
     }
 
@@ -85,7 +86,7 @@ class _ApprovalsScreenState extends ConsumerState<ApprovalsScreen> {
       final pendingRows = await countQuery;
       ref.read(pendingApprovalsProvider.notifier).state =
           (pendingRows as List).length;
-    } catch (_) {}
+    } catch (e) { debugPrint('madjana: pending count skipped: $e'); }
 
     if (mounted) setState(() => _loading = false);
   }

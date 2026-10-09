@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:core/core.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../datasources/local/daos/settings_dao.dart';
 import '../datasources/remote/supabase_farm_datasource.dart';
 
@@ -60,6 +61,7 @@ class FarmRepositoryImpl implements FarmRepository {
       await _cacheFarm(farm);
       return FarmFetchResult(farm: farm, source: FarmFetchSource.remote);
     } catch (e) {
+      debugPrint('madjana: getFarmWithSource offline fallback: $e');
       // انقطاع الاتصال أو تعذّر الوصول للخادم: نُعيد آخر قيم محفوظة محلياً
       // بدل القيم الافتراضية، حتى لا يرجع وزن الكيس إلى 50 كغ ويضيع ما عدّله المدير.
       final cached = await _farmFromCache(farmId);
@@ -99,7 +101,8 @@ class FarmRepositoryImpl implements FarmRepository {
     if (raw != null && raw.isNotEmpty) {
       try {
         return FarmModel.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-      } catch (_) {
+      } catch (e) {
+        debugPrint('madjana: corrupted farm snapshot: $e');
         // لقطة تالفة: نسقط إلى القيم الافتراضية أدناه.
       }
     }
@@ -111,7 +114,8 @@ class FarmRepositoryImpl implements FarmRepository {
     try {
       await _remoteDatasource.update(farm).timeout(const Duration(seconds: 10));
       return true;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: pushFarm failed: $e');
       return false;
     }
   }
@@ -147,7 +151,8 @@ class FarmRepositoryImpl implements FarmRepository {
         await _settingsDao.set(dirtyKey, '0');
       }
       return ok;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('madjana: pushPendingSettings failed: $e');
       return false;
     }
   }

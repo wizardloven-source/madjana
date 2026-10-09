@@ -16,7 +16,7 @@ class SaveMedicationUseCase {
       return SaveMedicationResult.success(
         withdrawalDays: record.withdrawalDays,
       );
-    } catch (e) {
+    } on Exception catch (e) {
       return SaveMedicationResult.failure('فشل الحفظ: $e');
     }
   }
