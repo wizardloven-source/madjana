@@ -125,6 +125,8 @@ enabled, and `sync_status` constrained to
 | 2026-10-03 | M7: `revenue.worker_id` TEXT→UUID with FK `revenue_worker_id_fkey` (ON DELETE SET NULL) and `idx_revenue_worker`. Suite **4m**. Guards and rollback in `20261003000700/701`. |
 | 2026-10-03 | M8: financial RLS is manager-only again on payments/expenses/revenue/opening_balances/inventory_items/stock_adjustments. Forward `20261002000000`, rollback `20261002000001`, guard suite **4c**. |
 | 2026-10-08 | M9: client/server schema-version marker. Table `app_schema_version` + `current_schema_version()` RPC (SECURITY DEFINER, STABLE, `SET search_path = public`), read-open RLS by design, **anon excluded**. Metadata-only — deliberately not in `sync_table_registry`. Local DB v29→30 + `local_schema_meta`. Forward `20261003000900`, rollback `20261003000901`, suite **4n**. Full contract in `docs/SYNC.md`. |
+| 2026-10-09 | M11: report mode (فترة/تراكمي) gates `opening_balances` contributions in analytics. No schema change — mapping in `docs/REPORTS.md`. |
+| 2026-10-09 | M12: `FlockCostCalculator` implements the §6 flock-cost formula in Dart (`estimatedCost` → `costBreakdown` on `FlockPerformance`). No schema change — reuses `expenses.flock_id` (M1), `stock_adjustments.unit_price` (M2), `medications.cost`/`inventory_item_id` (M3). |
 
 # SCHEMA_REFERENCE — Madjana
 
@@ -364,4 +366,34 @@ shows both versions. Bump procedure, messages and gate semantics:
 `SELECT` and `EXECUTE`; the table absent from `sync_table_registry`; the
 idempotent re-apply keeps one row; the rollback removes table + function;
 and a forward re-apply restores everything.
+
+---
+
+## 8. Report mode (M11) — what analytics read from the schema
+
+M11 is **client-side only** (no DDL). It tightens how analytics derive
+period values vs. lifetime values from existing tables. Sourcing map:
+
+| Analytics input | Table / columns | Period mode | Cumulative mode |
+|---|---|---|---|
+| Egg production | `egg_production` (`total_eggs` via cartons/trays/loose) | rows whose `date` ∈ range | same |
+| Legacy eggs (pre-system) | `opening_balances.eggs_produced` | **0** — excluded | full sum, **no** `created_at` filter |
+| Mortality | `mortality.count` | rows where `date` ∈ range | same |
+| Legacy mortality | `opening_balances.mortality_count` | **0** | full sum, no `created_at` filter |
+| Feed | `feed_consumption.quantity_kg` / `feed_received.quantity_kg` | `date` ∈ range | same |
+| Legacy feed | `opening_balances.feed_consumed_kg` | **0** | full sum |
+| Legacy money | `opening_balances.total_payments` / `total_revenues` | **0** | full sum |
+
+Rule of thumb: **`opening_balances` is *always* a post-system opening-balance
+legacy snapshot; in «فترة» it represents nothing inside the chosen window, so
+every KPI zeroes it; in «تراكمي» it is history that must not be hidden,
+so it is summed in full and never date-filtered.** The `created_at`-based
+filter that previously let old balances leak into narrow windows was
+removed — the mode switch now owns that decision (see `docs/REPORTS.md`).
+
+The single source of truth for the classification is `ReportMode`, defined
+in `packages/core/lib/src/services/phase1_analytics.dart` and carried by
+`DateRange.mode` into every calculator and provider. `DateRange.all()`
+defaults to `ReportMode.cumulative`; all other presets default to
+`ReportMode.period`.
 

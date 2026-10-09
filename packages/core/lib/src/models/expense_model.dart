@@ -4,6 +4,7 @@ import '../constants/enums.dart';
 class ExpenseModel {
   final String? id;
   final String farmId;
+  final String? flockId;
   final DateTime date;
   final ExpenseCategory category;
   final String? description;
@@ -20,6 +21,7 @@ class ExpenseModel {
   const ExpenseModel({
     this.id,
     required this.farmId,
+    this.flockId,
     required this.date,
     required this.category,
     this.description,
@@ -40,6 +42,7 @@ class ExpenseModel {
     return ExpenseModel(
       id: json['id'] as String?,
       farmId: json['farm_id'] as String,
+      flockId: json['flock_id'] as String?,
       date: DateTime.parse(json['date'] as String),
       category: ExpenseCategory.values.firstWhere(
         (e) => e.name == json['category'],
@@ -66,6 +69,7 @@ class ExpenseModel {
   Map<String, dynamic> toJson() => {
         if (id != null) 'id': id,
         'farm_id': farmId,
+        if (flockId != null) 'flock_id': flockId,
         'date': date.toIso8601String().split('T').first,
         'category': category.name,
         'description': description,
@@ -81,6 +85,7 @@ class ExpenseModel {
   ExpenseModel copyWith({
     String? id,
     String? farmId,
+    String? flockId,
     DateTime? date,
     ExpenseCategory? category,
     String? description,
@@ -91,10 +96,12 @@ class ExpenseModel {
     SyncStatus? syncStatus,
     int? version,
     int? previousVersion,
+    bool clearFlock = false,
   }) {
     return ExpenseModel(
       id: id ?? this.id,
       farmId: farmId ?? this.farmId,
+      flockId: clearFlock ? null : (flockId ?? this.flockId),
       date: date ?? this.date,
       category: category ?? this.category,
       description: description ?? this.description,

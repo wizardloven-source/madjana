@@ -111,6 +111,25 @@ Farm overhead — salaries and anything else with `flock_id IS NULL` — is
 **not** in this formula. If a farm wants an overhead-loaded figure, that is
 a separate, explicitly labelled number, never a silent addition here.
 
+### `FlockCostCalculator` (Dart — M12)
+
+`packages/core/lib/src/services/flock_cost_calculator.dart` implements the
+formula above in Dart. The mirror decisions it encodes:
+
+| Rule | Implementation |
+|---|---|
+| flock gets only what names it | all four inputs filtered by `flockId`; the caller may pass farm-wide lists |
+| farm-level money stays out | `expenses`/`feed`/`medications`/adjustments with `flock_id IS NULL` skipped |
+| unpriced ≠ free | every unpriced row (feed without `price_per_kg`, adjustment without `unit_price`, medication that resolves to nothing) is counted in `unpriced*` and summed as `0` — the interface must surface the warning, never a silent zero (§4 non-negotiable) |
+| medicine priority (§4) | inventory-linked med priced by its stock movement (`inventoryUnitPrices` map) wins; no movement price → falls back to `cost`; none → `0` + warning |
+| signed adjustments | `delta_qty × unit_price` is summed signed (a write-off is a negative term) |
+| never negative | `totalCost` is clamped at `0`; the per-source signed values stay visible in the breakdown |
+| money precision | each component and `totalCost` round to 4 decimals (`NUMERIC(19,4)`/`(12,4)`) |
+
+The medication quantity for an inventory-linked row is the draw-down itself
+(one unit per record): `quantity` is not tracked per medication, so the
+movement price prices the unit drawn, not a multiplied dose.
+
 ---
 
 ## 7. Revenue
@@ -188,6 +207,7 @@ feed invoice that names a flock).
 | cross-farm linking refused | same, §3 |
 | delete-with-expenses refused | same, §5 |
 | one invoice counted once | `packages/core/test/profitability_revenue_merge_test.dart` |
+| four-source flock cost, NULL excluded, never negative, 4-dp rounding | `packages/core/test/flock_cost_calculator_test.dart` |
 
 ---
 
@@ -198,5 +218,6 @@ feed invoice that names a flock).
 | 2026-09-27 | Document created (M1). `expenses.flock_id` defined. |
 | 2026-10-03 | M2: `stock_adjustments` gets `flock_id`, `unit_price`, `currency`. `farm_id` FK fixed to RESTRICT. |
 | 2026-10-03 | M3: `medications` gets `cost`, `currency`, `inventory_item_id`. |
+| 2026-10-09 | M12: `FlockCostCalculator` implements §6 in Dart; `FlockPerformance.estimatedCost` replaced by `costBreakdown`. No schema change. |
 
 

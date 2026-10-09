@@ -39,11 +39,12 @@ final productionKpiProvider = FutureProvider.autoDispose
       .where((f) => f.status == FlockStatus.active)
       .fold<int>(0, (s, f) => s + (counts[f.id] ?? f.currentCount));
 
-  // الأرصدة الافتتاحية (قطيعة قديمة قبل النظام) — بيض مُنتَج في الماضي
+  // م11: وضع «فترة» يُصفِّر الأرصدة الافتتاحية؛ وضع «تراكمي» يحسبها كاملة.
   final openingBalances =
       await ref.read(openingBalanceRepositoryProvider).getForFarm(params.farmId);
-  final openingEggsTotal =
-      openingBalances.fold<int>(0, (s, b) => s + b.eggsProduced);
+  final openingEggsTotal = params.range.mode == ReportMode.cumulative
+      ? openingBalances.fold<int>(0, (s, b) => s + b.eggsProduced)
+      : 0;
 
   return ProductionKpi.calculate(
     records: eggs,
@@ -71,11 +72,12 @@ final mortalityKpiProvider = FutureProvider.autoDispose
       .where((f) => f.status == FlockStatus.active)
       .fold<int>(0, (s, f) => s + (counts[f.id] ?? f.currentCount));
 
-  // P0: Include opening balance mortality
+  // م11: P0 opening-balance mortality — صفر عند «فترة»، كاملة عند «تراكمي».
   final openingBalances =
       await ref.read(openingBalanceRepositoryProvider).getForFarm(params.farmId);
-  final openingMortalityTotal =
-      openingBalances.fold<int>(0, (s, b) => s + b.mortalityCount);
+  final openingMortalityTotal = params.range.mode == ReportMode.cumulative
+      ? openingBalances.fold<int>(0, (s, b) => s + b.mortalityCount)
+      : 0;
 
   return MortalityKpi.calculate(
     records: mortality,

@@ -8,10 +8,12 @@ import '../models/expense_model.dart';
 import '../models/flock_model.dart';
 import '../models/customer_model.dart';
 import '../models/inventory_model.dart';
+import '../models/medication_model.dart';
 import '../models/opening_balance_model.dart';
 import '../models/revenue_model.dart';
 import '../constants/enums.dart';
 import '../utils/farm_analytics.dart';
+import 'flock_cost_calculator.dart';
 
 
 /// ═══════════════════════════════════════════════════════════════
@@ -65,16 +67,25 @@ FeedCost feedCostOf(Iterable<FeedReceivedModel> shipments) {
 
 // ─── Date Range Utilities ───
 
+/// وضع التقرير (م11): «فترة» تعرض نشاط النطاق المحدد فقط، و«تراكمي»
+/// تضيف الأرصدة الافتتاحية كاملة بلا ترشيح بتاريخ إنشائها.
+enum ReportMode { period, cumulative }
+
 /// Represents a date range with a label
 class DateRange {
   final DateTime from;
   final DateTime to;
   final String label;
 
+  /// وضع التقرير لهذا النطاق — [ReportMode.period] افتراضياً؛ و[DateRange.all]
+  /// يأتي [ReportMode.cumulative] لأن «كامل» يحسب كل التاريخ.
+  final ReportMode mode;
+
   const DateRange({
     required this.from,
     required this.to,
     required this.label,
+    this.mode = ReportMode.period,
   });
 
   int get days => to.difference(from).inDays + 1;
@@ -130,6 +141,7 @@ class DateRange {
       from: DateTime(2020, 1, 1),
       to: DateTime.now(),
       label: 'كامل',
+      mode: ReportMode.cumulative,
     );
   }
 }
@@ -212,8 +224,13 @@ class ProductionKpi {
     required int totalBirds,
     int openingBalanceEggs = 0,
   }) {
+    // م11: وضع «فترة» يُصفِّر رصيد الافتتاح (لا ينتمي للنطاق المحدد)؛
+    // وضع «تراكمي» يحسبه كاملاً.
+    final effectiveOpening =
+        range.mode == ReportMode.cumulative ? openingBalanceEggs : 0;
+
     final inRange = records.where((r) => range.contains(r.date)).toList();
-    if (inRange.isEmpty && openingBalanceEggs <= 0) {
+    if (inRange.isEmpty && effectiveOpening <= 0) {
       return ProductionKpi.empty();
     }
     if (totalBirds <= 0) return ProductionKpi.empty();
@@ -221,7 +238,7 @@ class ProductionKpi {
     final dailyTotal = inRange.fold<int>(0, (s, r) => s + r.totalEggs);
     final broken = inRange.fold<int>(0, (s, r) => s + r.brokenEggs);
     final dirty = inRange.fold<int>(0, (s, r) => s + r.dirtyEggs);
-    final total = dailyTotal + openingBalanceEggs;
+    final total = dailyTotal + effectiveOpening;
 
     return ProductionKpi(
       totalEggs: total,
@@ -292,9 +309,13 @@ class MortalityKpi {
   }) {
     final inRange = records.where((r) => range.contains(r.date)).toList();
 
+    // م11: وضع «فترة» يُصفِّر رصيد الافتتاح؛ وضع «تراكمي» يحسبه كاملاً.
+    final effectiveOpening =
+        range.mode == ReportMode.cumulative ? openingBalanceMortality : 0;
+
     // Include opening balance mortality in total deaths
     final totalDeaths =
-        inRange.fold<int>(0, (s, r) => s + r.count) + openingBalanceMortality;
+        inRange.fold<int>(0, (s, r) => s + r.count) + effectiveOpening;
 
     if (totalDeaths == 0) return MortalityKpi.empty();
 
@@ -310,9 +331,9 @@ class MortalityKpi {
       final reason = r.reason.name;
       byReason[reason] = (byReason[reason] ?? 0) + r.count;
     }
-    if (openingBalanceMortality > 0) {
+    if (effectiveOpening > 0) {
       byReason['opening_balance'] =
-          (byReason['opening_balance'] ?? 0) + openingBalanceMortality;
+          (byReason['opening_balance'] ?? 0) + effectiveOpening;
     }
 
     return MortalityKpi(
@@ -544,7 +565,7 @@ class FlockPerformance {
   final double eggsPerBird;
   final double feedPerBird;
   final double estimatedRevenue;
-  final double estimatedCost;
+  final FlockCost costBreakdown;
   final double estimatedMargin;
   final double costPerEgg;
   final double marginPerEgg;
@@ -562,7 +583,7 @@ class FlockPerformance {
     required this.eggsPerBird,
     required this.feedPerBird,
     required this.estimatedRevenue,
-    required this.estimatedCost,
+    required this.costBreakdown,
     required this.estimatedMargin,
     required this.costPerEgg,
     required this.marginPerEgg,
@@ -578,6 +599,8 @@ class FlockPerformance {
     required List<DispatchModel> dispatches,
     required List<PaymentModel> payments,
     required List<ExpenseModel> expenses,
+    List<MedicationModel> medications = const [],
+    List<StockAdjustment> stockAdjustments = const [],
     required DateRange range,
     double pricePerEgg = 0,
     OpeningBalanceModel? openingBalance,
@@ -629,8 +652,16 @@ class FlockPerformance {
     }
     final revenue =
         invoiceByDispatch.values.fold<double>(0, (s, v) => s + v);
-    final cost = flockFeed.fold<double>(0, (s, f) => s + f.quantityKg) *
-        (pricePerEgg > 0 ? pricePerEgg : 0);
+    // م11/م12: التكلفة الحقيقية عبر FlockCostCalculator — لا «تقدير علف ×
+    // سعر بيضة» (كان مضللاً). المصروفات تُنسب للقطيع بالاسم فقط (§1)،
+    // والمصروفات على مستوى المزرعة (flock_id NULL كالرواتب) تُستبعد (§2).
+    final cost = FlockCostCalculator.calculate(
+      flockId: flock.id,
+      feedReceived: flockFeedReceived,
+      expenses: expenses,
+      medications: medications,
+      stockAdjustments: stockAdjustments,
+    );
     final totalEggs = production.totalEggs;
 
     return FlockPerformance(
@@ -650,10 +681,10 @@ class FlockPerformance {
           ? feedKpi.consumedKg / flock.currentCount
           : 0,
       estimatedRevenue: revenue,
-      estimatedCost: cost,
-      estimatedMargin: revenue - cost,
-      costPerEgg: totalEggs > 0 ? cost / totalEggs : 0,
-      marginPerEgg: totalEggs > 0 ? (revenue - cost) / totalEggs : 0,
+      costBreakdown: cost,
+      estimatedMargin: revenue - cost.totalCost,
+      costPerEgg: totalEggs > 0 ? cost.totalCost / totalEggs : 0,
+      marginPerEgg: totalEggs > 0 ? (revenue - cost.totalCost) / totalEggs : 0,
     );
   }
 }

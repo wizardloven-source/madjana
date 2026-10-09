@@ -28,6 +28,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   bool _loading = true;
   DateTime _fromDate = DateTime.now().subtract(const Duration(days: 30));
   DateTime _toDate = DateTime.now();
+  ReportMode _mode = ReportMode.period;
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
 
@@ -115,12 +116,24 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ? 0.0
         : totalEggs / (_toDate.difference(_fromDate).inDays + 1);
 
-    // الأرصدة الافتتاحية للقطعان القديمة (تُضاف إلى المجاميع)
-    final openingEggs = _openingBalances.fold<int>(0, (s, b) => s + b.eggsProduced);
-    final openingFeed = _openingBalances.fold<double>(0, (s, b) => s + b.feedConsumedKg);
-    final openingMortality = _openingBalances.fold<int>(0, (s, b) => s + b.mortalityCount);
-    final openingRevenues = _openingBalances.fold<double>(0, (s, b) => s + b.totalRevenues);
-    final openingPayments = _openingBalances.fold<double>(0, (s, b) => s + b.totalPayments);
+    // الأرصدة الافتتاحية للقطعان القديمة (تُضاف إلى المجاميع في وضع
+    // «تراكمي» فقط؛ وضع «فترة» يعرض نشاط النطاق وحده — م11).
+    final cumulative = _mode == ReportMode.cumulative;
+    final openingEggs = cumulative
+        ? _openingBalances.fold<int>(0, (s, b) => s + b.eggsProduced)
+        : 0;
+    final openingFeed = cumulative
+        ? _openingBalances.fold<double>(0, (s, b) => s + b.feedConsumedKg)
+        : 0.0;
+    final openingMortality = cumulative
+        ? _openingBalances.fold<int>(0, (s, b) => s + b.mortalityCount)
+        : 0;
+    final openingRevenues = cumulative
+        ? _openingBalances.fold<double>(0, (s, b) => s + b.totalRevenues)
+        : 0.0;
+    final openingPayments = cumulative
+        ? _openingBalances.fold<double>(0, (s, b) => s + b.totalPayments)
+        : 0.0;
 
     final grandEggs = totalEggs + openingEggs;
     final grandMortality = totalMortality + openingMortality;
@@ -163,6 +176,7 @@ final mortDailyRate = FarmAnalytics.dailyMortalityRate(
               'report_${Formatters.formatDate(_fromDate).replaceAll('/', '-')}_${Formatters.formatDate(_toDate).replaceAll('/', '-')}',
           rows: [
             ['التقرير', 'القيمة'],
+            ['الوضع', _mode == ReportMode.cumulative ? 'تراكمي' : 'فترة'],
             ['الفترة', '${Formatters.formatDate(_fromDate)} - ${Formatters.formatDate(_toDate)}'],
             ['إجمالي البيض', '$grandEggs'],
             ['إجمالي الكراتين', '$totalCartons'],
@@ -202,6 +216,8 @@ final mortDailyRate = FarmAnalytics.dailyMortalityRate(
           QuickPeriodBar(
             fromDate: _fromDate,
             toDate: _toDate,
+            mode: _mode,
+            onModeChanged: (mode) => setState(() => _mode = mode),
             onChanged: (period) {
               setState(() {
                 _fromDate = period.from;

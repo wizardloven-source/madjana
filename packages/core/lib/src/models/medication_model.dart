@@ -13,6 +13,14 @@ class MedicationModel {
   final int? treatmentDays;
   final int withdrawalDays;
   final String? notes;
+
+  /// تكلفة الدواء (M3) — دولار دائماً؛ NULL تعني بلا سعر محسوم.
+  final double? cost;
+
+  /// عنصر مخزون مُرتبط (M3) — السعر يُحسم من حركة المخزون عند توفره (تتقدم
+  /// على [cost] في أولوية الحساب docs/ACCOUNTING_RULES.md §4).
+  final String? inventoryItemId;
+
   final String workerId;
   final SyncStatus syncStatus;
   final int version;
@@ -30,6 +38,8 @@ class MedicationModel {
     this.treatmentDays,
     this.withdrawalDays = 0,
     this.notes,
+    this.cost,
+    this.inventoryItemId,
     required this.workerId,
     this.syncStatus = SyncStatus.pending,
     this.version = 1,
@@ -55,6 +65,8 @@ class MedicationModel {
       treatmentDays: json['treatment_days'] as int?,
       withdrawalDays: json['withdrawal_days'] as int? ?? 0,
       notes: json['notes'] as String?,
+      cost: (json['cost'] as num?)?.toDouble(),
+      inventoryItemId: json['inventory_item_id'] as String?,
       workerId: json['worker_id'] as String,
       syncStatus: SyncStatus.values.firstWhere(
         (e) => e.name == json['sync_status'],
@@ -76,6 +88,8 @@ class MedicationModel {
         'treatment_days': treatmentDays,
         'withdrawal_days': withdrawalDays,
         'notes': notes,
+        if (cost != null) 'cost': cost,
+        if (inventoryItemId != null) 'inventory_item_id': inventoryItemId,
         'worker_id': workerId,
         'sync_status': syncStatus.name,
         'version': version,

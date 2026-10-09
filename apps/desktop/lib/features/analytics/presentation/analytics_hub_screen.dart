@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import '../../../core/analytics_providers.dart';
+import '../../../shared/widgets/period_filter.dart';
 import '../../auth/providers/auth_provider.dart';
 
 /// ═══════════════════════════════════════════════════════════════
@@ -38,6 +39,16 @@ class _AnalyticsHubScreenState extends ConsumerState<AnalyticsHubScreen>
 
   void _pickRange(DateRange range) {
     setState(() => _range = range);
+  }
+
+  void _setMode(ReportMode mode) {
+    // يحافظ على النطاق والتسمية ويبدّل الوضع فقط (م11).
+    setState(() => _range = DateRange(
+          from: _range.from,
+          to: _range.to,
+          label: _range.label,
+          mode: mode,
+        ));
   }
 
   @override
@@ -100,9 +111,16 @@ class _AnalyticsHubScreenState extends ConsumerState<AnalyticsHubScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: ranges.length,
+        // عنصر إضافي أخير: مبدّل وضع الفترة/التراكمي (م11).
+        itemCount: ranges.length + 1,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
+          if (i == ranges.length) {
+            return ReportModeToggle(
+              mode: _range.mode,
+              onChanged: _setMode,
+            );
+          }
           final r = ranges[i];
           final selected = r.label == _range.label;
           return FilterChip(
@@ -134,6 +152,7 @@ class _ProductionTab extends ConsumerWidget {
       from: range.from.subtract(Duration(days: range.days)),
       to: range.from.subtract(const Duration(days: 1)),
       label: 'السابق',
+      mode: range.mode,
     );
     final prevAsync = ref.watch(productionKpiProvider(
         (farmId: farmId, range: prevRange)));

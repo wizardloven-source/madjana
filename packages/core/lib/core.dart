@@ -37,6 +37,7 @@ export 'src/utils/egg_calculator.dart';
 export 'src/utils/formatters.dart';
 export 'src/utils/farm_analytics.dart';
 export 'src/services/phase1_analytics.dart';
+export 'src/services/flock_cost_calculator.dart';
 
 // واجهات المستودعات
 export 'src/repositories/auth_repository.dart';

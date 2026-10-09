@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../core/design_tokens.dart';
+import '../../../core/providers.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../egg_production/providers/egg_production_provider.dart';
 import '../../mortality/providers/mortality_provider.dart';
@@ -19,12 +20,25 @@ class ReportsScreen extends ConsumerStatefulWidget {
 
 class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   bool _loading = true;
+  ReportMode _mode = ReportMode.period;
   List<EggProductionModel> _todayEggs = [];
   List<MortalityModel> _todayMortality = [];
   List<FeedConsumptionModel> _todayFeed = [];
   List<EggProductionModel> _weekEggs = [];
   List<MortalityModel> _weekMortality = [];
   List<FeedConsumptionModel> _weekFeed = [];
+  List<OpeningBalanceModel> _openingBalances = [];
+
+  // م11: الأرصدة الافتتاحية تدخل في «تراكمي» فقط؛ «فترة» يصفِّرها.
+  int get _openingEggs => _mode == ReportMode.cumulative
+      ? _openingBalances.fold<int>(0, (s, b) => s + b.eggsProduced)
+      : 0;
+  int get _openingMortality => _mode == ReportMode.cumulative
+      ? _openingBalances.fold<int>(0, (s, b) => s + b.mortalityCount)
+      : 0;
+  double get _openingFeed => _mode == ReportMode.cumulative
+      ? _openingBalances.fold<double>(0, (s, b) => s + b.feedConsumedKg)
+      : 0.0;
 
   @override
   void initState() {
@@ -48,6 +62,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ref.read(eggProductionProvider.notifier).getRecords(farmId: farmId, fromDate: weekAgo, toDate: now),
         ref.read(mortalityProvider.notifier).getRecords(farmId: farmId, fromDate: weekAgo, toDate: now),
         ref.read(feedConsumptionProvider.notifier).getAll(farmId: farmId, fromDate: weekAgo, toDate: now),
+        ref.read(openingBalanceRepositoryProvider).getForFarm(farmId),
       ]);
 
       if (mounted) {
@@ -58,6 +73,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           _weekEggs = results[3] as List<EggProductionModel>;
           _weekMortality = results[4] as List<MortalityModel>;
           _weekFeed = results[5] as List<FeedConsumptionModel>;
+          _openingBalances =
+              (results[6] as List<OpeningBalanceModel>? ?? const []);
           _loading = false;
         });
       }
@@ -73,18 +90,25 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   Future<void> _exportCsv() async {
-    final todayEggs = _todayEggs.fold<int>(0, (s, e) => s + e.totalEggs);
-    final weekEggs = _weekEggs.fold<int>(0, (s, e) => s + e.totalEggs);
-    final todayMort = _todayMortality.fold<int>(0, (s, m) => s + m.count);
-    final weekMort = _weekMortality.fold<int>(0, (s, m) => s + m.count);
-    final todayFeed = _todayFeed.fold<double>(0, (s, f) => s + f.quantityKg);
-    final weekFeed = _weekFeed.fold<double>(0, (s, f) => s + f.quantityKg);
+    final todayEggs = _todayEggs.fold<int>(0, (s, e) => s + e.totalEggs) +
+        _openingEggs;
+    final weekEggs =
+        _weekEggs.fold<int>(0, (s, e) => s + e.totalEggs) + _openingEggs;
+    final todayMort =
+        _todayMortality.fold<int>(0, (s, m) => s + m.count) + _openingMortality;
+    final weekMort =
+        _weekMortality.fold<int>(0, (s, m) => s + m.count) + _openingMortality;
+    final todayFeed =
+        _todayFeed.fold<double>(0, (s, f) => s + f.quantityKg) + _openingFeed;
+    final weekFeed =
+        _weekFeed.fold<double>(0, (s, f) => s + f.quantityKg) + _openingFeed;
 
     final csv = const ListToCsvConverter().convert([
       ['التقرير', 'اليوم', 'آخر 7 أيام'],
       ['إنتاج البيض', '$todayEggs', '$weekEggs'],
       ['النفوق', '$todayMort', '$weekMort'],
       ['استهلاك العلف (كغ)', '${todayFeed.toStringAsFixed(1)}', '${weekFeed.toStringAsFixed(1)}'],
+      ['الوضع', _mode == ReportMode.cumulative ? 'تراكمي' : 'فترة', ''],
     ]);
 
     try {
@@ -107,13 +131,19 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final todayEggs = _todayEggs.fold<int>(0, (s, e) => s + e.totalEggs);
-    final todayMort = _todayMortality.fold<int>(0, (s, m) => s + m.count);
-    final todayFeed = _todayFeed.fold<double>(0, (s, f) => s + f.quantityKg);
+    final todayEggs =
+        _todayEggs.fold<int>(0, (s, e) => s + e.totalEggs) + _openingEggs;
+    final todayMort =
+        _todayMortality.fold<int>(0, (s, m) => s + m.count) + _openingMortality;
+    final todayFeed =
+        _todayFeed.fold<double>(0, (s, f) => s + f.quantityKg) + _openingFeed;
 
-    final weekEggs = _weekEggs.fold<int>(0, (s, e) => s + e.totalEggs);
-    final weekMort = _weekMortality.fold<int>(0, (s, m) => s + m.count);
-    final weekFeed = _weekFeed.fold<double>(0, (s, f) => s + f.quantityKg);
+    final weekEggs =
+        _weekEggs.fold<int>(0, (s, e) => s + e.totalEggs) + _openingEggs;
+    final weekMort =
+        _weekMortality.fold<int>(0, (s, m) => s + m.count) + _openingMortality;
+    final weekFeed =
+        _weekFeed.fold<double>(0, (s, f) => s + f.quantityKg) + _openingFeed;
 
     // Build simple bar chart data for last 7 days
     final now = DateTime.now();
@@ -145,6 +175,32 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: SegmentedButton<ReportMode>(
+                    segments: const [
+                      ButtonSegment(
+                          value: ReportMode.period, label: Text('فترة')),
+                      ButtonSegment(
+                          value: ReportMode.cumulative,
+                          label: Text('تراكمي')),
+                    ],
+                    selected: {_mode},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (s) =>
+                        setState(() => _mode = s.first),
+                  ),
+                ),
+                if (_mode == ReportMode.cumulative) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'يشمل الأرصدة الافتتاحية (التجهيز)',
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.textTertiary),
+                    textAlign: TextAlign.right,
+                  ),
+                ],
+                const SizedBox(height: 16),
                 const Text('اليوم', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 _buildReportCard(icon: Icons.egg, title: 'إنتاج اليوم', value: Formatters.formatNumber(todayEggs), subtitle: 'بيضة', color: AppStatusColors.info(context)),

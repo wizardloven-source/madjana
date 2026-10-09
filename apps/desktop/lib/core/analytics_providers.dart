@@ -69,11 +69,13 @@ final productionKpiProvider = FutureProvider.autoDispose
   // تُضاف إلى الإجمالي فقط عندما يشمل النطاق المختار تاريخ "التجهيز"
   // (وإلا فاختيار "اليوم/البارحة/7 أيام" يجلب اليوم فقط ويكون الرقم
   // حقيقياً للأيام المحددة دون تلويثه برصيد قديم).
+  // م11: وضع «فترة» يُصفِّر الأرصدة الافتتاحية؛ وضع «تراكمي» يحسبها
+  // كاملة بلا ترشيح بتاريخ إنشائها (حُذف range.contains(b.createdAt)).
   final openingBalances =
       await ref.read(openingBalanceRepositoryProvider).getForFarm(params.farmId);
-  final openingEggsTotal = openingBalances
-      .where((b) => params.range.contains(b.createdAt))
-      .fold<int>(0, (s, b) => s + b.eggsProduced);
+  final openingEggsTotal = params.range.mode == ReportMode.cumulative
+      ? openingBalances.fold<int>(0, (s, b) => s + b.eggsProduced)
+      : 0;
 
   return ProductionKpi.calculate(
     records: eggs,
@@ -101,14 +103,12 @@ final mortalityKpiProvider = FutureProvider.autoDispose
       .where((f) => f.status == FlockStatus.active)
       .fold<int>(0, (s, f) => s + (counts[f.id] ?? f.currentCount));
 
-  // P0: Include opening balance mortality — فقط عندما يشمل النطاق
-  // تاريخ "التجهيز" نفسه (اليوم/البارحة/7 أيام تجلب نفوق الفترة فقط،
-  // والرصيد القديم يظهر في النطاقات الواسعة/العامة فقط).
+  // م11: نفس قاعدة وضع الفترة/التراكمي — صفر عند «فترة»، كاملة عند «تراكمي».
   final openingBalances =
       await ref.read(openingBalanceRepositoryProvider).getForFarm(params.farmId);
-  final openingMortalityTotal = openingBalances
-      .where((b) => params.range.contains(b.createdAt))
-      .fold<int>(0, (s, b) => s + b.mortalityCount);
+  final openingMortalityTotal = params.range.mode == ReportMode.cumulative
+      ? openingBalances.fold<int>(0, (s, b) => s + b.mortalityCount)
+      : 0;
 
   return MortalityKpi.calculate(
     records: mortality,
@@ -324,6 +324,12 @@ final flockPerformanceProvider = FutureProvider.autoDispose
   final expenses = await ref
       .read(expenseRepositoryProvider)
       .getExpenses(farmId: farmId);
+  // م12: تكلفة الأدوية تصل إلى FlockPerformance عبر FlockCostCalculator.
+  // (تسويات المخزون بلا مستودع/نموذج على مستوى التطبيق بعد — تنبيه موثّق
+  // في docs/ACCOUNTING_RULES.md §6 FlockCostCalculator.)
+  final medications = await ref
+      .read(medicationRepositoryProvider)
+      .getAll(farmId: farmId);
 
   // P0: Fetch opening balance for this flock
   final openingBalance = await ref
@@ -339,6 +345,7 @@ final flockPerformanceProvider = FutureProvider.autoDispose
     dispatches: dispatches,
     payments: payments,
     expenses: expenses,
+    medications: medications,
     range: params.range,
     pricePerEgg: params.pricePerEgg,
     openingBalance: openingBalance,
