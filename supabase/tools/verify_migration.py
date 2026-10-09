@@ -263,15 +263,17 @@ def check_matches_ref(raw, ref):
             else:
                 notes.append(f"{tbl}.{col} already present (guarded no-op)")
 
-    for m in re.finditer(r"REFERENCES\s+(?:public\.)?(\w+)\s*\(", body, re.I):
-        t = m.group(1).lower()
-        if t not in ref["tables"]:
-            issues.append(f"FK targets unknown table '{t}'")
-
     for m in re.finditer(
             r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?(\w+)",
             body, re.I):
         declared.add(m.group(1))
+
+    # A FK may target a table this same migration creates (parent declared
+    # just above), so declared tables count as known in addition to the dump.
+    for m in re.finditer(r"REFERENCES\s+(?:public\.)?(\w+)\s*\(", body, re.I):
+        t = m.group(1).lower()
+        if t not in ref["tables"] and t not in declared:
+            issues.append(f"FK targets unknown table '{t}'")
 
     CATALOG = {"pg_class", "pg_attribute", "pg_proc", "pg_policies",
                "pg_constraint", "pg_indexes", "pg_trigger", "pg_enum",

@@ -58,6 +58,14 @@ SQL_SUITES = [
     ("4m. M7 revenue.worker_id uuid", "p0_revenue_worker_id_test.sql"),
     ("4n. M9 schema version marker", "p0_schema_version_test.sql"),
     ("4o. M10 catch/error contract", "p0_catch_test.sql"),
+    ("4p. W5-M13 record lock", "p0_record_lock_test.sql"),
+    ("4q. W5-M14 worker change requests", "p0_worker_requests_test.sql"),
+    ("4r. W5-M15 invoice audit trail", "p0_invoice_audit_test.sql"),
+    ("4s. W5-M16 role permissions", "p0_role_permissions_test.sql"),
+    ("4t. W5-M17 opening feed received", "p0_opening_feed_received_test.sql"),
+    ("4u. W5-M18 farm_id audit ledger", "p0_farm_id_audit_test.sql"),
+    ("4v. W5-M19 duplicate guard", "p0_duplicate_guard_test.sql"),
+    ("4w. W5-M20 due payments", "p0_due_payments_test.sql"),
 ]
 
 

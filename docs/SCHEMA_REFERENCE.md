@@ -127,6 +127,14 @@ enabled, and `sync_status` constrained to
 | 2026-10-08 | M9: client/server schema-version marker. Table `app_schema_version` + `current_schema_version()` RPC (SECURITY DEFINER, STABLE, `SET search_path = public`), read-open RLS by design, **anon excluded**. Metadata-only — deliberately not in `sync_table_registry`. Local DB v29→30 + `local_schema_meta`. Forward `20261003000900`, rollback `20261003000901`, suite **4n**. Full contract in `docs/SYNC.md`. |
 | 2026-10-09 | M11: report mode (فترة/تراكمي) gates `opening_balances` contributions in analytics. No schema change — mapping in `docs/REPORTS.md`. |
 | 2026-10-09 | M12: `FlockCostCalculator` implements the §6 flock-cost formula in Dart (`estimatedCost` → `costBreakdown` on `FlockPerformance`). No schema change — reuses `expenses.flock_id` (M1), `stock_adjustments.unit_price` (M2), `medications.cost`/`inventory_item_id` (M3). |
+| 2026-10-09 | W5-M13: `record_lock` + `record_unlock_requests` + `assert_record_not_locked()` (SECURITY DEFINER, BEFORE UPDATE OR DELETE on payments/expenses/revenue/egg_production/mortality/feed_consumption). Control tables — **not** in `sync_table_registry`. FKs never CASCADE. |
+| 2026-10-09 | W5-M14: `change_requests` (worker requests, manager decision) — **synced** (registry sort_order 210, after `flocks`), 4 sync triggers, RLS: read farm members, insert own only, update/delete manager/admin. |
+| 2026-10-09 | W5-M15: `trg_audit_invoice()` (SECURITY DEFINER) + 2 triggers snapshot egg_dispatch invoice edits/deletes into existing `audit_log`. No new columns/tables. |
+| 2026-10-09 | W5-M16: `role_permissions` + `user_permissions` + `has_capability(uuid,text,uuid)` — capability foundation (allow/deny, admin-only RLS, deny-by-default). No RLS rewrite; W6 adds the consuming policies. |
+| 2026-10-09 | W5-M17: `opening_balances.opening_feed_received_kg numeric(19,4)` + non-negative CHECK, nullable ("unknown" ≠ "zero"). Opening stock is derived `received − consumed`; synced ride-along, no registry change. |
+| 2026-10-09 | W5-M18: `farm_id_audit` ledger + `trg_farm_id_audit()` (SECURITY DEFINER) + 13 BEFORE UPDATE OF farm_id triggers. Server-side ledger, not synced. |
+| 2026-10-09 | W5-M19: `duplicate_guard` + `dup_fingerprint(text,jsonb)` + `trg_duplicate_guard()` + 6 BEFORE INSERT gates (expenses/egg_production/mortality/feed_consumption/feed_received/payments). Partial unique index `uq_duplicate_guard_unblocked`; manager `blocked=true` bypass. |
+| 2026-10-09 | W5-M20: `check_due_payments()` (SECURITY DEFINER) — آجال reminders at +3d/today/−7d/−30d into `app_notifications`, idempotent per milestone (`PAYDUE:<ms>:<id>` key). pg_cron job optional (guarded DO). |
 
 # SCHEMA_REFERENCE — Madjana
 

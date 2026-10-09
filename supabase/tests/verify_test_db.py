@@ -31,6 +31,14 @@ CORE_TABLES = {
     "expenses": "expenses",
     "customers": "customers",
     "app_settings": "key/value settings",
+    # W5 (M13-M20)
+    "record_lock": "hard record locks (M13)",
+    "record_unlock_requests": "unlock requests (M13)",
+    "change_requests": "worker change requests, synced (M14)",
+    "role_permissions": "role capability defaults (M16)",
+    "user_permissions": "per-user capability overrides (M16)",
+    "farm_id_audit": "farm reassignment ledger (M18)",
+    "duplicate_guard": "fingerprint duplicate markers (M19)",
 }
 OPTIONAL_TABLES = {
     "suppliers": "purchases",
@@ -49,6 +57,10 @@ FUNCS = [
     ("user_manages_farm", "manager role check"),
     ("validate_flock_farm", "flock/farm consistency"),
     ("inventory_items_flock_same_farm", "00800 inventory scoping"),
+    ("has_capability", "W5-M16 capability resolution"),
+    ("dup_fingerprint", "W5-M19 duplicate fingerprint"),
+    ("check_due_payments", "W5-M20 due-payment notifier"),
+    ("assert_record_not_locked", "W5-M13 lock guard"),
 ]
 
 PASS, FAIL = "PASS", "FAIL"

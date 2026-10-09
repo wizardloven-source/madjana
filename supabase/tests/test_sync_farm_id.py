@@ -127,10 +127,10 @@ class H:
         rid = str(uuid.uuid4())
         act_as_service(self.cur)
         self.cur.execute("""INSERT INTO public.mortality
-            (id, farm_id, flock_id, worker_id, count, reason, date, version,
-             created_at, updated_at)
-            VALUES (%s,%s,%s,%s,1,'cannibalism','2026-10-01',1,%s,%s)""",
-            (rid, farm, self.flock_for(farm), WORKER, NOW, NOW))
+            (id, farm_id, flock_id, worker_id, count, reason, date, section_no,
+             version, created_at, updated_at)
+            VALUES (%s,%s,%s,%s,1,'cannibalism','2026-10-01',%s,1,%s,%s)""",
+            (rid, farm, self.flock_for(farm), WORKER, self.sec(), NOW, NOW))
         return rid
 
     def batch(self, recs):
