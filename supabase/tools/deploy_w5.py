@@ -54,6 +54,7 @@ except ImportError:  # pragma: no cover - instructions path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MIGDIR = os.path.join(ROOT, "supabase", "migrations")
+DRIFT_TOOL = os.path.join(ROOT, "supabase", "tools", "verify_schema_drift.py")
 
 # The operator's apply order. Change only with the plan; it is the contract.
 ORDERED_W5 = [
@@ -208,11 +209,29 @@ def rls_on(cur, table):
 
 
 def anon_revoked(cur, name, arglist):
-    cur.execute(
-        "SELECT has_function_privilege('anon', 'public.%s(%s)', 'EXECUTE')"
-        % (name, arglist)
-    )
-    return cur.fetchone()[0] is False
+    try:
+        cur.execute("SAVEPOINT anon_revoked_sp")
+        cur.execute(
+            "SELECT has_function_privilege('anon', 'public.%s(%s)', 'EXECUTE')"
+            % (name, arglist)
+        )
+        row = cur.fetchone()
+        cur.execute("RELEASE SAVEPOINT anon_revoked_sp")
+        return bool(row and row[0] is False)
+    except Exception:
+        try:
+            cur.execute("ROLLBACK TO SAVEPOINT anon_revoked_sp")
+        except Exception:
+            pass
+        try:
+            import psycopg2.errors as pgerr
+            import sys
+            exc = sys.exc_info()[1]
+            if isinstance(exc, pgerr.UndefinedFunction):
+                return True
+        except Exception:
+            pass
+        return False
 
 
 def registry_order(cur, table):
@@ -336,17 +355,22 @@ def migration_checks():
 
 def _has_table_priv(role, table, priv="SELECT"):
     def probe(cur):
-        cur.execute(
-            "SELECT has_table_privilege(%s, 'public.' || %s, %s)",
-            (role, table, priv),
-        )
-        return cur.fetchone()[0]
+        try:
+            cur.execute('SAVEPOINT htp_sp')
+            cur.execute(
+                "SELECT has_table_privilege(%s, 'public.' || %s, %s)",
+                (role, table, priv),
+            )
+            row = cur.fetchone()
+            cur.execute('RELEASE SAVEPOINT htp_sp')
+            return bool(row and row[0])
+        except Exception:
+            try:
+                cur.execute('ROLLBACK TO SAVEPOINT htp_sp')
+            except Exception:
+                pass
+            return False
     return probe
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# base prerequisites (W1-W4 / M8 shape the W5 milestones build on)
-# ─────────────────────────────────────────────────────────────────────────────
 def base_checks(cur):
     missing = []
     for tbl in ["farms", "users", "flocks", "sync_table_registry", "audit_log",
@@ -383,7 +407,7 @@ def report_migrations(cur):
 
 
 def precheck(conn_str):
-    with connect(conn_str) as c:
+    with connect(conn_str) as c, c.cursor() as cur:
         cur = c.cursor()
         missing = base_checks(cur)
         if missing:
@@ -405,7 +429,7 @@ def precheck(conn_str):
 
 def verify(conn_str):
     problems = []
-    with connect(conn_str) as c:
+    with connect(conn_str) as c, c.cursor() as cur:
         cur = c.cursor()
         checks = migration_checks()
         for label, _fname in ORDERED_W5:
@@ -491,6 +515,8 @@ def main():
     ap.add_argument("--yes", action="store_true", help="skip all prompts")
     ap.add_argument("--force", action="store_true",
                     help="re-run every migration even if precheck says all applied")
+    ap.add_argument("--drift", action="store_true",
+                    help="verify + run verify_schema_drift.py (implies --verify; requires json_output.txt regenerated first)")
     args = ap.parse_args()
 
     if args.list_migrations:
@@ -503,8 +529,14 @@ def main():
 
     conn_str = resolve_connection(args.connection)
 
+    if args.drift:
+        args.verify = True
+
     if args.verify:
-        sys.exit(0 if verify(conn_str) else 1)
+        ok = verify(conn_str)
+        if ok and args.drift:
+            ok = run_drift_check()
+        sys.exit(0 if ok else 1)
 
     already = precheck(conn_str)  # always report the state first
     if args.precheck_only or not args.apply:
@@ -530,13 +562,29 @@ def main():
             raise DeployError(f"migration file not found: {path}")
         if not args.force:
             probes = checks[label][1]
-            with connect(conn_str) as c:
-                if all(p(c) for _ch, p in probes):
+            with connect(conn_str) as c, c.cursor() as cur:
+                if all(p(cur) for _ch, p in probes):
                     print(f"skip (already applied): {fname}")
                     continue
         run_sql_file(conn_str, path)
 
     sys.exit(0 if verify(conn_str) else 1)
+
+
+def run_drift_check():
+    if not os.path.isfile(DRIFT_TOOL):
+        raise DeployError(f"drift tool not found: {DRIFT_TOOL}")
+    print("running verify_schema_drift.py (static; json_output.txt must have "
+          "been regenerated from production)")
+    res = subprocess.run([sys.executable, DRIFT_TOOL, "--json"],
+                         capture_output=True, text=True)
+    if res.returncode != 0:
+        print("DRIFT: FAILED - json_output.txt does not match the W5 schema. "
+              "Regenerate it from production, then re-run.")
+        print(res.stdout[-2000:])
+        return False
+    print("DRIFT: PASSED - json_output.txt matches.")
+    return True
 
 
 if __name__ == "__main__":
