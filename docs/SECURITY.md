@@ -406,3 +406,67 @@ suite, 4l**:
 - the guarded rollback refuses while alerts are on file, and once empty
   restores the M6b shape (functions gone, policy gone, RLS off, grants
   revoked, audit columns dropped).
+
+## 12. Partnership RLS (W6-M25)
+
+Migration `20261003002400_m25_partner_rls.sql` is the **canonical** row-level
+security for the six partnership tables, replacing the ad-hoc M21–M23 policy
+set. It grants the principle of least privilege to every role and closes the
+cross-farm leaks that followed from per-table predicates.
+
+**Policies (24 total: 4 / 4 / 4 / 4 / 5 / 3):**
+
+| Table | Admin | Manager | Partner/self |
+| --- | --- | --- | --- |
+| `partners` | `partners_admin_all` | `_manager_read`, `_manager_write` | `_self_read` |
+| `user_roles` | `user_roles_admin_all` | `_manager_read`, `_manager_write` | `_self_read` |
+| `profit_distributions` | `distributions_admin_all` | `_manager_read`, `_manager_write` | `_partner_read` |
+| `profit_distribution_details` | `details_admin_all` | `_manager_read`, `_manager_write` | `_partner_read` |
+| `partner_withdrawals` | `withdrawals_admin_all` | `_manager_read`, `_manager_update` | `_partner_read`, `_partner_insert` |
+| `partner_audit` | `audit_admin_all` | `_manager_read` | `_partner_read` |
+
+**Predicates.** `is_system_admin()` (UNIFIED_schema.sql) gates every
+`*_admin_all`. `user_manages_farm(farm_id)` (M8 farm-membership migration) gates
+the manager policies, except on `partners`, which has no `farm_id` column: that
+table falls back to the new helper `public.partner_in_manager_farm(uuid)` —
+`SECURITY DEFINER`, `STABLE`, pinned `search_path`, granted only to
+`authenticated` (no `PUBLIC`/`grantee 0`). The helper answers "does this partner
+have a distribution line or withdrawal on a farm I manage?" so the `partners`
+policy never re-reads a table whose own policy reads `partners` (which Postgres
+rejects as *infinite recursion in policy*).
+
+**Design notes.**
+
+- `*_manager_write` is `FOR ALL` — Postgres has no INSERT/UPDATE/DELETE-only
+  policy — so it also confers read; this is why each manager table lists only
+  `_manager_read` + `_manager_write`.
+- `details_manager_read` uses the table's denormalised `farm_id` directly,
+  avoiding a join back to `profit_distributions`.
+- `distributions_partner_read` / `details_partner_read` restrict a partner to
+  rows reachable through their own `profit_distribution_details`.
+- `partner_audit` stays **append-only**: it has *no* write policy and
+  `authenticated` holds only `SELECT`. Rows enter solely via
+  `record_partner_audit(...)`, which is `SECURITY DEFINER` and gated on
+  `is_system_admin()`. Not even a system admin can `INSERT` the table directly.
+
+**Rollback** `20261003002401_rollback_m25_partner_rls.sql` carries a scope
+guard (refuses if any of the six tables is missing), drops the M25 policies and
+the helper, and re-creates the M21–M23 policy set verbatim.
+
+**Tests** `supabase/tests/p0_partner_rls_test.sql` — **49 assertions**, suite
+**4ab**, run as `test_runner` (non-superuser, non-BYPASSRLS) inside
+`BEGIN/ROLLBACK`:
+
+- structural: RLS on for all six tables, the exact 4/4/4/4/5/3 policy counts,
+  an `is_system_admin` policy on each, `partner_audit` has no non-SELECT policy,
+  the helper is `SECURITY DEFINER` with pinned `search_path` and no `PUBLIC`
+  execute, `anon` has no table access;
+- identity matrix: for each table, system admin sees all; manager A sees only
+  farm A (0 cross-farm rows for manager B); a partner sees only their own
+  row/line/withdrawal/audit;
+- writes: manager A updates a farm-A partner and approves a farm-A withdrawal
+  but not farm B's; manager may grant a role on their farm only; a partner may
+  insert a `pending` withdrawal for themselves only — refusals surface as
+  *new row violates row-level security policy*;
+- append-only: `authenticated` lacks INSERT/UPDATE/DELETE on `partner_audit`,
+  and even a system admin's direct INSERT is refused (permission denied).

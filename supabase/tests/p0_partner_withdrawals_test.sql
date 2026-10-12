@@ -66,8 +66,8 @@ BEGIN
     PERFORM tests.assert('M23: 5 سياسات على partner_withdrawals',
         (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='partner_withdrawals') = 5, '');
 
-    PERFORM tests.assert('M23: 2 سياسات على partner_audit',
-        (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='partner_audit') = 2, '');
+    PERFORM tests.assert('M23/M25: 3 سياسات على partner_audit',
+        (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='partner_audit') = 3, '');
 
     PERFORM tests.assert('M23: partner_audit للقراءة فقط (لا سياسة كتابة)',
         NOT EXISTS (SELECT 1 FROM pg_policies

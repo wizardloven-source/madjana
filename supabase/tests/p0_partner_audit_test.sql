@@ -49,8 +49,8 @@ BEGIN
     PERFORM tests.assert('M23-audit: RLS مفعّل',
         (SELECT relrowsecurity FROM pg_class WHERE oid='public.partner_audit'::regclass), '');
 
-    PERFORM tests.assert('M23-audit: سياسيتان فقط (admin_all + manager_read)',
-        (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='partner_audit') = 2, '');
+    PERFORM tests.assert('M23/M25-audit: 3 سياسات (admin + manager + partner read)',
+        (SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='partner_audit') = 3, '');
 
     PERFORM tests.assert('M23-audit: لا سياسة كتابة إطلاقاً',
         NOT EXISTS (SELECT 1 FROM pg_policies

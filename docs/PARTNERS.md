@@ -173,17 +173,27 @@ admin-only" line, which conflicted with its own "manager may preview" rule.
 
 ## 4. Scoping / RLS matrix
 
-`S` = SELECT, `I` = INSERT, `U` = UPDATE, `D` = DELETE. `admin` = `is_system_admin()`;
-`manager` = `user_manages_farm(farm_id)`; `self` = the caller's own partner/user row.
+**Canonical as of M25** (§12 of `docs/SECURITY.md`). `S` = SELECT, `I` = INSERT,
+`U` = UPDATE, `D` = DELETE. `admin` = `is_system_admin()`; `manager` =
+`user_manages_farm(farm_id)`, except on `partners` where it is
+`partner_in_manager_farm(id)` (that table has no `farm_id`); `self` = the
+caller's own partner/user row.
 
-| table | admin | manager | partner (self) | worker | anon |
+| table | admin | manager (own farm) | partner (self) | worker | anon |
 |---|---|---|---|---|---|
-| `partners` | S I U D | — | S (own row) | — | — |
-| `user_roles` | S I U D | S (farm rows) | S (own rows) | S (own rows) | — |
-| `profit_distributions` | all | S I U D (own farm) | — | — | — |
-| `profit_distribution_details` | all | manage own farm | S (own lines) | — | — |
-| `partner_withdrawals` | all | S U (own farm) | S + I (`pending` only) | — | — |
-| `partner_audit` | S | S (own farm) | — | — | — |
+| `partners` | S I U D | S + I U D (farm-scoped) | S (own row) | — | — |
+| `user_roles` | S I U D | S + I U D (farm rows) | S (own rows) | S (own rows) | — |
+| `profit_distributions` | S I U D | S + I U D | S (reachable) | — | — |
+| `profit_distribution_details` | S I U D | S + I U D | S (own lines) | — | — |
+| `partner_withdrawals` | S I U D | S U (own farm) | S + I (`pending` only) | — | — |
+| `partner_audit` | S | S (own farm) | S (own rows) | — | — |
+
+`partner_audit` is **append-only**: it has no write policy and `authenticated`
+holds only `SELECT` (rows come from `record_partner_audit(...)` only). The
+`*_manager_write` policies are `FOR ALL` (Postgres has no command-scoped
+INSERT-only policy), so "manager" on `partners` / `user_roles` /
+`profit_distributions` / `profit_distribution_details` means full CRUD within
+their farm.
 
 FK delete rules: `farm_id` / `flock_id` / `partner_id` / `requested_by` →
 `RESTRICT`; `user_id` / `created_by` / `approved_by` / `reviewed_by` →
@@ -211,12 +221,15 @@ FK delete rules: `farm_id` / `flock_id` / `partner_id` / `requested_by` →
 | M22 | `20261003002100_m22_profit_distributions.sql` | `20261003002101` |
 | M23 | `20261003002200_m23_partner_withdrawals_partner_audit.sql` | `20261003002201` |
 | M24 | `20261003002300_m24_partner_functions.sql` | `20261003002301` |
+| M25 | `20261003002400_m25_partner_rls.sql` | `20261003002401` |
 
 Every forward file is idempotent, ends with a post-`COMMIT` verification DO
 block, and has a scope-guarded rollback (M24's refuses while any processed
-withdrawal exists). The regression suites `p0_partner_withdrawals_test.sql`
-(4x), `p0_partner_audit_test.sql` (4y) and `p0_partner_functions_test.sql`
-(4aa) run through `supabase/tests/run_all.py`.
+withdrawal exists; M25's refuses if any of the six partner tables is missing).
+The regression suites `p0_partner_withdrawals_test.sql` (4x),
+`p0_partner_audit_test.sql` (4y), `p0_partner_functions_test.sql` (4aa) and
+`p0_partner_rls_test.sql` (4ab, **49 assertions**, 24 policies) run through
+`supabase/tests/run_all.py`.
 
 Apply to production by pasting the forward files, in order, into the Supabase
 SQL Editor (the DB is not reachable from the dev box). Re-running is safe.
@@ -228,6 +241,7 @@ SQL Editor (the DB is not reachable from the dev box). Re-running is safe.
 * **M24 — done.** The workflow functions (`partner_net_profit`,
   `calculate_profit_distribution`, `approve_withdrawal`,
   `partner_pending_withdrawal`, `partner_summary`). See §2.6.
-* **M25** — permission resolution that consumes `user_roles` +
-  `has_capability()` and rewrites the consuming RLS policies.
+* **M25 — done.** Canonical RLS across the six partnership tables (24
+  policies) + the `partner_in_manager_farm(uuid)` bridge helper. See §4 and
+  `docs/SECURITY.md` §12.
 * **M26–M28** — reporting, reconciliation and the client surface.

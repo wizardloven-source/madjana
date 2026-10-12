@@ -70,6 +70,7 @@ SQL_SUITES = [
     ("4y. W6-M23 partner audit", "p0_partner_audit_test.sql"),
     ("4z. M1b revenue.flock_id", "p0_revenue_flock_test.sql"),
     ("4aa. W6-M24 partner functions", "p0_partner_functions_test.sql"),
+    ("4ab. W6-M25 partner RLS", "p0_partner_rls_test.sql"),
 ]
 
 
