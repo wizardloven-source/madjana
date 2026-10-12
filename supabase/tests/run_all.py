@@ -66,6 +66,10 @@ SQL_SUITES = [
     ("4u. W5-M18 farm_id audit ledger", "p0_farm_id_audit_test.sql"),
     ("4v. W5-M19 duplicate guard", "p0_duplicate_guard_test.sql"),
     ("4w. W5-M20 due payments", "p0_due_payments_test.sql"),
+    ("4x. W6-M23 partner withdrawals", "p0_partner_withdrawals_test.sql"),
+    ("4y. W6-M23 partner audit", "p0_partner_audit_test.sql"),
+    ("4z. M1b revenue.flock_id", "p0_revenue_flock_test.sql"),
+    ("4aa. W6-M24 partner functions", "p0_partner_functions_test.sql"),
 ]
 
 

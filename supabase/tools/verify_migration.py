@@ -562,6 +562,32 @@ def load_reference(path=JSON_REF):
     return ref
 
 
+def declared_tables_in_migrations():
+    """Every table created by ANY migration in supabase/migrations/.
+
+    A feature is split across sibling files (M21 creates public.partners,
+    M22 then REFERENCES it). A FK / INSERT / FROM / UPDATE that names a
+    table another migration in this repo legitimately creates must not be
+    reported as 'unknown' just because json_output.txt (a production
+    snapshot) predates the wave. Only tables no migration ever creates are
+    genuine errors.
+    """
+    names = set()
+    mig_dir = os.path.join(ROOT, "supabase", "migrations")
+    if not os.path.isdir(mig_dir):
+        return names
+    pat = re.compile(
+        r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?(\w+)", re.I)
+    for f in os.listdir(mig_dir):
+        if not f.endswith(".sql"):
+            continue
+        with open(os.path.join(mig_dir, f), encoding="utf-8",
+                  errors="replace") as fh:
+            for m in pat.finditer(fh.read()):
+                names.add(m.group(1).lower())
+    return names
+
+
 def strip_dollar_quoted(sql):
     """Replaces every dollar-quoted body ($$ ... $$ AND $tag$ ... $tag$) with
     a single space, so keyword scanning sees only real DDL and never the
@@ -599,6 +625,10 @@ def main():
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
     ref = load_reference()
+    # Tables any migration in the repo creates count as known alongside the
+    # production snapshot, so a sibling-file dependency is not false drift.
+    for t in declared_tables_in_migrations():
+        ref["tables"].setdefault(t, set())
 
     results, all_ok = [], True
     for path in args.files:

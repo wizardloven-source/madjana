@@ -148,6 +148,21 @@ SELECT dispatch_id, max(total_due) FROM payments
 Implemented in `phase1_analytics.dart` (`FlockPerformance.calculate`,
 "invoiceByDispatch"). Do not reintroduce a naive sum.
 
+### Flock attribution (added in M1b)
+
+Revenue follows the **same one rule** as costs (§1):
+
+| `flock_id` | Meaning | Counts in flock P&L? |
+|---|---|---|
+| **SET** | direct revenue of that flock (egg sales, live-chicken sales) | **yes** |
+| **NULL** | farm-level revenue (sold building, equipment, misc) | **never** |
+
+The column was added with no default, so every pre-existing revenue row is
+farm-level. That is deliberate (see §10): attributing historical money to a
+flock would be a guess. `revenue.flock_id` mirrors `expenses.flock_id`
+exactly — same nullable uuid FK, same `ON DELETE RESTRICT`, same
+`validate_flock_farm()` guard.
+
 ---
 
 ## 8. Currency
@@ -173,10 +188,11 @@ settled, the rate is entered by the manager and the row remembers it.
 
 | Guarantee | Mechanism |
 |---|---|
-| A flock cannot be deleted while money points at it | `expenses.flock_id` FK `ON DELETE RESTRICT` |
+| A flock cannot be deleted while money points at it | `expenses.flock_id` **and** `revenue.flock_id` FK `ON DELETE RESTRICT` |
 | An expense cannot name a flock of another farm | `trg_validate_flock_expenses` → `validate_flock_farm()` |
-| A non-existent `farm_id` is refused | `expenses_farm_id_fkey` |
-| Scoped cost queries stay fast | `idx_expenses_farm_flock`, `idx_expenses_flock_direct` |
+| A revenue row cannot name a flock of another farm | `trg_validate_flock_revenue` → `validate_flock_farm()` |
+| A non-existent `farm_id` is refused | `expenses_farm_id_fkey` / `revenue_farm_id_fkey` |
+| Scoped cost/revenue queries stay fast | `idx_expenses_farm_flock`, `idx_expenses_flock_direct`, `idx_revenue_farm_flock`, `idx_revenue_flock_direct` |
 
 The `flock_id` FK is `RESTRICT`, not `SET NULL`. Silently blanking the
 reference would turn a refused delete into a silent orphaning of the
@@ -219,5 +235,6 @@ feed invoice that names a flock).
 | 2026-10-03 | M2: `stock_adjustments` gets `flock_id`, `unit_price`, `currency`. `farm_id` FK fixed to RESTRICT. |
 | 2026-10-03 | M3: `medications` gets `cost`, `currency`, `inventory_item_id`. |
 | 2026-10-09 | M12: `FlockCostCalculator` implements §6 in Dart; `FlockPerformance.estimatedCost` replaced by `costBreakdown`. No schema change. |
+| 2026-10-12 | M1b: `revenue.flock_id` added (nullable uuid, `ON DELETE RESTRICT`, guarded by `validate_flock_farm()`); §7 gains the direct-vs-farm revenue rule; §9 table extended to revenue. |
 
 

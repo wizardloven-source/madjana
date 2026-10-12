@@ -135,6 +135,11 @@ enabled, and `sync_status` constrained to
 | 2026-10-09 | W5-M18: `farm_id_audit` ledger + `trg_farm_id_audit()` (SECURITY DEFINER) + 13 BEFORE UPDATE OF farm_id triggers. Server-side ledger, not synced. |
 | 2026-10-09 | W5-M19: `duplicate_guard` + `dup_fingerprint(text,jsonb)` + `trg_duplicate_guard()` + 6 BEFORE INSERT gates (expenses/egg_production/mortality/feed_consumption/feed_received/payments). Partial unique index `uq_duplicate_guard_unblocked`; manager `blocked=true` bypass. |
 | 2026-10-09 | W5-M20: `check_due_payments()` (SECURITY DEFINER) — آجال reminders at +3d/today/−7d/−30d into `app_notifications`, idempotent per milestone (`PAYDUE:<ms>:<id>` key). pg_cron job optional (guarded DO). |
+| 2026-10-12 | W6-M21: `partners` (partner = an **attribute** of a person, not a role; dynamic share model percentage/shares/salary/mixed) + `user_roles` (dynamic per-farm roles, `farm_id NULL` = global, `UNIQUE NULLS NOT DISTINCT`). Admin-only writes; partner may read own row; user may read own roles; manager may read farm-scoped roles. Forward `20261003002000`, rollback `20261003002001`. |
+| 2026-10-12 | W6-M22: `profit_distributions` (one period per farm[/flock], header arithmetic enforced: `net_profit = total_revenue − total_expenses`, `distributable_profit = net_profit − reserve_amount`) + `profit_distribution_details` (per-partner lines; composite FK `(distribution_id, farm_id)` prevents attaching a line to the wrong farm). Forward `20261003002100`, rollback `20261003002101`, live checks green. |
+| 2026-10-12 | W6-M23: `partner_withdrawals` (cash-out ladder `pending→approved→paid`, or `rejected`/`cancelled`; `validate_partner_withdrawal()` + `guard_withdrawal_status()` BEFORE triggers; state↔field CHECKs; 5 RLS policies — admin all, partner self-read/self-insert pending-only, manager read/update) + `partner_audit` (append-only trail; **no** INSERT/UPDATE/DELETE policy or grant; the only client entry point is `record_partner_audit(...)` SECURITY DEFINER, admin-gated). Forward `20261003002200`, rollback `20261003002201`, suites **4x**/**4y**. Full design in `docs/PARTNERS.md`. |
+| 2026-10-12 | M1b: `revenue.flock_id` uuid FK → `flocks(id)` ON DELETE RESTRICT, nullable (SET = direct revenue, NULL = farm-level — mirrors `expenses.flock_id` M1). Indexes `idx_revenue_farm_flock`, `idx_revenue_flock_direct`; guard `trg_validate_flock_revenue`. Forward `20261003000150`, rollback `20261003000151`, suite **4z**. RLS untouched (revenue is manager-only, M8). |
+| 2026-10-12 | W6-M24: partner workflow engine — `partner_net_profit(uuid,date,date,uuid)`, `partner_pending_withdrawal(uuid)`, `partner_summary(uuid)`, `approve_withdrawal(uuid,uuid)`, `calculate_profit_distribution(uuid,date,date,uuid)`. All **SECURITY DEFINER** with pinned `search_path`; EXECUTE to `authenticated` only (never anon/PUBLIC). `calculate_profit_distribution` is a **read-only preview** (`RETURNS TABLE`, writes nothing). Forward `20261003002300`, rollback `20261003002301`, suite **4aa**. Spec↔schema adaptations and share math live in `docs/PARTNERS.md` §2.6. |
 
 # SCHEMA_REFERENCE — Madjana
 
@@ -255,6 +260,7 @@ refused; `flock_id IS NULL` passes (farm-level rows are legitimate).
 | egg_dispatch | `trg_validate_flock_dispatch` | `20260927000000` (W0.1) |
 | feed_received | `trg_validate_flock_feed_recv` | `20260927000000` (W0.1) |
 | expenses | `trg_validate_flock_expenses` | `20261003000100` (M1) |
+| revenue | `trg_validate_flock_revenue` | `20261003000150` (M1b) |
 | stock_adjustments | `trg_validate_flock_sa` | `20261003000500` (M5) — was missing |
 
 `require_farm_id()` (`BEFORE INSERT OR UPDATE`) refuses `farm_id IS NULL`
