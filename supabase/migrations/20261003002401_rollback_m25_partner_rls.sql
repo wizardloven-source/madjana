@@ -180,3 +180,71 @@ CREATE POLICY partner_audit_manager_read ON public.partner_audit
     USING (public.user_manages_farm(farm_id));
 
 COMMIT;
+
+-- ============================================================================
+-- VERIFICATION (after COMMIT: a failure here never rolls the work back)
+-- ============================================================================
+DO $m25rbchk$
+DECLARE
+    v_missing text;
+    v_left int;
+BEGIN
+    -- the M25-only helper must be gone
+    IF to_regprocedure('public.partner_in_manager_farm(uuid)') IS NOT NULL THEN
+        RAISE EXCEPTION 'FAIL: M25 helper partner_in_manager_farm survived rollback';
+    END IF;
+
+    -- no M25-only policy name may remain
+    SELECT count(*) INTO v_left
+      FROM pg_policies
+     WHERE schemaname = 'public'
+       AND policyname IN (
+           'partners_manager_read','partners_manager_write',
+           'user_roles_manager_read','user_roles_manager_write',
+           'distributions_admin_all','distributions_manager_read',
+           'distributions_partner_read','distributions_manager_write',
+           'details_admin_all','details_manager_read',
+           'details_partner_read','details_manager_write',
+           'withdrawals_admin_all','withdrawals_partner_read',
+           'withdrawals_partner_insert','withdrawals_manager_read',
+           'withdrawals_manager_update',
+           'audit_admin_all','audit_manager_read','audit_partner_read');
+    IF v_left <> 0 THEN
+        RAISE EXCEPTION 'FAIL: % M25 policy name(s) survived rollback', v_left;
+    END IF;
+
+    -- every M21-M23 policy must be back
+    SELECT string_agg(p.policyname, ', ') INTO v_missing
+      FROM (VALUES
+            ('partners','partners_admin_all'),
+            ('partners','partners_select_self'),
+            ('user_roles','user_roles_admin_all'),
+            ('user_roles','user_roles_select_self'),
+            ('user_roles','user_roles_select_manager'),
+            ('profit_distributions','profit_distributions_read'),
+            ('profit_distributions','profit_distributions_insert'),
+            ('profit_distributions','profit_distributions_update'),
+            ('profit_distributions','profit_distributions_delete'),
+            ('profit_distribution_details','profit_distribution_details_read'),
+            ('profit_distribution_details','profit_distribution_details_insert'),
+            ('profit_distribution_details','profit_distribution_details_update'),
+            ('profit_distribution_details','profit_distribution_details_delete'),
+            ('partner_withdrawals','partner_withdrawals_admin_all'),
+            ('partner_withdrawals','partner_withdrawals_self_read'),
+            ('partner_withdrawals','partner_withdrawals_self_insert'),
+            ('partner_withdrawals','partner_withdrawals_manager_read'),
+            ('partner_withdrawals','partner_withdrawals_manager_update'),
+            ('partner_audit','partner_audit_admin_read'),
+            ('partner_audit','partner_audit_manager_read')
+           ) AS p(tbl, policyname)
+     WHERE NOT EXISTS (SELECT 1 FROM pg_policies q
+                        WHERE q.schemaname = 'public'
+                          AND q.tablename = p.tbl
+                          AND q.policyname = p.policyname);
+    IF v_missing IS NOT NULL THEN
+        RAISE EXCEPTION 'FAIL: M25 rollback left policies missing: %', v_missing;
+    END IF;
+
+    RAISE NOTICE 'OK: M25 rollback verified - M21-M23 policy set restored';
+END;
+$m25rbchk$;

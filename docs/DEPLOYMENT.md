@@ -505,3 +505,62 @@ not, the two variants cannot both be active. The policy is:
 Never rename a Vault variant back to `.sql` in `supabase/migrations/`: it would
 sort *before* the canonical file and silently swap the production-visible
 function body, breaking `p0_pin_secret_test` / `p0_deploy_m6_test`.
+
+## 8. W6 rollbacks — the partnership milestone (M1b, M21–M25)
+
+W6 is additive: `revenue.flock_id` (M1b) plus five partnership migrations —
+`partners`/`user_roles` (M21), `profit_distributions` +
+`profit_distribution_details` (M22), `partner_withdrawals` + `partner_audit`
+(M23), the workflow functions (M24), and the canonical RLS rewrite (M25).
+
+There is no `deploy_w6.py`: apply the forward files in order from the Supabase
+SQL Editor (they are idempotent and re-run safe):
+
+```
+ 1. 20261003000150_revenue_flock_id.sql                          (M1b)
+ 2. 20261003002000_m21_partners_user_roles.sql                   (M21)
+ 3. 20261003002100_m22_profit_distributions.sql                  (M22)
+ 4. 20261003002200_m23_partner_withdrawals_partner_audit.sql     (M23)
+ 5. 20261003002300_m24_partner_functions.sql                     (M24)
+ 6. 20261003002400_m25_partner_rls.sql                           (M25)
+```
+
+### 8.1 Per-milestone rollbacks (canonical)
+
+Each milestone ships its own guarded `…01_rollback_*.sql`:
+
+| step | rollback | scope guard |
+|---|---|---|
+| M1b | `20261003000151_rollback_revenue_flock_id.sql` | refuses while any revenue row has `flock_id` |
+| M21 | `20261003002001_rollback_m21_partners_user_roles.sql` | refuses while `partners`/`user_roles` hold rows |
+| M22 | `20261003002101_rollback_m22_profit_distributions.sql` | refuses while the profit tables hold rows |
+| M23 | `20261003002201_rollback_m23_partner_withdrawals_partner_audit.sql` | refuses while withdrawals/audit hold rows |
+| M24 | `20261003002301_rollback_m24_partner_functions.sql` | refuses while any *processed* withdrawal exists |
+| M25 | `20261003002401_rollback_m25_partner_rls.sql` | refuses if any of the six tables is missing; restores the M21–M23 policies |
+
+Each file ends with a post-`COMMIT` verification block. Apply them by hand, in
+reverse order (M25 → M24 → M23 → M22 → M21 → M1b); they are never part of the
+forward chain. Export the data a rollback will destroy before stepping back,
+and rely on the §6.1-style backup as the complete answer.
+
+### 8.2 Consolidated rollback (convenience)
+
+`20261003002450_rollback_w6_all.sql` tears the whole milestone down in one
+transaction. It carries the same scope guard (all six W6 tables empty, no
+`flock_id` attributions) and a verification block asserting every W6 table,
+function and `revenue.flock_id` is gone. Internally it drops in strict
+dependency order — triggers → policies → functions → tables → `revenue.flock_id`
+— because Postgres blocks a table drop while a policy on another table reads it
+(`distributions_partner_read` reads `profit_distribution_details`; the
+`*_partner_read` policies read `partners`).
+
+### 8.3 Idempotency proof
+
+`supabase/tests/test_w6_rollback_cycles.py` (wired into `run_all.py` as step
+**3c**) runs apply → rollback → re-apply **three times** using the per-milestone
+files, then a fourth cycle using the consolidated file, asserting after every
+step that the W6 shape is either fully present (6 tables, 9 functions, the
+24-policy matrix, `revenue.flock_id`) or fully gone. It runs against
+`madjana_test` only, as the owning role.
+
+Note: this is §8, not §7 — §7 is the Vault-backed M6a/M6b note.

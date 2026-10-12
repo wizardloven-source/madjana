@@ -157,15 +157,17 @@ def main():
     rc1 = run("2. structural verification", "verify_test_db.py")
     rc2 = run("3. behavioural suite", "test_sync_farm_id.py")
     rc3 = run("3b. flock rehome repair", "test_flock_rehome.py")
+    rc3c = run("3c. W6 rollback cycles", "test_w6_rollback_cycles.py")
 
     rcs = []
     for title, filename in SQL_SUITES:
         rcs.append(run_sql(title, filename))
 
     print("\n" + "=" * 70)
-    ok = rc1 == 0 and rc2 == 0 and rc3 == 0 and all(rc == 0 for rc in rcs)
+    ok = (rc1 == 0 and rc2 == 0 and rc3 == 0 and rc3c == 0
+          and all(rc == 0 for rc in rcs))
     print(f"structural rc={rc1}   behavioural rc={rc2}   "
-          f"rehome rc={rc3}   sql rc={rcs}   -> "
+          f"rehome rc={rc3}   w6-rb rc={rc3c}   sql rc={rcs}   -> "
           + ("ALL GREEN" if ok else "FAILURES ABOVE"))
     return 0 if ok else 1
 
