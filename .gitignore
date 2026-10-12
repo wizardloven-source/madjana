@@ -51,3 +51,6 @@ fix_do_block.py
 
 # deployment backups
 backups/
+
+# quarantined SQL: Supabase-only Vault variants of M6a/M6b (see docs/DEPLOYMENT.md §7)
+*.sqlegacy

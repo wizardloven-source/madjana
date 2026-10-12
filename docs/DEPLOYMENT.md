@@ -475,3 +475,33 @@ apply chain. The same §5.7 caveat applies: export the data the rollback would
 destroy (unlock requests, change requests, duplicate markers, farm-move
 ledger, received feed amounts) before stepping back, and rely on the §6.1
 backup as the complete answer.
+
+## 7. Vault-backed M6a/M6b (Supabase-only artifacts)
+
+`app_password_from_pin_v2()` and the login throttle have **two** variants:
+
+* **Canonical (in the build/CI):** `20261003000600_pin_secret.sql` and
+  `20261003000610_throttle.sql`. These read the PIN secret from the
+  `app.pin_secret` GUC. Every local suite (`p0_pin_secret_test`,
+  `p0_deploy_m6_test`, `p0_throttle_test`) is written against this behaviour,
+  and the test shim has **no** `vault` schema.
+* **Vault variants (Supabase only):** `20261003000600_m6a_pin_vault.sql.sqlegacy`
+  and `20261003000610_m6b_throttle_vault.sql.sqlegacy`, backed by
+  Supabase Vault's `vault.decrypted_secrets`.
+
+Because production (Supabase) has the `vault` schema and the local/CI shim does
+not, the two variants cannot both be active. The policy is:
+
+* **GUC is the canonical source of truth** committed to the repo; build, CI and
+  `run_all.py` use it.
+* **The Vault variants are quarantined** with the `.sqlegacy` suffix so no
+  `*.sql` glob picks them up, ignored by `.gitignore` (`*.sqlegacy`) to keep
+  stray copies out of the tree — the two sanctioned files are force-tracked for
+  documentation and manual apply.
+* **On Supabase they are applied by hand** from the SQL Editor, because the
+  GUC variant is what the local tests assert but Vault is what the deployed
+  database actually uses.
+
+Never rename a Vault variant back to `.sql` in `supabase/migrations/`: it would
+sort *before* the canonical file and silently swap the production-visible
+function body, breaking `p0_pin_secret_test` / `p0_deploy_m6_test`.
