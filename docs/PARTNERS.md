@@ -227,9 +227,17 @@ Every forward file is idempotent, ends with a post-`COMMIT` verification DO
 block, and has a scope-guarded rollback (M24's refuses while any processed
 withdrawal exists; M25's refuses if any of the six partner tables is missing).
 The regression suites `p0_partner_withdrawals_test.sql` (4x),
-`p0_partner_audit_test.sql` (4y), `p0_partner_functions_test.sql` (4aa) and
-`p0_partner_rls_test.sql` (4ab, **49 assertions**, 24 policies) run through
-`supabase/tests/run_all.py`.
+`p0_partner_audit_test.sql` (4y), `p0_partner_functions_test.sql` (4aa,
+56 assertions), `p0_partner_rls_test.sql` (4ab, **49 assertions**, 24
+policies), `p0_partner_e2e_test.sql` (4ac, 30 assertions — the full
+partner → distribution → withdrawal → paid → audit lifecycle),
+`p0_partner_reports_test.sql` (4ad, 36 assertions — the four share models,
+period/flock boundaries, empty period, 100% sum and the error rails) and
+`p0_partner_isolation_test.sql` (4ae, 47 assertions — cross-farm /
+cross-partner reads, writes and the composite-FK rejection) run through
+`supabase/tests/run_all.py`. Rollback idempotency (apply → rollback →
+re-apply, per-milestone and consolidated) is proven by
+`test_w6_rollback_cycles.py` (step **3c**).
 
 Apply to production by pasting the forward files, in order, into the Supabase
 SQL Editor (the DB is not reachable from the dev box). Re-running is safe.
@@ -244,4 +252,7 @@ SQL Editor (the DB is not reachable from the dev box). Re-running is safe.
 * **M25 — done.** Canonical RLS across the six partnership tables (24
   policies) + the `partner_in_manager_farm(uuid)` bridge helper. See §4 and
   `docs/SECURITY.md` §12.
-* **M26–M28** — reporting, reconciliation and the client surface.
+* **M26 — done.** Consolidated W6 rollback (`20261003002450_rollback_w6_all.sql`)
+  and the apply → rollback → re-apply cycle proof. See `docs/DEPLOYMENT.md` §8.
+* **M27 — done.** End-to-end, reporting and isolation suites (4ac/4ad/4ae).
+* **M28** — reconciliation and the client surface.

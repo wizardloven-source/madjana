@@ -71,6 +71,9 @@ SQL_SUITES = [
     ("4z. M1b revenue.flock_id", "p0_revenue_flock_test.sql"),
     ("4aa. W6-M24 partner functions", "p0_partner_functions_test.sql"),
     ("4ab. W6-M25 partner RLS", "p0_partner_rls_test.sql"),
+    ("4ac. W6-M27 partner e2e", "p0_partner_e2e_test.sql"),
+    ("4ad. W6-M27 partner reports", "p0_partner_reports_test.sql"),
+    ("4ae. W6-M27 partner isolation", "p0_partner_isolation_test.sql"),
 ]
 
 
