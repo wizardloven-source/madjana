@@ -564,3 +564,79 @@ step that the W6 shape is either fully present (6 tables, 9 functions, the
 `madjana_test` only, as the owning role.
 
 Note: this is §8, not §7 — §7 is the Vault-backed M6a/M6b note.
+
+## 9. DEPLOY W6 (M1b, M21–M25) — forward apply & verification
+
+W6 is additive: one column (`revenue.flock_id`, M1b) plus six new tables with
+their functions and policies. There is no `deploy_w6.py` and production is not
+reachable from the dev box, so apply the forward files **by hand, in order**,
+from the Supabase SQL Editor. Every file is idempotent and re-run safe.
+
+### 9.1 Pre-flight
+
+- Confirm the target is the production project (`supabase\.temp\project-ref`).
+- Read `docs/PARTNERS.md` (model + workflows) and `docs/SCHEMA_REFERENCE.md`
+  §9 (the exact shape).
+- The local gate is green: `python supabase\tests\run_all.py`.
+
+### 9.2 Backup
+
+Take a full dump before touching anything (same rule as §6.1):
+
+```bash
+supabase db dump -f w6-prebackup.sql          # schema + data
+```
+
+Keep it until verification passes.
+
+### 9.3 Apply, in order
+
+```
+ 1. 20261003000150_revenue_flock_id.sql                          (M1b)
+ 2. 20261003002000_m21_partners_user_roles.sql                   (M21)
+ 3. 20261003002100_m22_profit_distributions.sql                  (M22)
+ 4. 20261003002200_m23_partner_withdrawals_partner_audit.sql     (M23)
+ 5. 20261003002300_m24_partner_functions.sql                     (M24)
+ 6. 20261003002400_m25_partner_rls.sql                           (M25)
+```
+
+Paste each file whole. Each ends with a post-`COMMIT` verification `DO` block
+that `RAISE NOTICE`s `OK: M<n> verified …` on success (and raises on failure).
+
+### 9.4 Verify
+
+- All six `OK: M… verified` notices appear in the SQL Editor output.
+- Spot-check the shape:
+
+```sql
+select count(*) from pg_policies
+ where schemaname = 'public'
+   and tablename in ('partners','user_roles','profit_distributions',
+                     'profit_distribution_details','partner_withdrawals','partner_audit');
+-- expect 24
+
+select proname from pg_proc where proname in
+ ('partner_net_profit','partner_pending_withdrawal','partner_summary',
+  'approve_withdrawal','calculate_profit_distribution','partner_in_manager_farm',
+  'record_partner_audit','validate_partner_withdrawal','guard_withdrawal_status');
+-- expect 9 rows
+```
+
+### 9.5 Regenerate `json_output.txt`
+
+`json_output.txt` is the official reference (`docs/SCHEMA_REFERENCE.md` §1).
+After applying W6, regenerate it and commit it with the deploy:
+
+```bash
+supabase db dump --data-only --schema public > json_output.txt
+python supabase\tools\verify_schema_drift.py
+```
+
+A dump that does not match production is itself drift.
+
+### 9.6 Rollback
+
+See §8: per-milestone rollbacks applied in reverse order
+(M25 → … → M1b), or the one-transaction
+`20261003002450_rollback_w6_all.sql`. Both carry scope guards — export the data
+they would destroy first.

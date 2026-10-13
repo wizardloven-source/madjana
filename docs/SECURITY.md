@@ -470,3 +470,41 @@ the helper, and re-creates the M21–M23 policy set verbatim.
   *new row violates row-level security policy*;
 - append-only: `authenticated` lacks INSERT/UPDATE/DELETE on `partner_audit`,
   and even a system admin's direct INSERT is refused (permission denied).
+
+## 13. W6 tests, rollback and idempotency (M26–M27)
+
+§12 is the **canonical** statement of the W6 authorization model — the 24
+policies (4 / 4 / 4 / 4 / 5 / 3), the `partner_in_manager_farm(uuid)` bridge
+and the append-only `partner_audit`. This section records what *proves* that
+model and how it is *undone*; it deliberately does not restate the matrix.
+
+**Rollback.** Each milestone ships a guarded `…01_rollback_*.sql`, and the
+whole layer tears down in one transaction via
+`20261003002450_rollback_w6_all.sql`. The consolidated file carries the same
+scope guard (all six tables empty, no `revenue.flock_id` attributions) and
+drops in strict dependency order — triggers → policies → functions → tables →
+`revenue.flock_id`. Full runbook: `docs/DEPLOYMENT.md` §8.
+
+**Idempotency — proven.** `supabase/tests/test_w6_rollback_cycles.py` (wired
+into `run_all.py` as step **3c**) runs apply → rollback → re-apply three times
+using the per-milestone files, then a fourth cycle through the consolidated
+file, asserting after every step that the W6 shape is either fully present
+(6 tables, 9 functions, the 24-policy matrix, `revenue.flock_id`) or fully
+gone.
+
+**`partner_audit` stays append-only — proven.** `authenticated` holds only
+`SELECT`; there is no write policy; and even a system admin's direct `INSERT`
+is refused (permission denied). Rows enter solely through
+`record_partner_audit(...)`, `SECURITY DEFINER` and gated on
+`is_system_admin()`.
+
+**The three M27 suites** (all as `test_runner` — non-superuser, non-BYPASSRLS
+— inside `BEGIN/ROLLBACK`), wired into `run_all.py` after **4ab**:
+
+| suite | file | assertions | covers |
+|---|---|---|---|
+| **4ac** | `p0_partner_e2e_test.sql` | 30 | create partner → distribution → withdrawal → approve → paid → `partner_summary` → audit trail |
+| **4ad** | `p0_partner_reports_test.sql` | 36 | `partner_net_profit`, `calculate_profit_distribution`, `partner_summary` across all four share models + the error rails (`MIXED_CURRENCY`, `INVALID_PERCENTAGES`, reversed period, unknown farm/flock) |
+| **4ae** | `p0_partner_isolation_test.sql` | 47 | cross-farm / cross-partner reads, writes and the function `AUTHORIZATION_DENIED` gates; composite-FK and `WITHDRAWAL_DISTRIBUTION_MISMATCH` rejection |
+
+The whole gate is `python supabase\tests\run_all.py`.

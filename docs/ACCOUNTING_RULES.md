@@ -84,7 +84,9 @@ the interface must say so.
 The currency convention matches `expenses` and `payments`: dollar/lira only.
 `SAR`, `USD`, `EUR` and any other code are rejected at insert time.
 
----\n\n## 5. Stock adjustments
+---
+
+## 5. Stock adjustments
 
 ```
 stock cost for flock X = SUM(delta_qty * unit_price)   -- stock_adjustments
@@ -224,6 +226,83 @@ feed invoice that names a flock).
 | delete-with-expenses refused | same, §5 |
 | one invoice counted once | `packages/core/test/profitability_revenue_merge_test.dart` |
 | four-source flock cost, NULL excluded, never negative, 4-dp rounding | `packages/core/test/flock_cost_calculator_test.dart` |
+| partner profit split, four share models, error rails (§12) | `supabase/tests/p0_partner_reports_test.sql` (**4ad**) |
+| partner lifecycle + withdrawal ladder (§12.3) | `supabase/tests/p0_partner_e2e_test.sql` (**4ac**) |
+| partner cross-farm isolation (§12) | `supabase/tests/p0_partner_isolation_test.sql` (**4ae**) |
+
+---
+
+## 12. Partner profit & distributions (W6)
+
+The partnership layer (**W6**) adds a profit-sharing ledger on top of the
+rules above. It **does not change** §1 — a partner's money is still
+classified by `flock_id` like any other figure; the distribution merely
+divides the farm's net profit after the fact.
+
+### 12.1 The distribution is a ledger, not a re-entry
+
+Profit is never typed in twice. The books (`revenue` / `expenses`, §1 and §7)
+are summarised into a `profit_distributions` **header** and one
+`profit_distribution_details` **line per partner**. Both equations are
+enforced by CHECKs, so a header that does not add up cannot be stored by
+anyone:
+
+* `net_profit = total_revenue − total_expenses`
+* `distributable_profit = net_profit − reserve_amount`
+* `net_amount = profit_share + salary_total − deductions`
+
+A reserve is withheld **before** sharing: only `distributable_profit` is
+split, never `net_profit`.
+
+### 12.2 How a partner's share is computed
+
+`calculate_profit_distribution(p_farm_id, start, end[, flock])` previews the
+split (read-only); `partner_net_profit(p_partner_id, start, end[, flock])`
+returns one partner's figure. The split depends on `share_model`:
+
+| `share_model` | profit share |
+|---|---|
+| `percentage` | `distributable_profit × percentage / 100` |
+| `shares` | `distributable_profit × shares / Σshares` over active shares partners |
+| `salary` | `0` — the partner takes the fixed `salary_amount` instead |
+| `mixed` | the fixed salary **plus** the `percentage` (if set), else the shares-normalised amount |
+
+When `p_flock_id` is **NULL** the calculation covers the whole farm (and, for
+`partner_net_profit`, which has no farm argument, **all** farms). A period
+whose books span two currencies raises `MIXED_CURRENCY`; active percentage
+partners summing above 100 raise `INVALID_PERCENTAGES`.
+
+### 12.3 The withdrawal path
+
+A withdrawal moves a partner's **already-allocated** share out of the
+business. It never creates a `revenue` or `expenses` row, and it never names
+a flock — §1 is untouched. The ladder is:
+
+```
+pending ──▶ approved ──▶ paid        (or pending/approved ──▶ cancelled; pending ──▶ rejected)
+```
+
+`pending` + `approved` are still owed and count as **pending** in
+`partner_summary` / `partner_pending_withdrawal`; `paid` is money already
+out. A withdrawal tied to a `distribution_id` must point at a distribution
+of the same farm (`WITHDRAWAL_DISTRIBUTION_MISMATCH` otherwise).
+
+### 12.4 Worked example
+
+Farm A, October: `total_revenue` 1800, `total_expenses` 500 → `net_profit`
+1300; `reserve_amount` 300 → `distributable_profit` 1000.
+
+| partner | model | input | profit_share | salary_total | net_amount |
+|---|---|---|---|---|---|
+| A | `percentage` | 25 | 250.00 | 0 | 250.00 |
+| B | `percentage` | 40 | 400.00 | 0 | 400.00 |
+| C | `salary` | 120 `monthly` | 0 | 120.00 | 120.00 |
+| D | `mixed` | 10% **+** 50 | 100.00 | 50.00 | 150.00 |
+
+Σ `profit_share` = 750 ≤ 1000 — the difference stays undistributed (and a
+`shares` partner would instead take `1000 × shares / Σshares`). Partner A then
+requests 100: `pending` (partner-inserted) → `approved` (manager) → `paid`
+when the cash leaves, at which point `paid_at` is stamped.
 
 ---
 
@@ -236,5 +315,6 @@ feed invoice that names a flock).
 | 2026-10-03 | M3: `medications` gets `cost`, `currency`, `inventory_item_id`. |
 | 2026-10-09 | M12: `FlockCostCalculator` implements §6 in Dart; `FlockPerformance.estimatedCost` replaced by `costBreakdown`. No schema change. |
 | 2026-10-12 | M1b: `revenue.flock_id` added (nullable uuid, `ON DELETE RESTRICT`, guarded by `validate_flock_farm()`); §7 gains the direct-vs-farm revenue rule; §9 table extended to revenue. |
+| 2026-10-13 | W6 (M21–M28): §12 added — partner profit rules (`partner_net_profit`, `calculate_profit_distribution`), the four share models, the withdrawal ladder and a worked numeric example. Tests: 4ac/4ad/4ae. |
 
 

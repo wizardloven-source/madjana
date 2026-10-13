@@ -146,6 +146,17 @@ madjana/
 | Account lockout بعد 5 محاولات | ✅ |
 | `sync_can_write` / `sync_can_read` للتحكم في المزامنة | ✅ |
 
+### 9. الشركاء والأرباح (W6)
+| الميزة | الحالة |
+|--------|--------|
+| كيان الشريك كسمة شخص (لا دور): `percentage` / `shares` / `salary` / `mixed` | ✅ DB + RLS |
+| أدوار ديناميكية لكل مزرعة (`user_roles`، `farm_id NULL` = عام) | ✅ DB |
+| توزيع الأرباح (`profit_distributions` + `profit_distribution_details`) | ✅ DB + دوال |
+| دورة السحب: `pending → approved → paid` (أو `rejected`/`cancelled`) | ✅ DB + دوال |
+| سجل تدقيق الشريك (append-only، كتابة عبر `record_partner_audit` فقط) | ✅ DB |
+| دوال `partner_net_profit` / `partner_summary` / `calculate_profit_distribution` / `approve_withdrawal` | ✅ |
+| RLS canonical للشراكة: 24 سياسة على 6 جداول | ✅ DB |
+
 ---
 
 ## الجداول
@@ -181,6 +192,21 @@ madjana/
 | `login_throttle` | تحديد محاولات الدخول | - |
 | `app_settings` | إعدادات التطبيق | ❌ |
 | `app_notifications` | الإشعارات | ✅ |
+
+### جداول الشراكة (W6 — 6 جداول)
+
+| الجدول | الغرض | Sync |
+|--------|--------|------|
+| `partners` | الشركاء — سمة شخص لا دور، مع نموذج حصة ديناميكي | ❌ |
+| `user_roles` | الأدوار الديناميكية لكل مزرعة | ❌ |
+| `profit_distributions` | رؤوس توزيع الأرباح (لكل مزرعة/قطيع/فترة) | ❌ |
+| `profit_distribution_details` | سطور نصيب كل شريك | ❌ |
+| `partner_withdrawals` | طلبات سحب الشريك | ✅ |
+| `partner_audit` | سجل تدقيق الشراكة (append-only) | ❌ |
+
+> تُضاف جداول الشراكة الستة إلى مخطط الإنتاج، مع عمود `revenue.flock_id`
+> (M1b: نسبة الإيراد لقطيع بعينه). مرجع الشكل الكامل والأعمدة:
+> `docs/SCHEMA_REFERENCE.md` §9.
 
 ---
 
@@ -279,6 +305,19 @@ cd packages/data && dart test
 | إنشاء مزرعة | ❌ | ❌ | ✅ |
 | التقارير المالية | ❌ | ✅ | ✅ |
 | التحليلات | ✅ (غير مالي) | ✅ | ✅ |
+
+---
+
+## الوثائق
+
+| الملف | المحتوى |
+|-------|---------|
+| `docs/SCHEMA_REFERENCE.md` | المرجع الرسمي للمخطط (json_output)، و§9 مخطط الشراكة W6 |
+| `docs/PARTNERS.md` | نموذج الشراكة، الجداول، الأمثلة ومسارات العمل، مصفوفة RLS |
+| `docs/ACCOUNTING_RULES.md` | قواعد المحاسبة، و§12 أرباح/توزيع/سحب الشريك |
+| `docs/SECURITY.md` | حراسة الكتابة و RLS (الشراكة في §12 و§13) |
+| `docs/DEPLOYMENT.md` | النشر خطوة بخطوة (W6 في §8 و§9) |
+| `docs/SYNC.md` | المزامنة وإصدار المخطط |
 
 ---
 

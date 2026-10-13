@@ -141,6 +141,9 @@ enabled, and `sync_status` constrained to
 | 2026-10-12 | M1b: `revenue.flock_id` uuid FK → `flocks(id)` ON DELETE RESTRICT, nullable (SET = direct revenue, NULL = farm-level — mirrors `expenses.flock_id` M1). Indexes `idx_revenue_farm_flock`, `idx_revenue_flock_direct`; guard `trg_validate_flock_revenue`. Forward `20261003000150`, rollback `20261003000151`, suite **4z**. RLS untouched (revenue is manager-only, M8). |
 | 2026-10-12 | W6-M24: partner workflow engine — `partner_net_profit(uuid,date,date,uuid)`, `partner_pending_withdrawal(uuid)`, `partner_summary(uuid)`, `approve_withdrawal(uuid,uuid)`, `calculate_profit_distribution(uuid,date,date,uuid)`. All **SECURITY DEFINER** with pinned `search_path`; EXECUTE to `authenticated` only (never anon/PUBLIC). `calculate_profit_distribution` is a **read-only preview** (`RETURNS TABLE`, writes nothing). Forward `20261003002300`, rollback `20261003002301`, suite **4aa**. Spec↔schema adaptations and share math live in `docs/PARTNERS.md` §2.6. |
 | 2026-10-12 | W6-M25: **canonical RLS** for the six partnership tables — 24 policies (4/4/4/4/5/3): `partners`, `user_roles`, `profit_distributions`, `profit_distribution_details`, `partner_withdrawals`, `partner_audit`. Replaces the M21–M23 policy set. New helper `partner_in_manager_farm(uuid)` (SECURITY DEFINER, STABLE, pinned `search_path`, `authenticated`-only) bridges `partners` (no `farm_id`) to farm managers without tripping policy recursion. `partner_audit` stays append-only (no write policy/grant; admin direct INSERT refused). Forward `20261003002400`, rollback `20261003002401`, suite **4ab**. Design in `docs/SECURITY.md` §12. |
+| 2026-10-13 | W6-M26: consolidated W6 rollback `20261003002450_rollback_w6_all.sql` (one-transaction teardown in strict dependency order) + the apply→rollback→re-apply cycle proof `supabase/tests/test_w6_rollback_cycles.py` (step **3c**). No schema change — see `docs/DEPLOYMENT.md` §8. |
+| 2026-10-13 | W6-M27: comprehensive partner test suites — `p0_partner_e2e_test.sql` (**4ac**, 30 assertions, full lifecycle), `p0_partner_reports_test.sql` (**4ad**, 36 assertions, four share models + error rails), `p0_partner_isolation_test.sql` (**4ae**, 47 assertions, cross-farm/cross-partner isolation + composite-FK rejection). Tests only, no schema change. |
+| 2026-10-13 | W6-M28: final W6 documentation — per-object schema reference (§9 below), worked examples/workflows in `docs/PARTNERS.md`, partner accounting rules in `docs/ACCOUNTING_RULES.md` §12, the W6 deployment runbook (`docs/DEPLOYMENT.md` §9) and the consolidated change log. No schema change. |
 
 # SCHEMA_REFERENCE — Madjana
 
@@ -411,4 +414,221 @@ in `packages/core/lib/src/services/phase1_analytics.dart` and carried by
 `DateRange.mode` into every calculator and provider. `DateRange.all()`
 defaults to `ReportMode.cumulative`; all other presets default to
 `ReportMode.period`.
+
+---
+
+## 9. Partnership schema (W6 — M1b, M21–M25)
+
+W6 adds one column to an existing table and six new tables, plus nine
+functions. The human-facing design (why the model is shaped this way, how
+roles combine, and worked workflows) lives in `docs/PARTNERS.md`; the RLS
+matrix and its rationale live in `docs/SECURITY.md` §12. **This section is
+only the shape** — the objects `json_output.txt` should contain once W6 is
+applied. Every object is created by a forward file and removed by its
+matching `…01_rollback_*.sql`, or by the consolidated
+`20261003002450_rollback_w6_all.sql` (`docs/DEPLOYMENT.md` §8).
+
+### 9.1 `revenue.flock_id` (M1b)
+
+| Column | Type | Notes |
+|---|---|---|
+| `flock_id` | `uuid` NULL | FK → `flocks(id)` ON DELETE RESTRICT. **SET** = direct revenue of that flock; **NULL** = farm-level revenue. Mirrors `expenses.flock_id`. Guarded by `trg_validate_flock_revenue`; indexes `idx_revenue_farm_flock`, `idx_revenue_flock_direct`. RLS untouched (revenue is manager-only, M8). |
+
+Forward `20261003000150`, rollback `20261003000151`, suite **4z**.
+
+### 9.2 `partners` (M21)
+
+One row per partner. A partner is an **attribute of a person, not a role**,
+and `user_id` is optional (a pure investor may have no login) with
+`ON DELETE SET NULL`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` PK | `gen_random_uuid()` |
+| `user_id` | `uuid` NULL | FK → `users(id)` ON DELETE SET NULL; `UNIQUE` (`partners_user_unique`) |
+| `name` | `text` NOT NULL | non-blank (`char_length(btrim(name)) > 0`) |
+| `phone` | `text` | |
+| `national_id` | `text` | |
+| `status` | `text` NOT NULL default `'active'` | `active` \| `inactive` \| `suspended` |
+| `partner_role` | `text` NOT NULL default `'investor'` | `investor` \| `worker` \| `manager` \| `silent` \| `mixed` |
+| `share_model` | `text` NOT NULL default `'percentage'` | `percentage` \| `shares` \| `salary` \| `mixed` |
+| `percentage` | `numeric(9,4)` NULL | 0–100 |
+| `shares` | `numeric(18,4)` NULL | ≥ 0 |
+| `salary_amount` | `numeric(16,8)` NULL | ≥ 0 |
+| `salary_period` | `text` NULL | `monthly` \| `weekly` \| `daily` \| `per_cycle` |
+| `currency` | `text` NOT NULL default `'dollar'` | `dollar` \| `lira` |
+| `effective_from` | `date` NOT NULL default `CURRENT_DATE` | |
+| `effective_to` | `date` NULL | ≥ `effective_from` |
+| `meta` | `jsonb` NOT NULL default `'{}'` | |
+| `created_by` | `uuid` NULL | FK → `users(id)` ON DELETE SET NULL |
+| `created_at` / `updated_at` | `timestamptz` NOT NULL default `now()` | |
+| `deleted_at` | `timestamptz` NULL | soft delete |
+
+Constraints: `partners_share_model_fields` (the share columns required by
+`share_model`), `partners_effective_range`. Indexes `idx_partners_user`,
+`idx_partners_status`, `idx_partners_role` (both partial on
+`deleted_at IS NULL`). Trigger `trg_partners_updated_at`.
+
+### 9.3 `user_roles` (M21)
+
+The dynamic roles a user holds, **per farm** (`farm_id NULL` = global).
+Separate from `users.role` (legacy base role) and `role_permissions` (M16
+defaults).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` PK | |
+| `user_id` | `uuid` NOT NULL | FK → `users(id)` ON DELETE RESTRICT |
+| `farm_id` | `uuid` NULL | FK → `farms(id)` ON DELETE RESTRICT; NULL = global |
+| `role` | `text` NOT NULL | non-blank |
+| `is_primary` | `boolean` NOT NULL default `false` | at most one primary per (user, farm) |
+| `effective_from` / `effective_to` | `date` | `effective_to` ≥ `effective_from` |
+| `granted_by` | `uuid` NULL | FK → `users(id)` ON DELETE SET NULL |
+| `created_at` / `updated_at` | `timestamptz` NOT NULL default `now()` | |
+
+Constraints: `user_roles_unique` = `UNIQUE NULLS NOT DISTINCT (user_id,
+role, farm_id)`; `user_roles_effective_range`; partial unique index
+`ux_user_roles_primary` on `(user_id, COALESCE(farm_id, 0-uuid)) WHERE
+is_primary`. Indexes `idx_user_roles_user`, `idx_user_roles_farm`,
+`idx_user_roles_role`. Trigger `trg_user_roles_updated_at`.
+
+### 9.4 `profit_distributions` (M22)
+
+The header: one row per `(farm[, flock], period)`. Every money column is
+`numeric(16,8)` (matching `revenue.amount` / `expenses.amount`).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` PK | |
+| `farm_id` | `uuid` NOT NULL | FK → `farms(id)` ON DELETE RESTRICT |
+| `flock_id` | `uuid` NULL | FK → `flocks(id)` ON DELETE RESTRICT; NULL = whole farm |
+| `period_start` / `period_end` | `date` NOT NULL | `period_end` ≥ `period_start` |
+| `label` | `text` | |
+| `status` | `text` NOT NULL default `'draft'` | `draft` \| `calculated` \| `approved` \| `distributed` \| `cancelled` |
+| `total_revenue` / `total_expenses` | `numeric(16,8)` NOT NULL default `0` | ≥ 0 |
+| `net_profit` | `numeric(16,8)` NOT NULL default `0` | `= total_revenue − total_expenses` |
+| `reserve_amount` | `numeric(16,8)` NOT NULL default `0` | ≥ 0 |
+| `distributable_profit` | `numeric(16,8)` NOT NULL default `0` | `= net_profit − reserve_amount` |
+| `currency` | `text` NOT NULL default `'dollar'` | `dollar` \| `lira` |
+| `exchange_rate` | `numeric(12,4)` | |
+| `notes` | `text` | |
+| `meta` | `jsonb` NOT NULL default `'{}'` | |
+| `calculated_at` / `approved_at` | `timestamptz` | |
+| `approved_by` / `created_by` | `uuid` NULL | FK → `users(id)` ON DELETE SET NULL |
+| `created_at` / `updated_at` | `timestamptz` NOT NULL default `now()` | |
+
+Constraints: `profit_distributions_period` (range), `profit_distributions_math`
+(`net_profit = total_revenue − total_expenses`),
+`profit_distributions_distributable` (arithmetic),
+`profit_distributions_period_unique` = `UNIQUE NULLS NOT DISTINCT
+(farm_id, flock_id, period_start, period_end)`, and `profit_distributions_id_farm_unique`
+= `UNIQUE (id, farm_id)` (the target of the details composite FK). Indexes
+`idx_profit_distributions_farm`, `idx_profit_distributions_flock`,
+`idx_profit_distributions_status`. Trigger `trg_profit_distributions_updated_at`.
+
+### 9.5 `profit_distribution_details` (M22)
+
+The lines: one per partner per header. `farm_id` is denormalised onto the
+line so a **composite FK** `(distribution_id, farm_id) →
+profit_distributions(id, farm_id)` makes attaching a line to the wrong farm
+impossible.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` PK | |
+| `distribution_id` | `uuid` NOT NULL | FK → `profit_distributions(id)` ON DELETE RESTRICT |
+| `farm_id` | `uuid` NOT NULL | FK → `farms(id)` ON DELETE RESTRICT |
+| `partner_id` | `uuid` NOT NULL | FK → `partners(id)` ON DELETE RESTRICT |
+| `share_model` | `text` NOT NULL | `percentage` \| `shares` \| `salary` \| `mixed` |
+| `percentage` / `shares` / `salary_amount` / `salary_period` | as `partners` | model inputs copied onto the line |
+| `profit_share` / `salary_total` / `deductions` | `numeric(16,8)` NOT NULL default `0` | ≥ 0 |
+| `net_amount` | `numeric(16,8)` NOT NULL default `0` | `= profit_share + salary_total − deductions` |
+| `currency` | `text` NOT NULL default `'dollar'` | `dollar` \| `lira` |
+| `status` | `text` NOT NULL default `'pending'` | `pending` \| `approved` \| `withdrawn` \| `cancelled` |
+| `note` / `meta` / `created_at` / `updated_at` | | |
+
+Constraints: `profit_distribution_details_math`,
+`profit_distribution_details_unique` = `UNIQUE (distribution_id, partner_id)`,
+`profit_distribution_details_dist_farm_fkey` (the composite FK). Indexes
+`idx_pdd_distribution`, `idx_pdd_partner`, `idx_pdd_farm`, `idx_pdd_status`.
+Trigger `trg_pdd_updated_at`.
+
+### 9.6 `partner_withdrawals` (M23)
+
+A partner's cash-out request; the ladder is `pending → approved → paid`, or
+`rejected` / `cancelled` (`docs/PARTNERS.md` §2.4).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` PK | |
+| `partner_id` | `uuid` NOT NULL | FK → `partners(id)` ON DELETE RESTRICT |
+| `farm_id` | `uuid` NOT NULL | FK → `farms(id)` ON DELETE RESTRICT |
+| `distribution_id` | `uuid` NULL | FK → `profit_distributions(id)` ON DELETE SET NULL |
+| `amount` | `numeric(16,8)` NOT NULL | > 0 |
+| `currency` | `text` NOT NULL default `'dollar'` | `dollar` \| `lira` |
+| `status` | `text` NOT NULL default `'pending'` | `pending` \| `approved` \| `rejected` \| `paid` \| `cancelled` |
+| `requested_at` | `timestamptz` NOT NULL default `now()` | |
+| `requested_by` | `uuid` NOT NULL | FK → `users(id)` ON DELETE RESTRICT |
+| `reason` / `notes` / `payment_method` | `text` | |
+| `reviewed_at` / `reviewed_by` | `timestamptz` / `uuid` NULL | `reviewed_by` FK → `users(id)` ON DELETE SET NULL |
+| `rejection_reason` | `text` | required when `status = 'rejected'` |
+| `paid_at` | `timestamptz` | required when `status = 'paid'` |
+| `version` | `bigint` NOT NULL default `0` | sync OCC |
+| `created_at` / `updated_at` | `timestamptz` NOT NULL default `now()` | |
+| `deleted_at` | `timestamptz` NULL | soft delete (synced) |
+
+Constraints: `partner_withdrawals_rejected_reason`,
+`partner_withdrawals_paid_at`. Indexes on partner/farm/status/distribution
+and `created_at DESC`. Five triggers: `trg_partner_withdrawals_updated_at`,
+`_validate` (`validate_partner_withdrawal`), `_guard`
+(`guard_withdrawal_status`), `_sync` (`populate_sync_changes`), `_tombstone`
+(`sync_tombstone_after_delete`).
+
+### 9.7 `partner_audit` (M23)
+
+An **append-only** governance ledger. No client write policy exists and
+`authenticated` holds only `SELECT`; rows enter solely through
+`record_partner_audit(...)`. It has **no triggers** and is not synced.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` PK | |
+| `farm_id` | `uuid` NOT NULL | FK → `farms(id)` ON DELETE RESTRICT |
+| `partner_id` | `uuid` NULL | FK → `partners(id)` ON DELETE SET NULL |
+| `action` | `text` NOT NULL | `added` \| `removed` \| `share_changed` \| `permissions_changed` \| `withdrawal_requested` \| `withdrawal_approved` \| `withdrawal_rejected` \| `withdrawal_paid` \| `distribution_created` \| `distribution_approved` |
+| `old_values` / `new_values` | `jsonb` | |
+| `changed_by` | `uuid` NOT NULL | FK → `users(id)` ON DELETE RESTRICT |
+| `changed_at` | `timestamptz` NOT NULL default `now()` | |
+| `notes` / `correlation_id` / `ip_address` | `text` | |
+
+Indexes `idx_partner_audit_farm`, `_partner`, `_action`, `_changed_at`.
+
+### 9.8 Functions (9)
+
+All are `SECURITY DEFINER` with a pinned `search_path`; `EXECUTE` is granted
+to `authenticated` only (never `anon`/`PUBLIC`). `public.` prefix omitted.
+
+| Function | Signature | Kind / notes |
+|---|---|---|
+| `validate_partner_withdrawal` | `() → trigger` | partner must exist; a tied `distribution_id` must be the same farm (`WITHDRAWAL_DISTRIBUTION_MISMATCH`) |
+| `guard_withdrawal_status` | `() → trigger` | enforces the status ladder; stamps `reviewed_at` / `paid_at` |
+| `record_partner_audit` | `(uuid, text, uuid, uuid, jsonb, jsonb, text, text, text) → uuid` | the only writer of `partner_audit`; gated on `is_system_admin()` |
+| `partner_in_manager_farm` | `(uuid) → boolean` | SQL, STABLE; policy-recursion breaker (`docs/SECURITY.md` §12) |
+| `partner_net_profit` | `(uuid, date, date, uuid DEFAULT NULL) → numeric` | one partner's profit for a period |
+| `partner_pending_withdrawal` | `(uuid) → numeric` | sum of `pending` + `approved` |
+| `partner_summary` | `(uuid) → TABLE(name text, share_model text, share_value numeric, net_profit numeric, pending numeric, paid numeric)` | YTD snapshot |
+| `approve_withdrawal` | `(uuid, uuid) → void` | `pending → approved` |
+| `calculate_profit_distribution` | `(uuid, date, date, uuid DEFAULT NULL) → TABLE(partner_id uuid, share_type text, share_value numeric, amount numeric)` | read-only preview; raises `MIXED_CURRENCY` / `INVALID_PERCENTAGES` |
+
+The share maths each function implements, the authorization gates and the
+spec↔schema adaptations are in `docs/PARTNERS.md` §2.6; the accounting rules
+they enforce are in `docs/ACCOUNTING_RULES.md` §12.
+
+### 9.9 RLS and grants
+
+Six tables carry the canonical 24-policy matrix (4 / 4 / 4 / 4 / 5 / 3) from
+M25. The full matrix, predicates, `partner_audit` append-only proof and the
+`partner_in_manager_farm` rationale live in `docs/SECURITY.md` §12 — not
+repeated here. `anon` and `PUBLIC` have no access to any W6 table or
+function.
 

@@ -53,6 +53,15 @@ mixed}` and a CHECK guarantees the matching columns are filled:
 `currency ∈ {dollar, lira}`, `effective_from`/`effective_to` bound the
 engagement, `deleted_at` soft-deletes.
 
+Two independent classifications ride along, both purely descriptive — neither
+grants a permission:
+
+* `status ∈ {active, inactive, suspended}` — whether the engagement is live.
+* `partner_role ∈ {investor, worker, manager, silent, mixed}` — the *flavour*
+  of the partner. A `silent` partner is money-only (no operational say), a
+  `mixed` partner both invests and works; a person may be `worker` as a
+  partner and still be a plain worker by `users.role`.
+
 ### 2.2 `user_roles` (M21)
 The dynamic roles a user holds, per farm. `farm_id NULL` = global. Unique on
 `(user_id, role, farm_id)` with **NULLS NOT DISTINCT** (a global role cannot be
@@ -244,7 +253,134 @@ SQL Editor (the DB is not reachable from the dev box). Re-running is safe.
 
 ---
 
-## 7. Roadmap
+## 7. Workflows (worked examples)
+
+Every example below assumes the caller's session is set
+(`SET LOCAL request.jwt.claims = '{"sub":"<user-uuid>","role":"authenticated"}'`
+or `tests.set_user(...)` in the suites). Bits of a real UUID are shortened.
+
+### 7.1 Create a partner (admin only)
+
+```sql
+INSERT INTO public.partners (name, share_model, percentage, currency)
+VALUES ('مزارع أحمد', 'percentage', 25, 'dollar')
+RETURNING id, status, partner_role;
+-- → one row; status='active', partner_role='investor', user_id = NULL (no login yet)
+```
+
+RLS `partners_admin_all` gates this on `is_system_admin()`. To give the
+partner a login later, `UPDATE ... SET user_id = '<uuid>'` (a login is not
+required — a pure investor may never have one).
+
+### 7.2 The four share models
+
+| `share_model` | Columns that must be filled | Effective value | Profit split |
+|---|---|---|---|
+| `percentage` | `percentage` (0–100) | 25 | `distributable_profit × 25 / 100` |
+| `shares` | `shares` ≥ 0 | 300 | `distributable_profit × 300 / Σshares` (active shares partners) |
+| `salary` | `salary_amount` + `salary_period` | 500 / `monthly` | **0** profit share + the salary |
+| `mixed` | `salary_amount` + `salary_period` **and** (`percentage` or `shares`) | 500 + 10% | salary **plus** the percentage (or shares) split |
+
+A CHECK (`partners_share_model_fields`) refuses a row whose `share_model`
+disagrees with the columns it filled, so a `salary` partner who also carries a
+`percentage` cannot exist by accident.
+
+### 7.3 Calculate a distribution (read-only preview)
+
+```sql
+SELECT * FROM public.calculate_profit_distribution(
+    '00000000-0000-0000-0000-000000000001',  -- farm
+    '2026-10-01', '2026-10-31',              -- period
+    NULL);                                   -- NULL flock = whole farm
+-- → one row per active partner: (partner_id, share_type, share_value, amount)
+```
+
+`share_type` is the model that priced the line; `amount` is that partner's
+share of the distributable profit. The function writes **nothing**. It raises
+`MIXED_CURRENCY` if the period's books span two currencies and
+`INVALID_PERCENTAGES` if the active percentage partners sum above 100.
+Authorization: `is_system_admin()` or a manager of `p_farm_id`, else
+`AUTHORIZATION_DENIED`.
+
+### 7.4 Store a distribution (manager / admin)
+
+```sql
+INSERT INTO public.profit_distributions
+    (farm_id, period_start, period_end,
+     total_revenue, total_expenses, reserve_amount, net_profit, distributable_profit)
+VALUES ('…farm…', '2026-10-01', '2026-10-31',
+        1800, 500, 300, 1300, 1000)
+RETURNING id;
+-- net_profit = 1800 − 500 = 1300; distributable_profit = 1300 − 300 = 1000
+```
+
+The header CHECKs enforce both equations, so a header that does not add up is
+rejected by the database, not by the caller. `INSERT` the per-partner
+`profit_distribution_details` rows with `farm_id` copied from the header — the
+composite FK `(distribution_id, farm_id)` refuses any other farm.
+
+### 7.5 Request a withdrawal (partner, self, `pending` only)
+
+```sql
+INSERT INTO public.partner_withdrawals (partner_id, farm_id, amount, requested_by)
+VALUES ('…partner…', '…farm…', 100, auth.uid());
+-- → status defaults to 'pending'
+```
+
+RLS `withdrawals_partner_insert` allows a partner to insert only **their own**
+row and only as `status = 'pending'` — a partner cannot self-approve or
+self-pay. A withdrawal tied to a `distribution_id` must name a distribution of
+the same farm (`validate_partner_withdrawal`), else
+`WITHDRAWAL_DISTRIBUTION_MISMATCH`.
+
+### 7.6 Approve (manager / admin)
+
+```sql
+SELECT public.approve_withdrawal('…withdrawal…', '…approver…');
+-- → status 'pending' → 'approved'; reviewed_by/reviewed_at stamped
+```
+
+The function refuses a non-`pending` row (`INVALID_STATUS_TRANSITION`) and
+denies anyone but a system admin or a manager of the withdrawal's farm.
+
+### 7.7 Pay
+
+```sql
+UPDATE public.partner_withdrawals
+   SET status = 'paid'
+ WHERE id = '…withdrawal…';
+-- guard_withdrawal_status stamps paid_at; the CHECK requires it when status='paid'
+```
+
+Only `approved → paid` (or `approved → cancelled`) is legal; every other
+transition raises `INVALID_STATUS_TRANSITION`.
+
+### 7.8 Read the summary
+
+```sql
+SELECT * FROM public.partner_summary('…partner…');
+-- name | share_model | share_value | net_profit (YTD) | pending | paid
+```
+
+`net_profit` is **year-to-date** with no flock filter (§2.6); `pending` sums
+`pending` + `approved` withdrawals; `paid` sums the paid ones. A partner may
+read their own summary; so may a system admin.
+
+### 7.9 The audit trail
+
+The trail is written only by `record_partner_audit(...)` (admin-gated); the
+client reads it through `partner_audit`:
+
+```sql
+SELECT action, changed_by, changed_at, notes
+  FROM public.partner_audit
+ WHERE partner_id = '…partner…'
+ ORDER BY changed_at DESC;
+```
+
+---
+
+## 8. Roadmap
 
 * **M24 — done.** The workflow functions (`partner_net_profit`,
   `calculate_profit_distribution`, `approve_withdrawal`,
@@ -255,4 +391,7 @@ SQL Editor (the DB is not reachable from the dev box). Re-running is safe.
 * **M26 — done.** Consolidated W6 rollback (`20261003002450_rollback_w6_all.sql`)
   and the apply → rollback → re-apply cycle proof. See `docs/DEPLOYMENT.md` §8.
 * **M27 — done.** End-to-end, reporting and isolation suites (4ac/4ad/4ae).
-* **M28** — reconciliation and the client surface.
+* **M28 — done.** Final W6 documentation: per-object reference
+  (`docs/SCHEMA_REFERENCE.md` §9), these workflows, the accounting rules
+  (`docs/ACCOUNTING_RULES.md` §12) and the deploy runbook
+  (`docs/DEPLOYMENT.md` §9).
