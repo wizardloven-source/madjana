@@ -232,15 +232,25 @@ BEGIN
         RAISE EXCEPTION 'FAIL: RLS not enabled on W6 profit tables';
     END IF;
 
-    -- 4 header policies + 4 detail policies (read folds in partner-self)
+    -- 4 header policies + 4 detail policies (read folds in partner-self).
+    -- Count only the names this migration owns, so a later migration that
+    -- replaces or adds policies on the same table cannot break the check.
     SELECT count(*) INTO v_n FROM pg_policies
-     WHERE schemaname = 'public' AND tablename = 'profit_distributions';
+     WHERE schemaname = 'public' AND tablename = 'profit_distributions'
+       AND policyname = ANY (ARRAY['profit_distributions_read',
+                                   'profit_distributions_insert',
+                                   'profit_distributions_update',
+                                   'profit_distributions_delete']);
     IF v_n <> 4 THEN
         RAISE EXCEPTION 'FAIL: expected 4 header policies, found %', v_n;
     END IF;
 
     SELECT count(*) INTO v_n FROM pg_policies
-     WHERE schemaname = 'public' AND tablename = 'profit_distribution_details';
+     WHERE schemaname = 'public' AND tablename = 'profit_distribution_details'
+       AND policyname = ANY (ARRAY['profit_distribution_details_read',
+                                   'profit_distribution_details_insert',
+                                   'profit_distribution_details_update',
+                                   'profit_distribution_details_delete']);
     IF v_n <> 4 THEN
         RAISE EXCEPTION 'FAIL: expected 4 detail policies, found %', v_n;
     END IF;

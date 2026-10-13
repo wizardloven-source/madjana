@@ -327,14 +327,23 @@ BEGIN
         RAISE EXCEPTION 'FAIL: RLS not enabled on W6 withdrawal/audit tables';
     END IF;
 
-    -- 5 withdrawal policies + 2 audit policies
+    -- 5 withdrawal policies + 2 audit policies. Count only the names this
+    -- migration owns, so a later migration that replaces or adds policies on
+    -- the same table cannot break the check.
     SELECT count(*) INTO v_n FROM pg_policies
-     WHERE schemaname = 'public' AND tablename = 'partner_withdrawals';
+     WHERE schemaname = 'public' AND tablename = 'partner_withdrawals'
+       AND policyname = ANY (ARRAY['partner_withdrawals_admin_all',
+                                   'partner_withdrawals_self_read',
+                                   'partner_withdrawals_self_insert',
+                                   'partner_withdrawals_manager_read',
+                                   'partner_withdrawals_manager_update']);
     IF v_n <> 5 THEN
         RAISE EXCEPTION 'FAIL: expected 5 withdrawal policies, found %', v_n;
     END IF;
     SELECT count(*) INTO v_n FROM pg_policies
-     WHERE schemaname = 'public' AND tablename = 'partner_audit';
+     WHERE schemaname = 'public' AND tablename = 'partner_audit'
+       AND policyname = ANY (ARRAY['partner_audit_admin_read',
+                                   'partner_audit_manager_read']);
     IF v_n <> 2 THEN
         RAISE EXCEPTION 'FAIL: expected 2 audit policies, found %', v_n;
     END IF;
