@@ -227,6 +227,7 @@ feed invoice that names a flock).
 | one invoice counted once | `packages/core/test/profitability_revenue_merge_test.dart` |
 | four-source flock cost, NULL excluded, never negative, 4-dp rounding | `packages/core/test/flock_cost_calculator_test.dart` |
 | partner profit split, four share models, error rails (§12) | `supabase/tests/p0_partner_reports_test.sql` (**4ad**) |
+| partner profit basis includes collected payments (§12, M29) | `supabase/tests/p0_partner_net_profit_fix_test.sql` (**4af**) |
 | partner lifecycle + withdrawal ladder (§12.3) | `supabase/tests/p0_partner_e2e_test.sql` (**4ac**) |
 | partner cross-farm isolation (§12) | `supabase/tests/p0_partner_isolation_test.sql` (**4ae**) |
 
@@ -267,10 +268,24 @@ returns one partner's figure. The split depends on `share_model`:
 | `salary` | `0` — the partner takes the fixed `salary_amount` instead |
 | `mixed` | the fixed salary **plus** the `percentage` (if set), else the shares-normalised amount |
 
+The **revenue basis** is cash plus other income (M29):
+
+```
+net = ( SUM(payments.amount_paid) + SUM(revenue.amount) ) − SUM(expenses.amount)
+```
+
+`payments.amount_paid` is already US dollars, so its `currency` column — how
+the money was handed over (`dollar` | `lira`) — is metadata and is never
+converted; `exchange_rate` is not read. `MIXED_CURRENCY` is therefore raised
+only when the `revenue` or `expenses` rows themselves span two currencies,
+never because a payment is recorded in lira. When `p_flock_id` is set a
+payment counts only if its dispatch points at that flock
+(`payments.dispatch_id → egg_dispatch.flock_id`); a direct payment with no
+dispatch is farm-level and is excluded from a flock-scoped figure.
+
 When `p_flock_id` is **NULL** the calculation covers the whole farm (and, for
-`partner_net_profit`, which has no farm argument, **all** farms). A period
-whose books span two currencies raises `MIXED_CURRENCY`; active percentage
-partners summing above 100 raise `INVALID_PERCENTAGES`.
+`partner_net_profit`, which has no farm argument, **all** farms). Active
+percentage partners summing above 100 raise `INVALID_PERCENTAGES`.
 
 ### 12.3 The withdrawal path
 
@@ -316,5 +331,6 @@ when the cash leaves, at which point `paid_at` is stamped.
 | 2026-10-09 | M12: `FlockCostCalculator` implements §6 in Dart; `FlockPerformance.estimatedCost` replaced by `costBreakdown`. No schema change. |
 | 2026-10-12 | M1b: `revenue.flock_id` added (nullable uuid, `ON DELETE RESTRICT`, guarded by `validate_flock_farm()`); §7 gains the direct-vs-farm revenue rule; §9 table extended to revenue. |
 | 2026-10-13 | W6 (M21–M28): §12 added — partner profit rules (`partner_net_profit`, `calculate_profit_distribution`), the four share models, the withdrawal ladder and a worked numeric example. Tests: 4ac/4ad/4ae. |
+| 2026-10-13 | M29: §12.2 revenue basis corrected to `payments.amount_paid + revenue.amount` (M24 counted `revenue` only, dropping all collected cash). Currency stays metadata; `exchange_rate` is not read. Test: 4af. |
 
 

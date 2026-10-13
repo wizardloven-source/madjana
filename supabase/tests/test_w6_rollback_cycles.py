@@ -36,10 +36,12 @@ FORWARD = [
     "20261003002200_m23_partner_withdrawals_partner_audit.sql",
     "20261003002300_m24_partner_functions.sql",
     "20261003002400_m25_partner_rls.sql",
+    "20261003002500_m29_fix_partner_net_profit.sql",
 ]
 
 # Per-milestone rollbacks, in the exact reverse order (canonical path).
 RB_SEPARATE = [
+    "20261003002501_rollback_m29.sql",
     "20261003002401_rollback_m25_partner_rls.sql",
     "20261003002301_rollback_m24_partner_functions.sql",
     "20261003002201_rollback_m23_partner_withdrawals_partner_audit.sql",

@@ -74,6 +74,7 @@ SQL_SUITES = [
     ("4ac. W6-M27 partner e2e", "p0_partner_e2e_test.sql"),
     ("4ad. W6-M27 partner reports", "p0_partner_reports_test.sql"),
     ("4ae. W6-M27 partner isolation", "p0_partner_isolation_test.sql"),
+    ("4af. W6-M29 partner net profit + payments", "p0_partner_net_profit_fix_test.sql"),
 ]
 
 
