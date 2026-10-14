@@ -228,6 +228,7 @@ feed invoice that names a flock).
 | four-source flock cost, NULL excluded, never negative, 4-dp rounding | `packages/core/test/flock_cost_calculator_test.dart` |
 | partner profit split, four share models, error rails (§12) | `supabase/tests/p0_partner_reports_test.sql` (**4ad**) |
 | partner profit basis includes collected payments (§12, M29) | `supabase/tests/p0_partner_net_profit_fix_test.sql` (**4af**) |
+| partner profit sums raw USD across mixed `currency` rows (§12.2, M29-v2) | `supabase/tests/p0_partner_net_profit_fix_v2_test.sql` (**4ag**) |
 | partner lifecycle + withdrawal ladder (§12.3) | `supabase/tests/p0_partner_e2e_test.sql` (**4ac**) |
 | partner cross-farm isolation (§12) | `supabase/tests/p0_partner_isolation_test.sql` (**4ae**) |
 
@@ -274,14 +275,18 @@ The **revenue basis** is cash plus other income (M29):
 net = ( SUM(payments.amount_paid) + SUM(revenue.amount) ) − SUM(expenses.amount)
 ```
 
-`payments.amount_paid` is already US dollars, so its `currency` column — how
-the money was handed over (`dollar` | `lira`) — is metadata and is never
-converted; `exchange_rate` is not read. `MIXED_CURRENCY` is therefore raised
-only when the `revenue` or `expenses` rows themselves span two currencies,
-never because a payment is recorded in lira. When `p_flock_id` is set a
-payment counts only if its dispatch points at that flock
-(`payments.dispatch_id → egg_dispatch.flock_id`); a direct payment with no
-dispatch is farm-level and is excluded from a flock-scoped figure.
+**Currency is metadata.** `amount` is **always** US dollars; `currency` — how
+the money was handed over (`dollar` | `lira`) — is metadata, never a unit to
+convert from, and `exchange_rate` is a frozen entry-time rate that neither
+function reads (M29-v2). Because every amount already shares one unit, a row
+recorded in `lira` next to a row recorded in `dollar` is **not** a conflict:
+both functions sum the raw `amount`s and never raise `MIXED_CURRENCY`. E.g. an
+expense of `34.22` (already USD) with `currency = 'lira'` and
+`exchange_rate = 13150` adds exactly `34.22` to the total — no conversion.
+
+When `p_flock_id` is set a payment counts only if its dispatch points at that
+flock (`payments.dispatch_id → egg_dispatch.flock_id`); a direct payment with
+no dispatch is farm-level and is excluded from a flock-scoped figure.
 
 When `p_flock_id` is **NULL** the calculation covers the whole farm (and, for
 `partner_net_profit`, which has no farm argument, **all** farms). Active
@@ -332,5 +337,6 @@ when the cash leaves, at which point `paid_at` is stamped.
 | 2026-10-12 | M1b: `revenue.flock_id` added (nullable uuid, `ON DELETE RESTRICT`, guarded by `validate_flock_farm()`); §7 gains the direct-vs-farm revenue rule; §9 table extended to revenue. |
 | 2026-10-13 | W6 (M21–M28): §12 added — partner profit rules (`partner_net_profit`, `calculate_profit_distribution`), the four share models, the withdrawal ladder and a worked numeric example. Tests: 4ac/4ad/4ae. |
 | 2026-10-13 | M29: §12.2 revenue basis corrected to `payments.amount_paid + revenue.amount` (M24 counted `revenue` only, dropping all collected cash). Currency stays metadata; `exchange_rate` is not read. Test: 4af. |
+| 2026-10-14 | M29-v2: §12.2 — removed `MIXED_CURRENCY`; the functions sum raw USD amounts and treat `currency` purely as metadata (a `lira` row beside a `dollar` row is not a conflict). Test: 4ag. |
 
 

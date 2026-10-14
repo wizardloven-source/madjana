@@ -392,20 +392,23 @@ BEGIN
     END;
     UPDATE public.partners SET percentage = 20 WHERE id = v_pc;
 
-    -- عملات مختلطة
+    -- M29-v2: عملات مختلطة مسموحة — amount = USD دائمًا، currency بيانات وصفية.
+    -- لا يُرفع MIXED_CURRENCY؛ إيراد +5 يرفع صافي PA (50%) بمقدار 2.5.
+    v_n := public.partner_net_profit(v_pa, v_pstart, v_pend, NULL);
     INSERT INTO public.revenue (farm_id, date, category, amount, currency)
         VALUES (v_farmA, v_pend, 'other', 5, 'lira');
     BEGIN
         SELECT count(*) INTO v_cnt FROM public.calculate_profit_distribution(v_farmA, v_pstart, v_pend, NULL);
-        PERFORM tests.assert('M24: عملات مختلطة مرفوضة (توزيع)', false, 'مرّ');
+        PERFORM tests.assert('M29v2: عملات مختلطة مسموحة (توزيع)', v_cnt > 0, format('n=%s', v_cnt));
     EXCEPTION WHEN others THEN
-        PERFORM tests.assert('M24: عملات مختلطة مرفوضة (توزيع)', SQLERRM LIKE '%MIXED_CURRENCY%', SQLERRM);
+        PERFORM tests.assert('M29v2: عملات مختلطة مسموحة (توزيع)', false, SQLERRM);
     END;
     BEGIN
-        PERFORM public.partner_net_profit(v_pa, v_pstart, v_pend, NULL);
-        PERFORM tests.assert('M24: عملات مختلطة مرفوضة (net_profit)', false, 'مرّ');
+        PERFORM tests.assert('M29v2: عملات مختلطة مسموحة (net_profit) = السابق + 2.5',
+            public.partner_net_profit(v_pa, v_pstart, v_pend, NULL) = v_n + 2.5,
+            format('n=%s', v_n));
     EXCEPTION WHEN others THEN
-        PERFORM tests.assert('M24: عملات مختلطة مرفوضة (net_profit)', SQLERRM LIKE '%MIXED_CURRENCY%', SQLERRM);
+        PERFORM tests.assert('M29v2: عملات مختلطة مسموحة (net_profit) = السابق + 2.5', false, SQLERRM);
     END;
     DELETE FROM public.revenue
      WHERE farm_id = v_farmA AND currency = 'lira' AND date = v_pend;

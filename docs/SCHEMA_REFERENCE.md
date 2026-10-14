@@ -144,6 +144,8 @@ enabled, and `sync_status` constrained to
 | 2026-10-13 | W6-M26: consolidated W6 rollback `20261003002450_rollback_w6_all.sql` (one-transaction teardown in strict dependency order) + the apply→rollback→re-apply cycle proof `supabase/tests/test_w6_rollback_cycles.py` (step **3c**). No schema change — see `docs/DEPLOYMENT.md` §8. |
 | 2026-10-13 | W6-M27: comprehensive partner test suites — `p0_partner_e2e_test.sql` (**4ac**, 30 assertions, full lifecycle), `p0_partner_reports_test.sql` (**4ad**, 36 assertions, four share models + error rails), `p0_partner_isolation_test.sql` (**4ae**, 47 assertions, cross-farm/cross-partner isolation + composite-FK rejection). Tests only, no schema change. |
 | 2026-10-13 | W6-M28: final W6 documentation — per-object schema reference (§9 below), worked examples/workflows in `docs/PARTNERS.md`, partner accounting rules in `docs/ACCOUNTING_RULES.md` §12, the W6 deployment runbook (`docs/DEPLOYMENT.md` §9) and the consolidated change log. No schema change. |
+| 2026-10-13 | W6-M29: `partner_net_profit` and `calculate_profit_distribution` revenue basis widened to `SUM(payments.amount_paid) + SUM(revenue.amount) − SUM(expenses.amount)` (payments reach a flock via `dispatch_id → egg_dispatch.flock_id`). Forward `20261003002500`, rollback `20261003002501` (restores M24), suite **4af**. |
+| 2026-10-14 | W6-M29-v2: removed the `MIXED_CURRENCY` guard from both functions — `amount` is always USD and `currency` is metadata, so a `lira` row beside a `dollar` row is not a conflict (bare `SUM(amount)`). Forward `20261003002700`, rollback `20261003002701` (restores the M29 bodies), suite **4ag**. |
 
 # SCHEMA_REFERENCE — Madjana
 
@@ -618,7 +620,7 @@ to `authenticated` only (never `anon`/`PUBLIC`). `public.` prefix omitted.
 | `partner_pending_withdrawal` | `(uuid) → numeric` | sum of `pending` + `approved` |
 | `partner_summary` | `(uuid) → TABLE(name text, share_model text, share_value numeric, net_profit numeric, pending numeric, paid numeric)` | YTD snapshot |
 | `approve_withdrawal` | `(uuid, uuid) → void` | `pending → approved` |
-| `calculate_profit_distribution` | `(uuid, date, date, uuid DEFAULT NULL) → TABLE(partner_id uuid, share_type text, share_value numeric, amount numeric)` | read-only preview; raises `MIXED_CURRENCY` / `INVALID_PERCENTAGES` |
+| `calculate_profit_distribution` | `(uuid, date, date, uuid DEFAULT NULL) → TABLE(partner_id uuid, share_type text, share_value numeric, amount numeric)` | read-only preview; raises `INVALID_PERCENTAGES` (no `MIXED_CURRENCY` since M29-v2 — `amount` is always USD, `currency` is metadata) |
 
 The share maths each function implements, the authorization gates and the
 spec↔schema adaptations are in `docs/PARTNERS.md` §2.6; the accounting rules
