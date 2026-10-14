@@ -4818,3 +4818,269 @@ CREATE POLICY sync_table_registry_read ON public.sync_table_registry
     FOR SELECT TO authenticated
     USING (public.is_system_admin()
            OR public.current_user_role() = 'manager');
+
+-- ###########################################################################
+-- ##  TEMPORARY DRIFT PATCH #2 -- REMOVE ONCE DOCKER IS AVAILABLE         ##
+-- ###########################################################################
+-- ##  TODO: regenerate this whole file with `supabase db dump`, then delete  ##
+-- ##  this block. This file is a GENERATED SNAPSHOT and must never be the  ##
+-- ##  source of truth for a change.                                       ##
+-- ##                                                                       ##
+-- ##  Added: 2026-10-14                                                     ##
+-- ##  Reason: DNS / Docker not available; columns copied from               ##
+-- ##          json_output.txt (the live production snapshot).               ##
+-- ##                                                                       ##
+-- ##  verify_schema_drift.py proved these 15 tables exist in live           ##
+-- ##  production but were absent from this snapshot:                        ##
+-- ##    app_schema_version, change_requests, duplicate_guard,               ##
+-- ##    farm_id_audit, partner_audit, partner_withdrawals, partners,        ##
+-- ##    profit_distribution_details, profit_distributions, record_lock,     ##
+-- ##    record_unlock_requests, role_permissions, security_alerts,          ##
+-- ##    user_permissions, user_roles                                        ##
+-- ##                                                                       ##
+-- ##  The AUTHORITATIVE definitions are the migrations that create them     ##
+-- ##  (20261003002000_m21 ... 20261003002500_m29). This block exists only   ##
+-- ##  so the snapshot stops contradicting production.                       ##
+-- ###########################################################################
+
+-- ── app_schema_version ────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.app_schema_version (
+    version            integer,
+    min_client_version integer,
+    applied_at         timestamp with time zone,
+    notes              text
+);
+
+-- ── change_requests ───────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.change_requests (
+    id                uuid,
+    farm_id           uuid,
+    flock_id          uuid,
+    requested_by      uuid,
+    payload           jsonb,
+    original_snapshot jsonb,
+    decided_by        uuid,
+    decided_at        timestamp with time zone,
+    version           bigint,
+    created_at        timestamp with time zone,
+    updated_at        timestamp with time zone,
+    deleted_at        timestamp with time zone,
+    decision_note     text,
+    sync_status       text,
+    kind              text,
+    status            text,
+    reason            text
+);
+
+-- ── duplicate_guard ───────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.duplicate_guard (
+    created_at  timestamp with time zone,
+    id          uuid,
+    farm_id     uuid,
+    record_id   uuid,
+    created_by  uuid,
+    blocked     boolean,
+    table_name  text,
+    fingerprint text,
+    reason      text
+);
+
+-- ── farm_id_audit ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.farm_id_audit (
+    id          uuid,
+    record_id   uuid,
+    old_farm_id uuid,
+    new_farm_id uuid,
+    changed_by  uuid,
+    changed_at  timestamp with time zone,
+    table_name  text
+);
+
+-- ── partner_audit ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.partner_audit (
+    id             uuid,
+    farm_id        uuid,
+    partner_id     uuid,
+    old_values     jsonb,
+    new_values     jsonb,
+    changed_by     uuid,
+    changed_at     timestamp with time zone,
+    ip_address     text,
+    notes          text,
+    correlation_id text,
+    action         text
+);
+
+-- ── partner_withdrawals ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.partner_withdrawals (
+    id               uuid,
+    partner_id       uuid,
+    farm_id          uuid,
+    distribution_id  uuid,
+    amount           numeric,
+    requested_at     timestamp with time zone,
+    requested_by     uuid,
+    reviewed_at      timestamp with time zone,
+    reviewed_by      uuid,
+    paid_at          timestamp with time zone,
+    version          bigint,
+    created_at       timestamp with time zone,
+    updated_at       timestamp with time zone,
+    deleted_at       timestamp with time zone,
+    status           text,
+    notes            text,
+    reason           text,
+    rejection_reason text,
+    payment_method   text,
+    currency         text
+);
+
+-- ── partners ──────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.partners (
+    id             uuid,
+    user_id        uuid,
+    percentage     numeric,
+    shares         numeric,
+    salary_amount  numeric,
+    effective_from date,
+    effective_to   date,
+    meta           jsonb,
+    created_by     uuid,
+    created_at     timestamp with time zone,
+    updated_at     timestamp with time zone,
+    deleted_at     timestamp with time zone,
+    share_model    text,
+    salary_period  text,
+    currency       text,
+    name           text,
+    phone          text,
+    national_id    text,
+    status         text,
+    partner_role   text
+);
+
+-- ── profit_distribution_details ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.profit_distribution_details (
+    id              uuid,
+    distribution_id uuid,
+    farm_id         uuid,
+    partner_id      uuid,
+    percentage      numeric,
+    shares          numeric,
+    salary_amount   numeric,
+    profit_share    numeric,
+    salary_total    numeric,
+    deductions      numeric,
+    net_amount      numeric,
+    meta            jsonb,
+    created_at      timestamp with time zone,
+    updated_at      timestamp with time zone,
+    currency        text,
+    status          text,
+    note            text,
+    share_model     text,
+    salary_period   text
+);
+
+-- ── profit_distributions ──────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.profit_distributions (
+    id                   uuid,
+    farm_id              uuid,
+    flock_id             uuid,
+    period_start         date,
+    period_end           date,
+    total_revenue        numeric,
+    total_expenses       numeric,
+    net_profit           numeric,
+    reserve_amount       numeric,
+    distributable_profit numeric,
+    exchange_rate        numeric,
+    meta                 jsonb,
+    calculated_at        timestamp with time zone,
+    approved_at          timestamp with time zone,
+    approved_by          uuid,
+    created_by           uuid,
+    created_at           timestamp with time zone,
+    updated_at           timestamp with time zone,
+    label                text,
+    status               text,
+    currency             text,
+    notes                text
+);
+
+-- ── record_lock ───────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.record_lock (
+    id           uuid,
+    record_id    uuid,
+    farm_id      uuid,
+    locked_by    uuid,
+    locked_at    timestamp with time zone,
+    locked_until timestamp with time zone,
+    table_name   text,
+    lock_type    text,
+    reason       text
+);
+
+-- ── record_unlock_requests ────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.record_unlock_requests (
+    id               uuid,
+    farm_id          uuid,
+    lock_id          uuid,
+    requested_by     uuid,
+    requested_at     timestamp with time zone,
+    reviewed_by      uuid,
+    reviewed_at      timestamp with time zone,
+    reason           text,
+    status           text,
+    rejection_reason text
+);
+
+-- ── role_permissions ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.role_permissions (
+    id         uuid,
+    is_enabled boolean,
+    farm_id    uuid,
+    granted_by uuid,
+    granted_at timestamp with time zone,
+    role       text,
+    capability text
+);
+
+-- ── security_alerts ───────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.security_alerts (
+    id              uuid,
+    meta            jsonb,
+    created_at      timestamp with time zone,
+    acknowledged_at timestamp with time zone,
+    acknowledged_by uuid,
+    resolved_at     timestamp with time zone,
+    resolved_by     uuid,
+    alert_type      text,
+    severity        text
+);
+
+-- ── user_permissions ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.user_permissions (
+    id               uuid,
+    user_id          uuid,
+    farm_id          uuid,
+    permission_value boolean,
+    granted_by       uuid,
+    granted_at       timestamp with time zone,
+    permission_key   text
+);
+
+-- ── user_roles ────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.user_roles (
+    id             uuid,
+    user_id        uuid,
+    farm_id        uuid,
+    is_primary     boolean,
+    effective_from date,
+    effective_to   date,
+    granted_by     uuid,
+    created_at     timestamp with time zone,
+    updated_at     timestamp with time zone,
+    role           text
+);
+
