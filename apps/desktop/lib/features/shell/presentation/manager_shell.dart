@@ -24,6 +24,7 @@ import '../../reports/presentation/reports_screen.dart';
 import '../../settings/presentation/settings_screen.dart';
 import '../../users/presentation/users_screen.dart';
 import '../../customers/presentation/customers_screen.dart';
+import '../../partners/presentation/partners_screen.dart';
 import '../../sync/presentation/sync_center_screen.dart';
 
 class ManagerShell extends ConsumerStatefulWidget {
@@ -56,6 +57,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     // مُضاف في نهاية القائمة عمداً: الإدراج في المنتصف يزيح كل الفهارس
     // المستخدمة في _navGroups ويكسر مجموعات التنقّل.
     EquipmentScreen(),
+    PartnersScreen(),
   ];
 
   static const _titles = [
@@ -78,6 +80,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     'الإعدادات',
     'الإيرادات',
     'العدة والأجهزة',
+    'الشركاء',
   ];
 
   static const _icons = [
@@ -100,6 +103,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     Icons.settings_rounded,
     Icons.attach_money_rounded,
     Icons.handyman_rounded,
+    Icons.handshake_rounded,
   ];
 
   // Command Center: تنقّل مجمّع حسب المجالات
@@ -109,7 +113,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     ('المبيعات والمالية', [5, 12, 8, 17]),
     ('المخزون والعلاج', [9, 11]),
     ('العدة', [18]),
-    ('المتابعة والإدارة', [6, 7, 10, 13, 14, 15]),
+    ('المتابعة والإدارة', [6, 7, 10, 13, 14, 15, 19]),
     ('النظام', [16]),
   ];
 

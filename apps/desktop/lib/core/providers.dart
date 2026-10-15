@@ -62,6 +62,9 @@ final supabaseFlockDatasourceProvider = Provider<SupabaseFlockDatasource>(
 final supabaseUserAdminDatasourceProvider = Provider<SupabaseUserAdminDatasource>(
   (ref) => SupabaseUserAdminDatasource(ref.watch(supabaseApiProvider)),
 );
+final supabasePartnerDatasourceProvider = Provider<SupabasePartnerDatasource>(
+  (ref) => SupabasePartnerDatasource(ref.watch(supabaseApiProvider)),
+);
 final supabaseExpenseDatasourceProvider = Provider<SupabaseExpenseDatasource>(
   (ref) => SupabaseExpenseDatasource(ref.watch(supabaseApiProvider)),
 );
@@ -164,6 +167,13 @@ final userAdminRepositoryProvider = Provider<UserAdminRepository>(
   (ref) => UserAdminRepositoryImpl(
     remoteDatasource: ref.watch(supabaseUserAdminDatasourceProvider),
     userDao: ref.watch(userDaoProvider),
+  ),
+);
+
+/// إدارة الشركاء (W6) — سطح المكتب. الوصول السحابي مباشرة (لا DAO محلي).
+final partnerRepositoryProvider = Provider<PartnerRepository>(
+  (ref) => PartnerRepositoryImpl(
+    remoteDatasource: ref.watch(supabasePartnerDatasourceProvider),
   ),
 );
 

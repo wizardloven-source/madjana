@@ -150,3 +150,76 @@ enum InventoryUnit {
   final String label;
   const InventoryUnit(this.label);
 }
+
+// ═══════════════════════════════════════════════
+// W6 — الشركاء (partners)
+// ═══════════════════════════════════════════════
+
+/// حالة الشريك — `partners.status`
+enum PartnerStatus {
+  active('نشط'),
+  inactive('غير نشط'),
+  suspended('موقوف');
+
+  final String label;
+  const PartnerStatus(this.label);
+
+  static PartnerStatus fromName(String? name) => PartnerStatus.values.firstWhere(
+        (e) => e.name == name,
+        orElse: () => PartnerStatus.active,
+      );
+}
+
+/// طبيعة الشريك — `partners.partner_role`.
+///
+/// وصفية فقط ولا تمنح أي صلاحية؛ كون الشخص شريكاً لا يمنحه وصولاً مالياً.
+enum PartnerRole {
+  investor('مستثمر'),
+  worker('عامل'),
+  manager('مدير'),
+  silent('شريك صامت'),
+  mixed('مختلط');
+
+  final String label;
+  const PartnerRole(this.label);
+
+  static PartnerRole fromName(String? name) =>
+      PartnerRole.values.firstWhere(
+        (e) => e.name == name,
+        orElse: () => PartnerRole.investor,
+      );
+}
+
+/// نموذج الحصة — `partners.share_model`
+enum ShareModel {
+  percentage('نسبة مئوية'),
+  shares('أسهم'),
+  salary('راتب'),
+  mixed('مختلط');
+
+  final String label;
+  const ShareModel(this.label);
+
+  static ShareModel fromName(String? name) => ShareModel.values
+      .firstWhere((e) => e.name == name, orElse: () => ShareModel.percentage);
+}
+
+/// دورة الراتب — `partners.salary_period`
+enum SalaryPeriod {
+  monthly('شهري', 'monthly'),
+  weekly('أسبوعي', 'weekly'),
+  daily('يومي', 'daily'),
+  perCycle('لكل دورة', 'per_cycle');
+
+  final String label;
+  final String dbValue;
+  const SalaryPeriod(this.label, this.dbValue);
+
+  static SalaryPeriod? fromDb(String? value) {
+    if (value == null) return null;
+    for (final e in SalaryPeriod.values) {
+      if (e.dbValue == value) return e;
+    }
+    return null;
+  }
+}
