@@ -82,6 +82,12 @@ The ledger that turns a farm's profit for a period into per-partner shares.
   makes it impossible to attach a line to the wrong farm. Money CHECK:
   `net_amount = profit_share + salary_total − deductions`.
 
+**Storing** a distribution is not a bare INSERT any more (M30/W7.3): the
+`create_profit_distribution(...)` function computes the header totals from the
+same source as the preview and stores the header (`draft`) plus one `pending`
+line per partner atomically, and `approve_profit_distribution(...)` moves it
+`draft → approved` (system admin only). See §2.6 and §7.4.
+
 ### 2.4 `partner_withdrawals` (M23)
 A partner's request to take cash out of their share. Ladder:
 
@@ -118,14 +124,16 @@ public.record_partner_audit(
 ```
 
 a `SECURITY DEFINER` function gated on `is_system_admin()`. Ordinary users
-read only. (The M24 workflow functions do **not** write the trail: they may be
-called by a farm manager, whereas `record_partner_audit` is admin-only, so
-routing a manager's approval through it would fail. If auditing of approvals
-is wanted, that belongs in a separate admin-side step.)
+read only. From M30 the workflow functions `create_profit_distribution()` and
+`approve_profit_distribution()` also write the trail **directly** (they are
+`SECURITY DEFINER` too). That is deliberate: `create_profit_distribution()` may
+be called by a farm **manager**, whereas `record_partner_audit()` is admin-only,
+so routing a manager's creation through it would fail. `record_partner_audit()`
+remains the public, admin-gated entry point.
 
 ### 2.6 Partner workflow functions (M24)
-Five `SECURITY DEFINER` functions (pinned `search_path`, EXECUTE to
-`authenticated` only) read the ledger:
+Seven `SECURITY DEFINER` functions (pinned `search_path`, EXECUTE to
+`authenticated` only) read and write the ledger:
 
 | function | returns | what it does |
 |---|---|---|
@@ -134,6 +142,14 @@ Five `SECURITY DEFINER` functions (pinned `search_path`, EXECUTE to
 | `partner_summary(p_partner_id)` | table | name / model / share value / YTD profit / pending / paid |
 | `approve_withdrawal(p_withdrawal_id, p_approver_id)` | `void` | `pending → approved`; stamps `reviewed_at`/`reviewed_by` |
 | `calculate_profit_distribution(p_farm_id, p_period_start, p_period_end, p_flock_id DEFAULT NULL)` | table | **preview** the per-partner split (writes nothing) |
+| `create_profit_distribution(p_farm_id, p_period_start, p_period_end, p_flock_id DEFAULT NULL, p_reserve_amount DEFAULT 0, p_label DEFAULT NULL, p_notes DEFAULT NULL)` | `uuid` | **M30/W7.3** — store header (`draft`) + `pending` lines (manager/admin); writes `distribution_created` per line |
+| `approve_profit_distribution(p_distribution_id)` | `void` | **M30/W7.3** — `draft → approved`, stamps `approved_by`/`approved_at`; **admin only**; writes `distribution_approved` |
+
+A status guard trigger `guard_profit_distribution_status` (M30) is attached
+`BEFORE INSERT OR UPDATE OF status, approved_by, approved_at`: a non-admin may
+only insert a `draft` and may never change status or the approver fields; a
+system admin may only follow `draft → calculated → approved → distributed`
+(and `* → cancelled`), everything else raises `INVALID_STATUS_TRANSITION`.
 
 When a `p_flock_id` is given, revenue/expenses are scoped to that flock;
 otherwise to the whole farm (or, for `partner_net_profit`, across all farms —
@@ -304,20 +320,41 @@ Authorization: `is_system_admin()` or a manager of `p_farm_id`, else
 
 ### 7.4 Store a distribution (manager / admin)
 
+Since M30/W7.3 storing is a single server call that computes the totals from the
+same source as the preview and writes the header **and** the per-partner lines
+in one transaction:
+
 ```sql
-INSERT INTO public.profit_distributions
-    (farm_id, period_start, period_end,
-     total_revenue, total_expenses, reserve_amount, net_profit, distributable_profit)
-VALUES ('…farm…', '2026-10-01', '2026-10-31',
-        1800, 500, 300, 1300, 1000)
-RETURNING id;
--- net_profit = 1800 − 500 = 1300; distributable_profit = 1300 − 300 = 1000
+SELECT public.create_profit_distribution(
+    '00000000-0000-0000-0000-000000000001',  -- farm
+    '2026-10-01', '2026-10-31',              -- period
+    NULL,                                    -- flock (NULL = whole farm)
+    300,                                     -- reserve (kept back)
+    'Q4', NULL);                             -- label, notes
+-- → uuid of a header with status 'draft' and one 'pending' line per partner
 ```
 
-The header CHECKs enforce both equations, so a header that does not add up is
-rejected by the database, not by the caller. `INSERT` the per-partner
-`profit_distribution_details` rows with `farm_id` copied from the header — the
-composite FK `(distribution_id, farm_id)` refuses any other farm.
+The header CHECKs still enforce `net_profit = total_revenue − total_expenses`
+and `distributable_profit = net_profit − reserve_amount`, and the composite FK
+`(distribution_id, farm_id)` still refuses a line for another farm — the function
+just guarantees the numbers match `calculate_profit_distribution()` first.
+Creating the same `(farm, flock, period)` twice raises `DISTRIBUTION_EXISTS`.
+
+To move it forward, a **system admin** calls:
+
+```sql
+SELECT public.approve_profit_distribution('…distribution…');
+-- → status 'draft' → 'approved'; approved_by / approved_at stamped
+--   a manager is refused with AUTHORIZATION_DENIED
+```
+
+The guard trigger keeps the ladder and blocks a manager from changing the
+status (or the approver fields) directly through an `UPDATE`.
+
+> **Reserve caveat.** `calculate_profit_distribution()` prices the shares on
+> **net profit** and ignores the reserve, so with a non-zero reserve the header's
+> `distributable_profit` is smaller than the sum of the stored line
+> `net_amount`s. Keep `reserve` at 0 until the engine itself honours it.
 
 ### 7.5 Request a withdrawal (partner, self, `pending` only)
 
@@ -395,3 +432,7 @@ SELECT action, changed_by, changed_at, notes
   (`docs/SCHEMA_REFERENCE.md` §9), these workflows, the accounting rules
   (`docs/ACCOUNTING_RULES.md` §12) and the deploy runbook
   (`docs/DEPLOYMENT.md` §9).
+* **M30 — done (W7.3).** Server-side store + approve:
+  `create_profit_distribution(...)`, `approve_profit_distribution(...)`, the
+  `guard_profit_distribution_status` trigger, the lifecycle suite (`4ah`) and the
+  rollback `20261003002801_rollback_m30.sql`. See §2.6 and §7.4.

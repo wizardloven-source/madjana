@@ -46,6 +46,7 @@ export 'src/datasources/remote/supabase_farm_datasource.dart';
 export 'src/datasources/remote/supabase_payment_datasource.dart';
 export 'src/datasources/remote/supabase_opening_balance_datasource.dart';
 export 'src/datasources/remote/supabase_partner_datasource.dart';
+export 'src/datasources/remote/supabase_partnership_datasource.dart';
 
 // المستودعات
 export 'src/repositories/auth_repository_impl.dart';
@@ -65,6 +66,7 @@ export 'src/repositories/inventory_repository_impl.dart';
 export 'src/repositories/farm_repository_impl.dart';
 export 'src/repositories/opening_balance_repository_impl.dart';
 export 'src/repositories/partner_repository_impl.dart';
+export 'src/repositories/partnership_repository_impl.dart';
 export 'src/repositories/impl/conflict_repository_impl.dart';
 
 // النسخ الاحتياطي

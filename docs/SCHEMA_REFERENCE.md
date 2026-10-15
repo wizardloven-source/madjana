@@ -605,7 +605,7 @@ An **append-only** governance ledger. No client write policy exists and
 
 Indexes `idx_partner_audit_farm`, `_partner`, `_action`, `_changed_at`.
 
-### 9.8 Functions (9)
+### 9.8 Functions (12)
 
 All are `SECURITY DEFINER` with a pinned `search_path`; `EXECUTE` is granted
 to `authenticated` only (never `anon`/`PUBLIC`). `public.` prefix omitted.
@@ -614,13 +614,16 @@ to `authenticated` only (never `anon`/`PUBLIC`). `public.` prefix omitted.
 |---|---|---|
 | `validate_partner_withdrawal` | `() → trigger` | partner must exist; a tied `distribution_id` must be the same farm (`WITHDRAWAL_DISTRIBUTION_MISMATCH`) |
 | `guard_withdrawal_status` | `() → trigger` | enforces the status ladder; stamps `reviewed_at` / `paid_at` |
-| `record_partner_audit` | `(uuid, text, uuid, uuid, jsonb, jsonb, text, text, text) → uuid` | the only writer of `partner_audit`; gated on `is_system_admin()` |
+| `record_partner_audit` | `(uuid, text, uuid, uuid, jsonb, jsonb, text, text, text) → uuid` | admin-gated writer of `partner_audit`; the M30 workflow functions also write the trail directly (SECURITY DEFINER, since a manager may create a distribution) |
 | `partner_in_manager_farm` | `(uuid) → boolean` | SQL, STABLE; policy-recursion breaker (`docs/SECURITY.md` §12) |
 | `partner_net_profit` | `(uuid, date, date, uuid DEFAULT NULL) → numeric` | one partner's profit for a period |
 | `partner_pending_withdrawal` | `(uuid) → numeric` | sum of `pending` + `approved` |
 | `partner_summary` | `(uuid) → TABLE(name text, share_model text, share_value numeric, net_profit numeric, pending numeric, paid numeric)` | YTD snapshot |
 | `approve_withdrawal` | `(uuid, uuid) → void` | `pending → approved` |
 | `calculate_profit_distribution` | `(uuid, date, date, uuid DEFAULT NULL) → TABLE(partner_id uuid, share_type text, share_value numeric, amount numeric)` | read-only preview; raises `INVALID_PERCENTAGES` (no `MIXED_CURRENCY` since M29-v2 — `amount` is always USD, `currency` is metadata) |
+| `create_profit_distribution` | `(uuid, date, date, uuid DEFAULT NULL, numeric DEFAULT 0, text DEFAULT NULL, text DEFAULT NULL) → uuid` | **M30/W7.3.** Stores the header (`draft`) + one `pending` line per partner from `calculate_profit_distribution()`; gate `is_system_admin()` or `user_manages_farm(p_farm_id)`; writes `distribution_created` to `partner_audit` per line |
+| `approve_profit_distribution` | `(uuid) → void` | **M30/W7.3.** `draft → approved`; stamps `approved_by` / `approved_at`; **system_admin only** (a manager cannot self-approve); writes `distribution_approved` |
+| `guard_profit_distribution_status` | `() → trigger` | **M30/W7.3.** `BEFORE INSERT OR UPDATE OF status, approved_by, approved_at`; makes status/approver changes admin-only and enforces the ladder `draft → calculated → approved → distributed` (and `* → cancelled`) |
 
 The share maths each function implements, the authorization gates and the
 spec↔schema adaptations are in `docs/PARTNERS.md` §2.6; the accounting rules

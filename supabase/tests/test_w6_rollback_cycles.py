@@ -38,6 +38,10 @@ FORWARD = [
     "20261003002400_m25_partner_rls.sql",
     "20261003002500_m29_fix_partner_net_profit.sql",
     "20261003002700_m29_v2_fix_mixed_currency.sql",
+    # W7.3 (M30) is layered on top of W6. The teardown below drops the W6 table
+    # the guard trigger sits on, so re-applying M30 here restores the trigger
+    # (and the two functions) before the SQL suites run.
+    "20261003002800_m30_partner_distribution_workflow.sql",
 ]
 
 # Per-milestone rollbacks, in the exact reverse order (canonical path).

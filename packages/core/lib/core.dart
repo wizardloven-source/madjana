@@ -32,6 +32,7 @@ export 'src/models/batch_upload_result.dart';
 export 'src/models/conflict_model.dart';
 export 'src/models/pro_features_models.dart';
 export 'src/models/partner_model.dart';
+export 'src/models/profit_distribution_preview.dart';
 
 // الأدوات
 export 'src/utils/egg_calculator.dart';
@@ -55,6 +56,7 @@ export 'src/repositories/ops_repositories.dart';
 export 'src/repositories/opening_balance_repository.dart';
 export 'src/repositories/conflict_repository.dart';
 export 'src/repositories/partner_repository.dart';
+export 'src/repositories/partnership_repository.dart';
 
 // حالات الاستخدام
 export 'src/usecases/save_egg_production_usecase.dart';

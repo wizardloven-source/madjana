@@ -65,6 +65,10 @@ final supabaseUserAdminDatasourceProvider = Provider<SupabaseUserAdminDatasource
 final supabasePartnerDatasourceProvider = Provider<SupabasePartnerDatasource>(
   (ref) => SupabasePartnerDatasource(ref.watch(supabaseApiProvider)),
 );
+final supabasePartnershipDatasourceProvider =
+    Provider<SupabasePartnershipDatasource>(
+  (ref) => SupabasePartnershipDatasource(ref.watch(supabaseApiProvider)),
+);
 final supabaseExpenseDatasourceProvider = Provider<SupabaseExpenseDatasource>(
   (ref) => SupabaseExpenseDatasource(ref.watch(supabaseApiProvider)),
 );
@@ -207,6 +211,12 @@ final farmRepositoryProvider = Provider<FarmRepository>(
 
 final conflictRepositoryProvider = Provider<ConflictRepository>(
   (ref) => const ConflictRepositoryImpl(),
+);
+
+final partnershipRepositoryProvider = Provider<PartnershipRepository>(
+  (ref) => PartnershipRepositoryImpl(
+    remoteDatasource: ref.watch(supabasePartnershipDatasourceProvider),
+  ),
 );
 
 /// عملة العرض (الدولار هو الأساسي دائماً للعرض)
