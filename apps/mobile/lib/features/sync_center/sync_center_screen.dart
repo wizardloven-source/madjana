@@ -215,28 +215,33 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
     final serverValue = server.value;
     final localValue = local.value;
 
-    String status = 'جاري قراءة الإصدارات...';
-    Color color = AppColors.info;
-    IconData icon = Icons.sync_problem;
+    // الحالة تُبنى على **عقد المزامنة** (kSyncContractVersion) مقابل الخادم —
+    // لا على `_dbVersion` المحلي (مقياس مختلف). انظر docs/SYNC.md.
+    final state = evaluateSyncContract(
+      contractVersion: kSyncContractVersion,
+      serverVersion: server.hasError ? null : serverValue,
+    );
 
-    if (serverValue != null && localValue != null) {
-      if (serverValue == localValue) {
-        status = 'الإصداران متطابقان — المزامنة مسموحة';
+    String status;
+    Color color;
+    IconData icon;
+    switch (state) {
+      case SyncContractState.match:
+        status = 'العقد متطابق — المزامنة مسموحة';
         color = AppColors.success;
         icon = Icons.check_circle;
-      } else if (serverValue > localValue) {
-        status = 'الخادم أحدث من التطبيق — حدّث التطبيق';
-        color = AppColors.warning;
+      case SyncContractState.serverAhead:
+        status = 'الخادم أحدث من التطبيق — حدّث التطبيق (حظر)';
+        color = AppColors.danger;
         icon = Icons.system_update_alt;
-      } else {
-        status = 'التطبيق أحدث من الخادم — ينتظر دعم الخادم';
+      case SyncContractState.clientAhead:
+        status = 'التطبيق أحدث من الخادم — تحذير فقط (لا حظر)';
         color = AppColors.warning;
         icon = Icons.hourglass_empty;
-      }
-    } else if (server.hasError) {
-      status = 'الخادم غير متاح — تُحفظ التغييرات وتُرفع عند الاتصال';
-      color = AppColors.warning;
-      icon = Icons.cloud_off;
+      case SyncContractState.unknown:
+        status = 'الخادم غير متاح — تُحفظ التغييرات وتُرفع عند الاتصال';
+        color = AppColors.info;
+        icon = Icons.cloud_off;
     }
 
     return Card(
@@ -245,7 +250,7 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
       child: ListTile(
         leading: Icon(icon, color: color, size: 32),
         title: const Text(
-          'إصدار المخطط',
+          'عقد المزامنة (M9)',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Text(status),
@@ -254,11 +259,15 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(
-              'الخادم: ${serverValue?.toString() ?? '…'}',
+              'عقد العميل: $kSyncContractVersion',
               style: TextStyle(fontSize: 12, color: Colors.grey[700]),
             ),
             Text(
-              'المحلي: ${localValue?.toString() ?? '…'}',
+              'عقد الخادم: ${serverValue?.toString() ?? '…'}',
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+            ),
+            Text(
+              'ترحيل محلي: ${localValue?.toString() ?? '…'}',
               style: TextStyle(fontSize: 12, color: Colors.grey[700]),
             ),
           ],

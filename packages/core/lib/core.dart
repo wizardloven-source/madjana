@@ -69,3 +69,4 @@ export 'src/usecases/sync_data_usecase.dart';
 export 'src/usecases/conflict_usecases.dart';
 
 export 'src/constants/splash_tips.dart';
+export 'src/constants/sync_contract.dart';

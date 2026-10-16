@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core/core.dart';
 import 'package:data/data.dart';
 import 'app.dart';
 import 'core/supabase_client.dart';
@@ -77,10 +78,12 @@ class _MadjanaBootstrapState extends State<MadjanaBootstrap> {
 
     if (!mounted) return;
 
-    // 4. بوابة إصدار المخطط (M9 — docs/SYNC.md): تقارن إصدار الخادم
-    //    (current_schema_version RPC) مع إصدار المخطط المحلي قبل فتح
-    //    الواجهة. عند التطابق → تمرير. عند اختلاف الرقمين → حظر المزامنة
-    //    حتى يُحدَّث الجانب الأقدم. عند فشل الاتصال → لا حظر (Offline-first).
+    // 4. بوابة عقد المزامنة (M9 — docs/SYNC.md): تقارن **عقد العميل**
+    //    (kSyncContractVersion) بإصدار مخطط الخادم (current_schema_version
+    //    RPC) قبل فتح الواجهة. الرقمان ليسا `_dbVersion` المحلي (ترحيلات
+    //    SQLite) — ذاك محلي بحت لا يُقارن بالخادم.
+    //    الخادم أحدث من العقد → حظر (حدّث التطبيق). العقد أحدث من الخادم →
+    //    تحذير فقط (لا حظر). تعذّر القراءة → لا حظر (Offline-first).
     final versionBlock = await _checkSchemaVersionGate();
     if (!mounted) return;
     if (versionBlock != null) {
@@ -91,23 +94,32 @@ class _MadjanaBootstrapState extends State<MadjanaBootstrap> {
     setState(() => _ready = true);
   }
 
-  /// بإرجاع رسالة حظر إن اختلف إصدارا المخطط (الخادم مقابل المحلي)،
-  /// و null عند تطابقهما أو تعذّر قراءة أيٍّ منهما (offline).
+  /// تُرجع رسالة حظر إن كان الخادم أحدث من عقد التطبيق، و null عند التطابق
+  /// أو عندما يكون العقد أحدث من الخادم (تحذير) أو عند تعذّر قراءة الخادم.
   Future<String?> _checkSchemaVersionGate() async {
     final client = SupabaseConfig.client;
     if (client == null) return null;
     try {
       final server =
           await SupabaseClientApiAdapter(client).fetchServerSchemaVersion();
-      final local = await LocalDatabase.getLocalSchemaVersion();
-      if (server > local) {
-        return 'إصدار الخادم ($server) أحدث من التطبيق ($local) — حدّث التطبيق';
-      }
-      if (local > server) {
-        return 'التطبيق ($local) أحدث من الخادم ($server) — ينتظر دعم الخادم';
+      final state = evaluateSyncContract(
+        contractVersion: kSyncContractVersion,
+        serverVersion: server,
+      );
+      switch (state) {
+        case SyncContractState.serverAhead:
+          return 'إصدار الخادم ($server) أحدث من التطبيق '
+              '($kSyncContractVersion) — حدّث التطبيق';
+        case SyncContractState.clientAhead:
+          // تحذير فقط — لا حظر: التطبيق مبني لعقدٍ لم يُنشَر على الخادم بعد.
+          debugPrint('M9 sync gate: client contract ($kSyncContractVersion) '
+              'ahead of server ($server) — warning only');
+        case SyncContractState.match:
+        case SyncContractState.unknown:
+          break;
       }
     } catch (e) {
-      debugPrint('M9 schema version gate: skipped (offline): $e');
+      debugPrint('M9 sync contract gate: skipped (offline): $e');
     }
     return null;
   }
