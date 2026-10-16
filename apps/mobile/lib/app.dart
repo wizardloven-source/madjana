@@ -20,6 +20,7 @@ import 'features/reports/presentation/reports_screen.dart';
 import 'features/settings/presentation/settings_screen.dart';
 import 'features/settings/providers/theme_provider.dart';
 import 'features/emergency/emergency_screen.dart';
+import 'features/splash/presentation/splash_screen.dart';
 import 'features/sync_center/sync_center_screen.dart';
 import 'features/analytics/presentation/analytics_screen.dart';
 import 'shared/widgets/role_gate.dart';
@@ -46,7 +47,7 @@ class PoultryApp extends ConsumerWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       // بوابة الجذر: شاشة انتظار أثناء استرجاع الجلسة ثم التوجيه
-      home: const _RootGate(),
+      home: const _SplashThenRootGate(),
       routes: {
         '/login': (_) => const LoginScreen(),
         '/home': (_) => const HomeScreen(),
@@ -68,6 +69,28 @@ class PoultryApp extends ConsumerWidget {
         '/analytics': (_) => const ManagerGate(child: AnalyticsScreen()),
       },
     );
+  }
+}
+
+/// يعرض السبلاش أولاً (~6 ثوانٍ) ثم بوابة الجذر.
+class _SplashThenRootGate extends StatefulWidget {
+  const _SplashThenRootGate();
+
+  @override
+  State<_SplashThenRootGate> createState() => _SplashThenRootGateState();
+}
+
+class _SplashThenRootGateState extends State<_SplashThenRootGate> {
+  bool _showSplash = true;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_showSplash) {
+      return SplashScreen(
+        onFinished: () => setState(() => _showSplash = false),
+      );
+    }
+    return const _RootGate();
   }
 }
 

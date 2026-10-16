@@ -67,3 +67,5 @@ export 'src/usecases/save_dispatch_usecase.dart';
 export 'src/usecases/save_medication_usecase.dart';
 export 'src/usecases/sync_data_usecase.dart';
 export 'src/usecases/conflict_usecases.dart';
+
+export 'src/constants/splash_tips.dart';

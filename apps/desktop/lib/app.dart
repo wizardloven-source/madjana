@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
+import 'package:window_manager/window_manager.dart';
 import 'core/theme.dart';
 import 'core/theme_provider.dart';
 import 'features/auth/presentation/bootstrap_admin_screen.dart';
@@ -9,6 +10,7 @@ import 'features/auth/presentation/login_screen.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/shell/presentation/manager_shell.dart';
 import 'features/shell/presentation/system_admin_shell.dart';
+import 'features/splash/presentation/splash_screen.dart';
 
 /// التطبيق الرئيسي لتطبيق سطح المكتب (للمدير)
 class MadjanaDesktopApp extends ConsumerWidget {
@@ -61,7 +63,7 @@ class MadjanaDesktopApp extends ConsumerWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      home: home,
+      home: _SplashThenHome(child: home),
     );
   }
 
@@ -74,6 +76,54 @@ class MadjanaDesktopApp extends ConsumerWidget {
       default:
         return const _NotAuthorizedScreen();
     }
+  }
+}
+
+/// يعرض السبلاش أولاً (نافذة 500×400) ثم الواجهة الحقيقية مع تكبير النافذة.
+class _SplashThenHome extends StatefulWidget {
+  const _SplashThenHome({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_SplashThenHome> createState() => _SplashThenHomeState();
+}
+
+class _SplashThenHomeState extends State<_SplashThenHome> {
+  bool _showSplash = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // النافذة الابتدائية بحجم السبلاش.
+    _resizeWindow(const Size(500, 400));
+  }
+
+  /// يضبط حجم النافذة (ويعيد توسيطها) بأمان؛ فشل window_manager يُتخطى.
+  Future<void> _resizeWindow(Size size) async {
+    try {
+      await windowManager.ensureInitialized();
+      // خلفية النافذة الرسمية داكنة حتى لا تومض بيضاء قبل رسم السبلاش.
+      await windowManager.setBackgroundColor(const Color(0xFF0D0D0D));
+      await windowManager.setSize(size);
+      await windowManager.center();
+    } catch (e) {
+      debugPrint('madjana: window resize skipped: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_showSplash) {
+      return SplashScreen(
+        onFinished: () async {
+          // بعد السبلاش: تكبير النافذة إلى الحجم الطبيعي ثم الانتقال.
+          await _resizeWindow(const Size(1280, 800));
+          if (mounted) setState(() => _showSplash = false);
+        },
+      );
+    }
+    return widget.child;
   }
 }
 
