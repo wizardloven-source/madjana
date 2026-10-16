@@ -1,3 +1,4 @@
+import '../models/profit_distribution.dart';
 import '../models/profit_distribution_preview.dart';
 
 /// الشراكة (W7.2/W7.3) — مبنية على دوال M24/M30 وRLS على الجداول.
@@ -17,6 +18,18 @@ abstract class PartnershipRepository {
   /// مدير نظام، و`INVALID_PERCENTAGES` إذا تجاوز مجموع النسب 100،
   /// و`FARM_NOT_FOUND`/`FLOCK_NOT_FOUND`/`FLOCK_FARM_MISMATCH` عند أخطاء المدخلات.
   Future<List<ProfitDistributionPreview>> calculateDistribution({
+    required String farmId,
+    required DateTime periodStart,
+    required DateTime periodEnd,
+    String? flockId,
+  });
+
+  /// يجلب رأس التوزيع المخزَّن المطابق لـ([farmId], [periodStart]..[periodEnd],
+  /// [flockId]) أو `null` إن لم يوجد توزيع لهذه الفترة.
+  ///
+  /// يُستخدم في الواجهة لمعرفة الحالة (`draft`/`approved`/...) وإظهار/إخفاء
+  /// أزرار الإنشاء والاعتماد. `flockId = null` يعني توزيع كامل المزرعة.
+  Future<ProfitDistribution?> getDistribution({
     required String farmId,
     required DateTime periodStart,
     required DateTime periodEnd,

@@ -37,6 +37,31 @@ class SupabasePartnershipDatasource {
         .toList();
   }
 
+  /// يجلب رأس التوزيع المخزَّن المطابق للمزرعة/الفترة/القطيع أو `null`.
+  ///
+  /// نستعلم كل صفوف المزرعة/الفترة ثم نختار الصف المطابق للقطيع محلياً، لأن
+  /// واجهة [SupabaseApi] لا تحمل فلتر `IS NULL` (حالة توزيع كامل المزرعة).
+  /// القيد الفريد (المزرعة/القطيع/الفترة) يضمن صفاً واحداً لكل قطيع.
+  Future<ProfitDistribution?> getDistribution({
+    required String farmId,
+    required DateTime periodStart,
+    required DateTime periodEnd,
+    String? flockId,
+  }) async {
+    final rows = await _api
+        .from('profit_distributions')
+        .select(columns: _distributionColumns)
+        .eq('farm_id', farmId)
+        .eq('period_start', _date(periodStart))
+        .eq('period_end', _date(periodEnd))
+        .order('created_at', ascending: false)
+        .get();
+    for (final row in rows) {
+      if (row['flock_id'] == flockId) return ProfitDistribution.fromJson(row);
+    }
+    return null;
+  }
+
   /// يُخزّن توزيعاً جديداً (M30) ويعيد معرّفه (uuid).
   ///
   /// يمرّر كل `p_*` صراحةً (بما فيها `p_flock_id`/`p_label`/`p_notes` = null)
@@ -83,6 +108,25 @@ class SupabasePartnershipDatasource {
     }
   }
 }
+
+/// أعمدة رأس التوزيع التي تقرأها `getDistribution` (W7.3-UI).
+const _distributionColumns = <String>[
+  'id',
+  'farm_id',
+  'flock_id',
+  'period_start',
+  'period_end',
+  'label',
+  'status',
+  'total_revenue',
+  'total_expenses',
+  'net_profit',
+  'reserve_amount',
+  'distributable_profit',
+  'approved_at',
+  'approved_by',
+  'notes',
+];
 
 /// أكواد أخطاء دوال الشراكة كما تُطلقها القاعدة (M24/M30).
 const _partnershipCodes = <String>[

@@ -232,6 +232,120 @@ void main() {
       );
     });
   });
+
+  group('SupabasePartnershipDatasource — قراءة رأس التوزيع (W7.3-UI)', () {
+    test('getDistribution يستعلم profit_distributions بفلاتر المزرعة/الفترة',
+        () async {
+      fake.seed('profit_distributions', [
+        {
+          'id': 'd-1',
+          'farm_id': 'farm-1',
+          'flock_id': null,
+          'period_start': '2026-10-01',
+          'period_end': '2026-10-31',
+          'status': 'draft',
+          'total_revenue': 2000,
+          'total_expenses': 500,
+          'net_profit': 1500,
+          'reserve_amount': 300,
+          'distributable_profit': 1200,
+          'created_at': '2026-10-31T00:00:00Z',
+        },
+      ]);
+
+      final d = await ds.getDistribution(
+        farmId: 'farm-1',
+        periodStart: DateTime(2026, 10, 1),
+        periodEnd: DateTime(2026, 10, 31),
+      );
+
+      expect(d, isNotNull);
+      expect(d!.id, 'd-1');
+      expect(d.status, ProfitDistributionStatus.draft);
+      expect(d.isDraft, isTrue);
+      expect(d.netProfit, 1500);
+      expect(d.distributableProfit, 1200);
+      expect(fake.findCall('select profit_distributions'), isTrue);
+      expect(fake.findCall('eq farm_id=farm-1'), isTrue);
+      expect(fake.findCall('eq period_start=2026-10-01'), isTrue);
+      expect(fake.findCall('eq period_end=2026-10-31'), isTrue);
+    });
+
+    test('getDistribution يُعيد null عندما لا يوجد رأس للفترة', () async {
+      final d = await ds.getDistribution(
+        farmId: 'farm-1',
+        periodStart: DateTime(2026, 10, 1),
+        periodEnd: DateTime(2026, 10, 31),
+      );
+      expect(d, isNull);
+    });
+
+    test('getDistribution يختار رأس القطيع المحدد لا رأس المزرعة', () async {
+      fake.seed('profit_distributions', [
+        {
+          'id': 'whole-farm',
+          'farm_id': 'farm-1',
+          'flock_id': null,
+          'period_start': '2026-10-01',
+          'period_end': '2026-10-31',
+          'status': 'draft',
+          'created_at': '2026-10-31T00:00:00Z',
+        },
+        {
+          'id': 'flock-9-row',
+          'farm_id': 'farm-1',
+          'flock_id': 'flock-9',
+          'period_start': '2026-10-01',
+          'period_end': '2026-10-31',
+          'status': 'approved',
+          'created_at': '2026-10-31T00:00:00Z',
+        },
+      ]);
+
+      final d = await ds.getDistribution(
+        farmId: 'farm-1',
+        periodStart: DateTime(2026, 10, 1),
+        periodEnd: DateTime(2026, 10, 31),
+        flockId: 'flock-9',
+      );
+
+      expect(d!.id, 'flock-9-row');
+      expect(d.status, ProfitDistributionStatus.approved);
+    });
+  });
+
+  group('ProfitDistribution — نموذج الرأس', () {
+    test('fromJson يقرأ الحالة والأرقام النصية والتواريخ', () {
+      final d = ProfitDistribution.fromJson({
+        'id': 'd1',
+        'farm_id': 'f1',
+        'flock_id': null,
+        'period_start': '2026-10-01',
+        'period_end': '2026-10-31',
+        'status': 'approved',
+        'total_revenue': '2000',
+        'total_expenses': '500',
+        'net_profit': '1500',
+        'reserve_amount': 300,
+        'distributable_profit': '1200',
+        'approved_at': '2026-11-01T09:00:00Z',
+      });
+
+      expect(d.status, ProfitDistributionStatus.approved);
+      expect(d.isDraft, isFalse);
+      expect(d.netProfit, 1500);
+      expect(d.reserveAmount, 300);
+      expect(d.periodStart, DateTime(2026, 10, 1));
+      expect(d.approvedAt, isNotNull);
+    });
+
+    test('fromJson بحالة غير معروفة يعود إلى draft', () {
+      final d = ProfitDistribution.fromJson(
+          {'id': 'x', 'farm_id': 'f', 'status': 'bogus'});
+      expect(d.status, ProfitDistributionStatus.draft);
+      expect(d.netProfit, 0);
+    });
+  });
 }
 
 /// يحاكي PostgrestException: يحمل getter ‏`message` الذي يقرأه التحويل.

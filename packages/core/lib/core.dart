@@ -32,6 +32,7 @@ export 'src/models/batch_upload_result.dart';
 export 'src/models/conflict_model.dart';
 export 'src/models/pro_features_models.dart';
 export 'src/models/partner_model.dart';
+export 'src/models/profit_distribution.dart';
 export 'src/models/profit_distribution_preview.dart';
 
 // الأدوات

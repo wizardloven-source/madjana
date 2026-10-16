@@ -45,6 +45,20 @@ class PartnershipRepositoryImpl implements PartnershipRepository {
   }
 
   @override
+  Future<ProfitDistribution?> getDistribution({
+    required String farmId,
+    required DateTime periodStart,
+    required DateTime periodEnd,
+    String? flockId,
+  }) =>
+      _remoteDatasource.getDistribution(
+        farmId: farmId,
+        periodStart: periodStart,
+        periodEnd: periodEnd,
+        flockId: flockId,
+      );
+
+  @override
   Future<String> createDistribution({
     required String farmId,
     required DateTime periodStart,
