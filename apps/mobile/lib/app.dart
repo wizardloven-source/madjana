@@ -20,6 +20,7 @@ import 'features/reports/presentation/reports_screen.dart';
 import 'features/settings/presentation/settings_screen.dart';
 import 'features/settings/providers/theme_provider.dart';
 import 'features/emergency/emergency_screen.dart';
+import 'features/inventory/presentation/inventory_readonly_screen.dart';
 import 'features/splash/presentation/splash_screen.dart';
 import 'features/sync_center/sync_center_screen.dart';
 import 'features/analytics/presentation/analytics_screen.dart';
@@ -65,6 +66,7 @@ class PoultryApp extends ConsumerWidget {
         '/flock-management': (_) => const ManagerGate(child: FlockManagementScreen()),
         '/customers': (_) => const ManagerGate(child: CustomersScreen()),
         '/emergency': (_) => const EmergencyScreen(),
+        '/inventory': (_) => const InventoryReadonlyScreen(),
         '/sync-center': (_) => const SyncCenterScreen(),
         '/analytics': (_) => const ManagerGate(child: AnalyticsScreen()),
       },

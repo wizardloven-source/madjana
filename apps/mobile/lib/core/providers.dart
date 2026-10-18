@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:core/core.dart';
@@ -239,7 +240,6 @@ final syncRepositoryProvider = Provider<SyncRepository>(
 );
 
 final remindersDaoProvider = Provider<RemindersDao>((ref) => RemindersDao());
-
 final emergencyAlertDaoProvider =
     Provider<EmergencyAlertDao>((ref) => EmergencyAlertDao());
 
@@ -248,3 +248,51 @@ final notificationRepositoryProvider = Provider<NotificationRepository>(
     remoteDatasource: ref.watch(supabaseNotificationDatasourceProvider),
   ),
 );
+
+// ─────────────── مخزون صحون الكرتون (W8 — قراءة فقط للعامل) ───────────────
+/// رصيد صحون الكرتون النظامية: الفارغة (تُزاد بالشراء وتُستهلك بالإنتاج)
+/// والمعبئة (تُزاد بالإنتاج وتُستهلك بالتخريج). يديرها السيرفر عبر triggers،
+/// فالواجهة تقرأ فقط ولا تعدّل.
+class TrayStock {
+  final double empty;
+  final double filled;
+  final int eggsPerTray;
+
+  const TrayStock({
+    required this.empty,
+    required this.filled,
+    required this.eggsPerTray,
+  });
+
+  bool get notLoaded => empty == 0 && filled == 0;
+}
+
+final trayStockProvider = FutureProvider.autoDispose<TrayStock>((ref) async {
+  final farmId = ref.watch(authProvider.select((s) => s.currentUser?.farmId));
+  if (farmId == null || farmId.isEmpty) {
+    return const TrayStock(empty: 0, filled: 0, eggsPerTray: AppConstants.eggsPerTray);
+  }
+
+  var eggsPerTray = AppConstants.eggsPerTray;
+  try {
+    final farm = await ref.read(farmRepositoryProvider).getFarm(farmId);
+    if (farm.eggsPerTray > 0) eggsPerTray = farm.eggsPerTray;
+  } catch (e) {
+    debugPrint('madjana: trayStock farm settings fallback: $e');
+  }
+
+  double empty = 0;
+  double filled = 0;
+  try {
+    final items = await ref.read(inventoryRepositoryProvider).getItems(farmId);
+    for (final i in items) {
+      if (i.systemKey == AppConstants.systemKeyTraysEmpty) empty += i.quantity;
+      if (i.systemKey == AppConstants.systemKeyTraysFilled) filled += i.quantity;
+    }
+  } catch (e) {
+    debugPrint('madjana: trayStock items fallback: $e');
+  }
+
+  return TrayStock(empty: empty, filled: filled, eggsPerTray: eggsPerTray);
+});
+

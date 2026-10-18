@@ -26,6 +26,10 @@ VALUES ('00000000-0000-0000-0000-000000000001', 'FARM_A', 24, 30, 180),
        ('00000000-0000-0000-0000-000000000002', 'FARM_B', 50, 30, 180)
 ON CONFLICT (id) DO NOTHING;
 
+-- W8 tray-inventory backfill for fixture farms (no history -> 0)
+SELECT public.backfill_inventory_trays('00000000-0000-0000-0000-000000000001');
+SELECT public.backfill_inventory_trays('00000000-0000-0000-0000-000000000002');
+
 -- ── users, created via the real signup path ─────────────────────────────────
 INSERT INTO auth.users (id, email, raw_user_meta_data)
 VALUES

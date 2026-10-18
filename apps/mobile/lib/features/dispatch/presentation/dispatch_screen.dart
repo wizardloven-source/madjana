@@ -8,6 +8,7 @@ import '../../../shared/widgets/custom_numpad.dart';
 import '../../../shared/widgets/date_picker_field.dart';
 import '../../../shared/widgets/farm_selector.dart';
 import '../../../shared/widgets/modern_ui.dart';
+import '../../../shared/widgets/tray_stock_banner.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../egg_production/providers/egg_production_provider.dart';
 import '../../reference_data/providers/reference_data_provider.dart';
@@ -416,7 +417,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                       if (_trayWeight != null && _trayWeight! > 0)
                         Text(
                           '~${(_trayWeight! * 1000 / 30).toStringAsFixed(1)} غم/بيضة',
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 12,
                             color: AppColors.textTertiary,
                           ),
@@ -426,6 +427,10 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 16),
+
+            // مخزون صحون الكرتون (قراءة فقط) — التخريج يستهلك المعبأ
+            TrayStockBanner(pendingEggs: _totalEggs, consumeFilled: true),
             const SizedBox(height: 16),
 
             // ملاحظات

@@ -260,6 +260,12 @@ class HomeScreen extends ConsumerWidget {
                   onTap: () => Navigator.pushNamed(context, '/sync-center'),
                 ),
                 _MenuCard(
+                  icon: Icons.inventory_2_outlined,
+                  label: 'المخزون',
+                  color: AppStatusColors.info(context),
+                  onTap: () => Navigator.pushNamed(context, '/inventory'),
+                ),
+                _MenuCard(
                   icon: Icons.settings_rounded,
                   label: 'الإعدادات',
                   color: cs.onSurfaceVariant,

@@ -31,11 +31,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   int _eggSettlement = 0;
   int _eggStock = 0;
 
-  // مخزون صحون الكرتون (صحن): المشترى (ربطات × 100) - المستهلك (كراتين×12 + أطباق)
-  int _cartonPurchasedTrays = 0;
-  int _cartonConsumedTrays = 0;
-  int _cartonStockTrays = 0;
+  // مخزون صحون الكرتون: يديره السيرفر عبر triggers الإنتاج/التخريج/الشراء
+  // على عنصري النظام (صحون فارغة/معبئة) — لا اشتقاق محلي.
   int _cartonLowThreshold = 100;
+  int _traysPerCarton = AppConstants.traysPerCarton;
 
   String get _farmId => ref.read(authProvider).currentUser?.farmId ?? '';
 
@@ -47,10 +46,22 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
   int get _lowStockCount => _visibleItems.where((i) => i.isLowStock).length;
 
+  /// عناصر المستخدم فقط (بلا عنصري النظام: صحون فارغة/معبئة) — تلك يعرضها
+  /// السيرفر في بطاقة مخزون الكرتون ولا يجوز تعديلها يدويًا.
+  List<InventoryItemModel> get _userItems =>
+      _items.where((i) => i.systemKey == null).toList();
+
+  double _systemQty(String key) => _items
+      .where((i) => i.systemKey == key)
+      .fold<double>(0, (s, i) => s + i.quantity);
+
+  double get _traysEmpty => _systemQty(AppConstants.systemKeyTraysEmpty);
+  double get _traysFilled => _systemQty(AppConstants.systemKeyTraysFilled);
+
   /// الطبقات: كل العناصر، أو المسندة لقطيع بعينه.
   List<InventoryItemModel> get _visibleItems => _flockFilter == null
-      ? _items
-      : _items.where((i) => i.flockId == _flockFilter).toList();
+      ? _userItems
+      : _userItems.where((i) => i.flockId == _flockFilter).toList();
 
   String _flockName(String? id) {
     if (id == null) return 'مشترك';
@@ -73,7 +84,6 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       final eggRepo = ref.read(eggProductionRepositoryProvider);
       final dispatchRepo = ref.read(dispatchRepositoryProvider);
       final farmRepo = ref.read(farmRepositoryProvider);
-      final expenseRepo = ref.read(expenseRepositoryProvider);
 
       // رصيد العلف: الوارد - المستهلك
       final received = await feedRepo.getAllReceived(farmId: _farmId);
@@ -113,28 +123,17 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                 (s, r) => s + ((r['delta_qty'] as num?) ?? 0).round(),
               );
 
-      // مخزون صحون الكرتون: المشترى (ربطات × 100 صحن) - المستهلك (كراتين×12 + أطباق)
-      final cartonExpenses = await expenseRepo.getExpenses(farmId: _farmId);
-      final purchasedTrays = cartonExpenses
-          .where(
-            (e) =>
-                e.category == ExpenseCategory.carton && e.cartonBundles != null,
-          )
-          .fold<int>(
-            0,
-            (s, e) => s + (e.cartonBundles ?? 0) * AppConstants.traysPerBundle,
-          );
-      final consumedTrays = dispatches.fold<int>(
-        0,
-        (s, d) => s + d.cartons * AppConstants.traysPerCarton + d.trays,
-      );
-
       double bagWeight = 50;
       int cartonThreshold = 100;
+      int traysPerCarton = AppConstants.traysPerCarton;
       try {
         final farm = await farmRepo.getFarm(_farmId);
         bagWeight = farm.feedBagWeightKg;
         cartonThreshold = farm.cartonLowThreshold;
+        if (farm.eggsPerTray > 0) {
+          traysPerCarton =
+              (farm.eggsPerCarton / farm.eggsPerTray).round().clamp(1, 1000);
+        }
       } catch (e) { debugPrint('madjana: farm thresholds skipped: $e'); }
 
       if (!mounted) return;
@@ -153,10 +152,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             dispatchedIl +
             (openingProduced - openingDispatched) +
             eggSettlement;
-        _cartonPurchasedTrays = purchasedTrays;
-        _cartonConsumedTrays = consumedTrays;
-        _cartonStockTrays = purchasedTrays - consumedTrays;
         _cartonLowThreshold = cartonThreshold;
+        _traysPerCarton = traysPerCarton;
       });
     } catch (e) {
       if (!mounted) return;
@@ -592,7 +589,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
           const SizedBox(height: 16),
           if (_loading)
             const Expanded(child: Center(child: CircularProgressIndicator()))
-          else if (_items.isEmpty)
+          else if (_userItems.isEmpty)
             const Expanded(child: Center(child: Text('المخزون فارغ')))
           else if (_visibleItems.isEmpty)
             const Expanded(
@@ -885,30 +882,50 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     );
   }
 
-  /// بطاقة مخزون صحون الكرتون (مشترى بالربطات - مستهلك بالتخريج)
+  /// بطاقة مخزون صحون/كراتين الكرتون — من عنصري النظام (صحون فارغة/معبئة).
+  ///
+  /// الرصيد مصدره السيرفر عبر triggers:
+  ///   • صحون فارغة: + شراء الكرتون  − إنتاج البيض
+  ///   • صحون معبئة: + إنتاج البيض   − تخريج البيض
+  /// كراتين البيض تُشتق من الصحون المعبئة ($_traysPerCarton صحن = كرتون).
   Widget _buildCartonStockCard() {
-    final cartonLow = _cartonStockTrays < _cartonLowThreshold;
-    final bundles = _cartonStockTrays ~/ AppConstants.traysPerBundle;
-    final remTrays = _cartonStockTrays % AppConstants.traysPerBundle;
+    final empty = _traysEmpty;
+    final filled = _traysFilled;
+    final emptyLow = empty < _cartonLowThreshold;
 
-    String label;
-    if (_cartonStockTrays <= 0) {
-      label = 'لا يوجد رصيد';
-    } else if (bundles > 0 && remTrays > 0) {
-      label = '$bundles ربطة + $remTrays صحن';
-    } else if (bundles > 0) {
-      label = '$bundles ربطة';
+    final emptyBundles = empty ~/ AppConstants.traysPerBundle;
+    final emptyRem = empty % AppConstants.traysPerBundle;
+    String emptyLabel;
+    if (empty <= 0) {
+      emptyLabel = 'لا يوجد رصيد';
+    } else if (emptyBundles > 0 && emptyRem > 0) {
+      emptyLabel = '$emptyBundles ربطة + $emptyRem صحن';
+    } else if (emptyBundles > 0) {
+      emptyLabel = '$emptyBundles ربطة';
     } else {
-      label = '$remTrays صحن';
+      emptyLabel = '${empty.toInt()} صحن';
     }
 
+    final filledCartons = filled ~/ _traysPerCarton;
+    final filledRem = filled % _traysPerCarton;
+    String filledLabel;
+    if (filled <= 0) {
+      filledLabel = 'لا يوجد رصيد';
+    } else if (filledCartons > 0) {
+      filledLabel = '$filledCartons كرتون'
+          '${filledRem > 0 ? ' + $filledRem صحن' : ''}';
+    } else {
+      filledLabel = '${filled.toInt()} صحن';
+    }
+
+    final nf = NumberFormat('#,##0');
     return Expanded(
       child: Card(
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
           side: BorderSide(
-            color: cartonLow ? Colors.red.shade200 : Colors.teal.shade200,
+            color: emptyLow ? Colors.red.shade200 : Colors.teal.shade200,
           ),
         ),
         child: Padding(
@@ -932,36 +949,38 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                label,
+                'فارغة: $emptyLabel',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: cartonLow ? Colors.red : Colors.teal.shade800,
+                  color: emptyLow ? Colors.red : Colors.teal.shade800,
                 ),
               ),
-              if (cartonLow)
+              if (emptyLow)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    '⚠ تحذير: الرصيد أقل من حد التنبيه ($_cartonLowThreshold صحن)',
+                    '⚠ تحذير: الفارغة أقل من حد التنبيه ($_cartonLowThreshold صحن)',
                     style: TextStyle(color: Colors.red.shade700, fontSize: 12),
                   ),
                 ),
+              const SizedBox(height: 6),
+              Text(
+                'معبئة: $filledLabel',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.teal.shade700,
+                ),
+              ),
               const SizedBox(height: 8),
               Text(
-                'المشترى: ${NumberFormat('#,##0').format(_cartonPurchasedTrays)} صحن  ·  '
-                'المستهلك: ${NumberFormat('#,##0').format(_cartonConsumedTrays)} صحن',
+                'فارغة: ${nf.format(empty)} صحن  ·  معبئة: ${nf.format(filled)} صحن',
                 style: TextStyle(color: Colors.grey.shade700),
               ),
               const SizedBox(height: 4),
               Text(
-                'الرصيد: ${NumberFormat('#,##0').format(_cartonStockTrays)} صحن  '
-                '(حد التنبيه: $_cartonLowThreshold)',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'يُراجع من إعدادات المدجنة · كل ربطة = ${AppConstants.traysPerBundle} صحن',
+                'يُدارة تلقائيًا بالشراء/الإنتاج/التخريج · كل ربطة = ${AppConstants.traysPerBundle} صحن',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
               ),
             ],

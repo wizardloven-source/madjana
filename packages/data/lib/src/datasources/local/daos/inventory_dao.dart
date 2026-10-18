@@ -23,6 +23,7 @@ class InventoryDao {
       'low_stock_threshold': item.lowStockThreshold,
       'notes': item.notes,
       'flock_id': item.flockId,
+      'system_key': item.systemKey,
       'updated_at': now,
     };
 
@@ -232,6 +233,7 @@ class InventoryDao {
       lowStockThreshold: (map['low_stock_threshold'] as num?)?.toDouble() ?? 5,
       notes: map['notes'] as String?,
       flockId: map['flock_id'] as String?,
+      systemKey: map['system_key'] as String?,
       updatedAt: map['updated_at'] != null
           ? DateTime.tryParse(map['updated_at'] as String)
           : null,

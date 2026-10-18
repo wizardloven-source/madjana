@@ -15,7 +15,7 @@ import 'package:path/path.dart';
 class LocalDatabase {
   static Database? _database;
   static const String _dbName = 'poultry_farm.db';
-  static const int _dbVersion = 30;
+  static const int _dbVersion = 31;
 
   /// مسار ثابت لم يتغير حسب دليل العمل (يُعيّن على منصة سطح المكتب
   /// في main() ليكون موقعاً موحّداً على مستوى المستخدم)
@@ -362,6 +362,7 @@ CREATE TABLE inventory_items (
   low_stock_threshold REAL NOT NULL DEFAULT 5,
   notes TEXT,
   flock_id TEXT,
+  system_key TEXT,
   version INTEGER DEFAULT 1,
   updated_at TEXT
   )
@@ -708,6 +709,7 @@ CREATE TABLE inventory_items (
           quantity REAL NOT NULL DEFAULT 0,
           low_stock_threshold REAL NOT NULL DEFAULT 5,
           notes TEXT,
+          system_key TEXT,
           updated_at TEXT
         )
       ''');
@@ -1211,6 +1213,21 @@ CREATE TABLE inventory_items (
               value TEXT
             )
           ''');
+      await db.insert(
+        'local_schema_meta',
+        {'key': 'schema_version', 'value': '$_dbVersion'},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+
+    // v31: مفتاح العنصر النظامي لمخزون صحون/كراتين الكرتون
+    // (trays_empty / trays_filled) — يديره السيرفر عبر triggers الإنتاج
+    // والتخريج والشراء؛ يلزم محلياً للعرض وترشيح المزامنة.
+    if (oldVersion < 31) {
+      if (!await _columnExists(db, 'inventory_items', 'system_key')) {
+        await db.execute(
+            'ALTER TABLE inventory_items ADD COLUMN system_key TEXT');
+      }
       await db.insert(
         'local_schema_meta',
         {'key': 'schema_version', 'value': '$_dbVersion'},

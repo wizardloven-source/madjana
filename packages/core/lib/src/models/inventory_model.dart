@@ -16,6 +16,11 @@ class InventoryItemModel {
   final DateTime? updatedAt;
   final int? version;
 
+  /// مفتاح العنصر النظامي (مثل `trays_empty` / `trays_filled`). العناصر
+  /// النظامية يديرها السيرفر عبر triggers الإنتاج/التخريج/الشراء ولا يجوز
+  /// تعديل كميتها يدويًا من التطبيق. `null` للأصناف العادية.
+  final String? systemKey;
+
   const InventoryItemModel({
     this.id,
     required this.farmId,
@@ -27,10 +32,14 @@ class InventoryItemModel {
     this.flockId,
     this.updatedAt,
     this.version,
+    this.systemKey,
   });
 
   /// هل الكمية منخفضة؟
   bool get isLowStock => quantity <= lowStockThreshold;
+
+  /// هل هذا عنصر نظامي (كميته محسوبة من السيرفر)؟
+  bool get isSystem => systemKey != null;
 
   factory InventoryItemModel.fromJson(Map<String, dynamic> json) {
     return InventoryItemModel(
@@ -52,6 +61,7 @@ class InventoryItemModel {
       version: json['version'] != null
           ? (json['version'] as num).toInt()
           : null,
+      systemKey: json['system_key'] as String?,
     );
   }
 
@@ -64,6 +74,7 @@ class InventoryItemModel {
         'low_stock_threshold': lowStockThreshold,
         'notes': notes,
         'flock_id': flockId,
+        if (systemKey != null) 'system_key': systemKey,
         if (version != null) 'version': version,
       };
 
@@ -78,6 +89,7 @@ class InventoryItemModel {
     String? flockId,
     bool clearFlock = false,
     int? version,
+    String? systemKey,
   }) {
     return InventoryItemModel(
       id: id ?? this.id,
@@ -90,6 +102,7 @@ class InventoryItemModel {
       flockId: clearFlock ? null : (flockId ?? this.flockId),
       updatedAt: updatedAt,
       version: version ?? this.version,
+      systemKey: systemKey ?? this.systemKey,
     );
   }
 }

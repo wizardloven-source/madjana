@@ -7,6 +7,7 @@ import '../../../shared/widgets/custom_numpad.dart';
 import '../../../shared/widgets/date_picker_field.dart';
 import '../../../shared/widgets/farm_selector.dart';
 import '../../../shared/widgets/modern_ui.dart';
+import '../../../shared/widgets/tray_stock_banner.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../reference_data/providers/reference_data_provider.dart';
 import '../../sync/providers/sync_provider.dart';
@@ -360,6 +361,10 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
             ),
             const SizedBox(height: 16),
 
+            // مخزون صحون الكرتون (قراءة فقط) — الإنتاج يستهلك الفارغ
+            TrayStockBanner(pendingEggs: _totalEggs, consumeFilled: false),
+            const SizedBox(height: 16),
+
             _buildNumberField(
               label: 'بيض مكسور',
               value: _brokenEggs,
@@ -439,10 +444,10 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
                           ),
                           FilledButton(
                             onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('حذف'),
                             style: FilledButton.styleFrom(
                               backgroundColor: AppColors.danger,
                             ),
+                            child: const Text('حذف'),
                           ),
                         ],
                       ),

@@ -331,8 +331,14 @@ SELECT tests.expect_no_rows('worker_a لا يقرأ revenue',
     'SELECT * FROM revenue');
 SELECT tests.expect_no_rows('worker_a لا يقرأ opening_balances',
     'SELECT * FROM opening_balances');
-SELECT tests.expect_no_rows('worker_a لا يقرأ inventory_items',
-    'SELECT * FROM inventory_items');
+-- W8: العامل يقرأ عناصر مخزون مزرعته فقط (صحون فارغة/معبئة) لدعم شريط
+-- شاشة الإنتاج/التخريج، لكنه لا يقرأ السجل (ledger) ولا عناصر مزرعة أخرى.
+SELECT tests.expect_rows('worker_a يقرأ inventory_items مزرعته (W8)',
+    'SELECT * FROM inventory_items WHERE farm_id = ''00000000-0000-0000-0000-000000000001''');
+SELECT tests.expect_no_rows('worker_a لا يقرأ inventory_items مزرعة أخرى (W8)',
+    'SELECT * FROM inventory_items WHERE farm_id = ''00000000-0000-0000-0000-000000000002''');
+SELECT tests.expect_no_rows('worker_a لا يقرأ سجل inventory_transactions (W8)',
+    'SELECT * FROM inventory_transactions');
 SELECT tests.expect_no_rows('worker_a لا يقرأ stock_adjustments',
     'SELECT * FROM stock_adjustments');
 SELECT tests.expect_no_rows('worker_a لا يقرأ payments لمزرعة أخرى',
@@ -395,7 +401,7 @@ BEGIN
         (SELECT count(*) FROM expenses) = 2,
         format('expenses=%s', (SELECT count(*) FROM expenses)));
     PERFORM tests.assert('العامل لم يُدرج صنف مخزون',
-        (SELECT count(*) FROM inventory_items) = 1,
+        NOT EXISTS (SELECT 1 FROM inventory_items WHERE name = 'سم'),
         format('inventory=%s', (SELECT count(*) FROM inventory_items)));
     PERFORM tests.assert('دفعة مزرعة أ لم تُعدَّل',
         (SELECT amount_paid FROM payments

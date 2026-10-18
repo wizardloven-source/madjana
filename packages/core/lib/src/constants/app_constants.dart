@@ -8,6 +8,10 @@ class AppConstants {
   // صحون الكرتون: الربطة = 100 صحن
   static const int traysPerBundle = 100;
 
+  // مفاتيح عناصر المخزون النظامية (يديرها السيرفر عبر triggers الإنتاج/التخريج)
+  static const String systemKeyTraysEmpty = 'trays_empty';
+  static const String systemKeyTraysFilled = 'trays_filled';
+
   // تحويلات العلف
   // قيمة الكيس الافتراضية = 50 كج، مطابقة للافتراضي في السيرفر
   // (feed_bag_weight_kg = 50)؛ تعويض فقط قبل تحميل إعدادات المزرعة.

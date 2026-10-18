@@ -77,6 +77,7 @@ SQL_SUITES = [
     ("4af. W6-M29 partner net profit + payments", "p0_partner_net_profit_fix_test.sql"),
     ("4ag. W6-M29v2 no MIXED_CURRENCY", "p0_partner_net_profit_fix_v2_test.sql"),
     ("4ah. W7.3 profit distribution lifecycle", "p0_profit_distribution_lifecycle_test.sql"),
+    ("4ai. W8 inventory trays tracking", "p0_inventory_trays_test.sql"),
 ]
 
 

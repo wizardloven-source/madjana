@@ -29,7 +29,13 @@ class SupabaseInventoryDatasource {
   }
 
   Future<void> updateItem(InventoryItemModel item) async {
-    final json = item.toJson()..remove('id');
+    // الكمية لا تُرسَل هنا: غيّرها حارس `protect_inventory_quantity` على
+    // الخادم (تتغيّر عبر triggers الإنتاج/التخريج/الشراء أو معاملات المخزون).
+    // و`system_key` يديره الخادم. نحدّث فقط الحقول الوصفية.
+    final json = item.toJson()
+      ..remove('id')
+      ..remove('quantity')
+      ..remove('system_key');
     await _api.from('inventory_items').update(json).eq('id', item.id!).run();
   }
 

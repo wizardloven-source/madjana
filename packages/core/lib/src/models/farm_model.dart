@@ -11,6 +11,7 @@ class FarmModel {
   final int eggsPerTray;             // عدد البيض في الصينية
   final double defaultMortalityRate; // معدل النفوق الافتراضي (%)
   final int cartonLowThreshold;      // حد التنبيه لمخزون صحون الكرتون (صحن)
+  final int traysPerBundle;          // عدد الصحون في ربطية الكرتون
 
   const FarmModel({
     required this.id,
@@ -23,6 +24,7 @@ class FarmModel {
     this.eggsPerTray = 30,           // افتراضي: 30 بيضة
     this.defaultMortalityRate = 0.0, // افتراضي: 0%
     this.cartonLowThreshold = 100,   // افتراضي: 100 صحن (= ربطتان)
+    this.traysPerBundle = 100,       // افتراضي: 100 صحن في الربطية
   });
 
   factory FarmModel.fromJson(Map<String, dynamic> json) {
@@ -39,6 +41,7 @@ class FarmModel {
       eggsPerTray: json['eggs_per_tray'] ?? 30,
       defaultMortalityRate: (json['default_mortality_rate'] ?? 0.0).toDouble(),
       cartonLowThreshold: json['carton_low_threshold'] ?? 100,
+      traysPerBundle: json['trays_per_bundle'] ?? 100,
     );
   }
 
@@ -53,5 +56,6 @@ class FarmModel {
         'eggs_per_tray': eggsPerTray,
         'default_mortality_rate': defaultMortalityRate,
         'carton_low_threshold': cartonLowThreshold,
+        'trays_per_bundle': traysPerBundle,
       };
 }
