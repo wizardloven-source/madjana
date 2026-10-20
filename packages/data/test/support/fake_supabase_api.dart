@@ -308,6 +308,9 @@ class _FakeMutation implements RemoteMutation {
         for (final r in matches) {
           r.addAll(_values as Map<String, dynamic>);
         }
+        // W7.4: select() بعد update() يجب أن يرى الصفوف المطابقة المرتّجة
+        // (عقد .eq().select().maybeSingle() على سحوبات الشركاء).
+        _resultRows = matches;
         _api.calls.add('update $_table ${jsonEncode(_values)} $_filtersLabel');
       case 'delete':
         rows.removeWhere(_matchesFilters);

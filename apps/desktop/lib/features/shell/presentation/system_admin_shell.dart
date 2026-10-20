@@ -9,6 +9,7 @@ import '../../users/presentation/users_screen.dart';
 import '../../customers/presentation/customers_screen.dart';
 import '../../partners/presentation/partners_screen.dart';
 import '../../partners/presentation/profit_distribution_screen.dart';
+import '../../partners/presentation/withdrawals_screen.dart';
 import '../../settings/presentation/settings_screen.dart';
 import '../../sync/presentation/sync_center_screen.dart';
 
@@ -241,6 +242,13 @@ class _SystemAdminShellState extends ConsumerState<SystemAdminShell> {
                   label: 'التوزيع',
                   onTap: () {
                     _pushScreen(const ProfitDistributionScreen(), 'التوزيع');
+                  },
+                ),
+                _ShellTile(
+                  icon: Icons.payments,
+                  label: 'السحوبات',
+                  onTap: () {
+                    _pushScreen(const WithdrawalsScreen(), 'السحوبات');
                   },
                 ),
                 _ShellTile(

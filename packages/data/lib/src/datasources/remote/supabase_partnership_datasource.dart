@@ -62,6 +62,22 @@ class SupabasePartnershipDatasource {
     return null;
   }
 
+  /// رؤوس توزيعات المزرعة (الأحدث أولاً) — لقائمة «ربط بتوزيع» في W7.4-UI.
+  ///
+  /// [SupabaseApi] لا يمرّر `IS NULL`، والترتيب على `created_at` يضع الأحدث
+  /// أولاً في القائمة المنسدلة.
+  Future<List<ProfitDistribution>> getDistributions({
+    required String farmId,
+  }) async {
+    final rows = await _api
+        .from('profit_distributions')
+        .select(columns: _distributionColumns)
+        .eq('farm_id', farmId)
+        .order('created_at', ascending: false)
+        .get();
+    return rows.map(ProfitDistribution.fromJson).toList();
+  }
+
   /// يُخزّن توزيعاً جديداً (M30) ويعيد معرّفه (uuid).
   ///
   /// يمرّر كل `p_*` صراحةً (بما فيها `p_flock_id`/`p_label`/`p_notes` = null)

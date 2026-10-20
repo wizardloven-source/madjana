@@ -180,16 +180,18 @@ BEGIN
     PERFORM public.record_partner_audit(v_farmA, 'withdrawal_paid', v_sys,
         v_pb, jsonb_build_object('status', 'approved'), jsonb_build_object('status', 'paid'));
 
+    -- W7.4: محفّز trg_partner_withdrawals_audit يضيف 3 سطور تلقائية
+    -- (requested + approved + paid لطلب v_w) إلى السطرين اليدويين أعلاه.
     SELECT count(*) INTO v_cnt FROM public.partner_audit;
-    PERFORM tests.assert('E2E: system_admin يرى سجلّي التدقيق', v_cnt = 2, format('n=%s', v_cnt));
+    PERFORM tests.assert('E2E: system_admin يرى كل التدقيق (2 يدوي + 3 محفّز)', v_cnt = 5, format('n=%s', v_cnt));
 
     PERFORM tests.set_user(v_admin);
     SELECT count(*) INTO v_cnt FROM public.partner_audit WHERE farm_id = v_farmA;
-    PERFORM tests.assert('E2E: مدير المزرعة يرى تدقيق مزرعته (2)', v_cnt = 2, format('n=%s', v_cnt));
+    PERFORM tests.assert('E2E: مدير المزرعة يرى تدقيق مزرعته (5)', v_cnt = 5, format('n=%s', v_cnt));
 
     PERFORM tests.set_user(v_worker);
     SELECT count(*) INTO v_cnt FROM public.partner_audit;
-    PERFORM tests.assert('E2E: الشريك-العامل يرى تدقيقه فقط (1)', v_cnt = 1, format('n=%s', v_cnt));
+    PERFORM tests.assert('E2E: الشريك-العامل يرى تدقيق شريكه فقط (4)', v_cnt = 4, format('n=%s', v_cnt));
     SELECT count(*) INTO v_cnt FROM public.partner_audit WHERE action = 'distribution_created';
     PERFORM tests.assert('E2E: الشريك لا يرى تدقيقاً بلا partner_id له (0)', v_cnt = 0, format('n=%s', v_cnt));
 

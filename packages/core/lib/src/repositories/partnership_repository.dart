@@ -36,6 +36,13 @@ abstract class PartnershipRepository {
     String? flockId,
   });
 
+  /// يجلب رؤوس توزيعات المزرعة مرتبة من الأحدث (`created_at` تنازلي).
+  ///
+  /// يُستعمل في شاشة إنشاء السحب (W7.4) لتعبئة قائمة «ربط بتوزيع» — الاختيار
+  /// نفسه غير إلزامي (الطلب المستقل بلا ربط). الرؤية تحدّدها RLS على
+  /// `profit_distributions` (مدير المزرعة/مدير النظام).
+  Future<List<ProfitDistribution>> getDistributions({required String farmId});
+
   /// يُخزّن توزيعاً جديداً (رأس `draft` + بنود `pending`) ويعيد معرّفه.
   ///
   /// الأخطاء: `AUTHORIZATION_DENIED` إن لم يكن المُتصل مدير المدجنة أو مدير

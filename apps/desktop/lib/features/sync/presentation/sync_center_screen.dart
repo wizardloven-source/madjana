@@ -32,7 +32,6 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
   void initState() {
     super.initState();
     _load();
-    ref.listen(dataRefreshTickProvider, (_, _) => _load());
   }
 
   Future<void> _load() async {
@@ -122,6 +121,8 @@ class _SyncCenterScreenState extends ConsumerState<SyncCenterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // إعادة تحميل قائمة المزامنة عند وصول بيانات جديدة من أجهزة أخرى
+    ref.listen(dataRefreshTickProvider, (_, _) => _load());
     final theme = Theme.of(context);
     final statusColor = _failed > 0
         ? theme.colorScheme.error

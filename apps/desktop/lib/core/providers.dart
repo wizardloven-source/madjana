@@ -69,6 +69,9 @@ final supabasePartnershipDatasourceProvider =
     Provider<SupabasePartnershipDatasource>(
   (ref) => SupabasePartnershipDatasource(ref.watch(supabaseApiProvider)),
 );
+final supabaseWithdrawalDatasourceProvider = Provider<SupabaseWithdrawalDatasource>(
+  (ref) => SupabaseWithdrawalDatasource(ref.watch(supabaseApiProvider)),
+);
 final supabaseExpenseDatasourceProvider = Provider<SupabaseExpenseDatasource>(
   (ref) => SupabaseExpenseDatasource(ref.watch(supabaseApiProvider)),
 );
@@ -216,6 +219,15 @@ final conflictRepositoryProvider = Provider<ConflictRepository>(
 final partnershipRepositoryProvider = Provider<PartnershipRepository>(
   (ref) => PartnershipRepositoryImpl(
     remoteDatasource: ref.watch(supabasePartnershipDatasourceProvider),
+  ),
+);
+
+/// سحوبات الشركاء وملخّصهم (W7.4) — سطح المكتب. قراءة وكتابة مباشرة من
+/// السحابة (لا DAO محلي حتى W7.6)؛ الاعتماد عبر RPC والباقي تحديثات مباشرة
+/// يفرض سلّمها الخادم.
+final partnerWithdrawalRepositoryProvider = Provider<PartnerWithdrawalRepository>(
+  (ref) => PartnerWithdrawalRepositoryImpl(
+    remoteDatasource: ref.watch(supabaseWithdrawalDatasourceProvider),
   ),
 );
 

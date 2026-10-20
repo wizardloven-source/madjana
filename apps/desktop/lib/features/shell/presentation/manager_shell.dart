@@ -26,6 +26,7 @@ import '../../users/presentation/users_screen.dart';
 import '../../customers/presentation/customers_screen.dart';
 import '../../partners/presentation/partners_screen.dart';
 import '../../partners/presentation/profit_distribution_screen.dart';
+import '../../partners/presentation/withdrawals_screen.dart';
 import '../../sync/presentation/sync_center_screen.dart';
 
 class ManagerShell extends ConsumerStatefulWidget {
@@ -137,6 +138,28 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     if (i < 0 || i >= _screens.length) return;
     _builtScreens[i] ??= _screens[i];
     ref.read(shellTabProvider.notifier).state = i;
+  }
+
+  /// يفتح شاشة السحوبات (W7.4) فوق التبويبات — بنفس غلاف
+  /// `Scaffold + AppBar` الذي يستخدمه `SystemAdminShell._pushScreen`.
+  void _pushWithdrawals() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          appBar: AppBar(
+            backgroundColor: Theme.of(context).colorScheme.surface,
+            elevation: 0,
+            leading: const BackButton(),
+            title: const Text(
+              'السحوبات',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+          ),
+          body: const WithdrawalsScreen(),
+        ),
+      ),
+    );
   }
 
   @override
@@ -260,6 +283,16 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
                             selected: selectedIndex == i,
                             badgeCount: i == 7 ? pendingApprovals : 0,
                             onTap: () => _selectTab(i),
+                          ),
+                        // السحوبات (W7.4) تُفتح بـpush بدل تبويب: إضافتها إلى
+                        // _screens تُزيح فهارس _navGroups المحسوبة يدوياً.
+                        if (title == 'المتابعة والإدارة')
+                          _NavTile(
+                            icon: Icons.payments,
+                            label: 'السحوبات',
+                            selected: false,
+                            badgeCount: 0,
+                            onTap: _pushWithdrawals,
                           ),
                       ],
                     ],

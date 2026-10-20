@@ -218,17 +218,19 @@ BEGIN
     PERFORM tests.assert('M25: الشريك-العامل يرى سحبه فقط (1)', v_n = 1, format('n=%s', v_n));
 
     -- ── H) partner_audit: admin + manager + self ────────────────────────────
+    -- W7.4: محفّز trg_partner_withdrawals_audit أضاف 3 سطور تلقائية
+    -- (withdrawal_requested لـ wpa/wpc/wpd) إلى السطرين اليدويين الثلاثة.
     PERFORM tests.set_user(v_sys);
     SELECT count(*) INTO v_n FROM public.partner_audit;
-    PERFORM tests.assert('M25: system_admin يرى كل سجل التدقيق (3)', v_n = 3, format('n=%s', v_n));
+    PERFORM tests.assert('M25: system_admin يرى كل سجل التدقيق (6)', v_n = 6, format('n=%s', v_n));
 
     PERFORM tests.set_user(v_admin);
     SELECT count(*) INTO v_n FROM public.partner_audit;
-    PERFORM tests.assert('M25: مدير A يرى تدقيق مزرعته (2)', v_n = 2, format('n=%s', v_n));
+    PERFORM tests.assert('M25: مدير A يرى تدقيق مزرعته (4)', v_n = 4, format('n=%s', v_n));
 
     PERFORM tests.set_user(v_worker);
     SELECT count(*) INTO v_n FROM public.partner_audit;
-    PERFORM tests.assert('M25: الشريك-العامل يرى تدقيقه فقط (1)', v_n = 1, format('n=%s', v_n));
+    PERFORM tests.assert('M25: الشريك-العامل يرى تدقيقه فقط (2)', v_n = 2, format('n=%s', v_n));
 
     PERFORM tests.set_user(v_adminB);
     SELECT count(*) INTO v_n FROM public.partner_audit WHERE farm_id = v_farmA;

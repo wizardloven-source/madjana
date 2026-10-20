@@ -116,7 +116,8 @@ BEGIN
     SELECT count(*) INTO v_n FROM public.partner_withdrawals;
     PERFORM tests.assert('ISO: admin يرى السحبين', v_n = 2, format('n=%s', v_n));
     SELECT count(*) INTO v_n FROM public.partner_audit;
-    PERFORM tests.assert('ISO: admin يرى سجلّي التدقيق', v_n = 2, format('n=%s', v_n));
+    -- W7.4: محفّز السحب يضيف سطرين تلقائيين (طلبَي wa/wb) إلى السطرين اليدويين.
+    PERFORM tests.assert('ISO: admin يرى كل التدقيق (2 يدوي + 2 محفّز)', v_n = 4, format('n=%s', v_n));
 
     -- ── D) عزل مزرعة المدير A ────────────────────────────────────────────────
     PERFORM tests.set_user(v_admin);
@@ -136,7 +137,8 @@ BEGIN
     SELECT count(*) INTO v_n FROM public.partner_withdrawals;
     PERFORM tests.assert('ISO: مدير A يرى سحب مزرعته فقط (1)', v_n = 1, format('n=%s', v_n));
     SELECT count(*) INTO v_n FROM public.partner_audit;
-    PERFORM tests.assert('ISO: مدير A يرى تدقيق مزرعته فقط (1)', v_n = 1, format('n=%s', v_n));
+    -- W7.4: مزرعة A ترى اليدوي (added pa) + تلقائي (طلب wa).
+    PERFORM tests.assert('ISO: مدير A يرى تدقيق مزرعته فقط (2)', v_n = 2, format('n=%s', v_n));
 
     -- ── E) عزل مزرعة المدير B ────────────────────────────────────────────────
     PERFORM tests.set_user(v_adminB);

@@ -42,6 +42,10 @@ FORWARD = [
     # the guard trigger sits on, so re-applying M30 here restores the trigger
     # (and the two functions) before the SQL suites run.
     "20261003002800_m30_partner_distribution_workflow.sql",
+    # W7.4 attaches trg_partner_withdrawals_audit to the same W6 table; the
+    # rollback drops the table (and with it the trigger), so the migration must
+    # be re-applied here or every withdrawal-audit count in the SQL suites fails.
+    "20261003002950_w74_audit_withdrawals.sql",
 ]
 
 # Per-milestone rollbacks, in the exact reverse order (canonical path).

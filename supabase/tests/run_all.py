@@ -78,6 +78,7 @@ SQL_SUITES = [
     ("4ag. W6-M29v2 no MIXED_CURRENCY", "p0_partner_net_profit_fix_v2_test.sql"),
     ("4ah. W7.3 profit distribution lifecycle", "p0_profit_distribution_lifecycle_test.sql"),
     ("4ai. W8 inventory trays tracking", "p0_inventory_trays_test.sql"),
+    ("4aj. W7.4 withdrawal audit trigger", "p0_w74_withdrawal_audit_test.sql"),
 ]
 
 
