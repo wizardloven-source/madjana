@@ -27,6 +27,7 @@ import '../../customers/presentation/customers_screen.dart';
 import '../../partners/presentation/partners_screen.dart';
 import '../../partners/presentation/profit_distribution_screen.dart';
 import '../../partners/presentation/withdrawals_screen.dart';
+import '../../partners/presentation/partnership_reports_screen.dart';
 import '../../sync/presentation/sync_center_screen.dart';
 
 class ManagerShell extends ConsumerStatefulWidget {
@@ -61,6 +62,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     EquipmentScreen(),
     PartnersScreen(),
     ProfitDistributionScreen(),
+    PartnershipReportsScreen(),
   ];
 
   static const _titles = [
@@ -85,6 +87,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     'العدة والأجهزة',
     'الشركاء',
     'التوزيع',
+    'تقارير الشراكة',
   ];
 
   static const _icons = [
@@ -109,6 +112,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     Icons.handyman_rounded,
     Icons.handshake_rounded,
     Icons.pie_chart_rounded,
+    Icons.analytics,
   ];
 
   // Command Center: تنقّل مجمّع حسب المجالات
@@ -118,7 +122,7 @@ class _ManagerShellState extends ConsumerState<ManagerShell> {
     ('المبيعات والمالية', [5, 12, 8, 17]),
     ('المخزون والعلاج', [9, 11]),
     ('العدة', [18]),
-    ('المتابعة والإدارة', [6, 7, 10, 13, 14, 15, 19, 20]),
+    ('المتابعة والإدارة', [6, 7, 10, 13, 14, 15, 19, 20, 21, 22, 23]),
     ('النظام', [16]),
   ];
 

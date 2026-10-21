@@ -231,6 +231,59 @@ final partnerWithdrawalRepositoryProvider = Provider<PartnerWithdrawalRepository
   ),
 );
 
+/// بيانات تقارير الشراكة (W7.5) — تجلب التقارير المجمعة مباشرة من السحابة
+/// دون اعتماد على RPC `partner_summary` (لأن المدير قد لا يستطيع استدعاءها).
+final partnershipReportDataProvider = Provider<PartnershipReportData>((ref) {
+  return PartnershipReportData(supabase: ref.read(supabaseClientProvider));
+});
+
+/// خدمة بيانات تقارير الشراكة — استعلامات مباشرة على `profit_distributions`
+/// و`profit_distribution_details` و`partner_withdrawals` و`partners`.
+class PartnershipReportData {
+  final SupabaseClient supabase;
+  const PartnershipReportData({required this.supabase});
+
+  /// صفوف تقرير التوزيعات مع عدد الشركاء لكل توزيع (للفرز/التصفية من قبل الواجهة).
+  Future<List<Map<String, dynamic>>> fetchDistributions({
+    required String farmId,
+  }) async {
+    final distRows = await supabase
+        .from('profit_distributions')
+        .select('''
+          id, period_start, period_end, label, status, total_revenue,
+          total_expenses, net_profit, approved_by
+        ''')
+        .eq('farm_id', farmId)
+        .order('period_start', ascending: false);
+    final detailRows = await supabase
+        .from('profit_distribution_details')
+        .select('distribution_id, partner_id')
+        .eq('farm_id', farmId);
+    final partnerCounts = <String, int>{};
+    for (final d in detailRows) {
+      final distId = (d['distribution_id'] ?? '').toString();
+      final partnerId = (d['partner_id'] ?? '').toString();
+      if (distId.isEmpty || partnerId.isEmpty) continue;
+      partnerCounts.update(distId, (v) => v + 1, ifAbsent: () => 1);
+    }
+    return distRows.map((d) {
+      final id = (d['id'] ?? '').toString();
+      return {
+        'id': id,
+        'period_start': d['period_start'],
+        'period_end': d['period_end'],
+        'label': d['label'],
+        'status': d['status'],
+        'total_revenue': d['total_revenue'],
+        'total_expenses': d['total_expenses'],
+        'net_profit': d['net_profit'],
+        'approved_by': d['approved_by'],
+        'partner_count': partnerCounts[id] ?? 0,
+      };
+    }).toList();
+  }
+}
+
 /// عملة العرض (الدولار هو الأساسي دائماً للعرض)
 final currencyProvider = FutureProvider<String>((ref) async {
   return AppCurrency.dollar.symbol;
