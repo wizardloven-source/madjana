@@ -2,6 +2,7 @@ library core;
 
 // الخطأ
 export 'src/errors/sync_failure.dart';
+export 'src/errors/arabic_error_message.dart';
 
 // الثوابت
 export 'src/constants/app_constants.dart';

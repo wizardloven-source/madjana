@@ -103,8 +103,6 @@ class _SplashThenHomeState extends State<_SplashThenHome> {
   Future<void> _resizeWindow(Size size) async {
     try {
       await windowManager.ensureInitialized();
-      // خلفية النافذة الرسمية داكنة حتى لا تومض بيضاء قبل رسم السبلاش.
-      await windowManager.setBackgroundColor(const Color(0xFF0D0D0D));
       await windowManager.setSize(size);
       await windowManager.center();
     } catch (e) {

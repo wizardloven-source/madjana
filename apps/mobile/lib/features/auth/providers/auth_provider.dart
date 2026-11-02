@@ -109,6 +109,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (user == null) return;
     try {
       await _repository.setActiveFarm(farmId);
+      // تحديث farmId في مزامنة السحابة لضمان سحب التغييرات للمزرعة الجديدة
+      await _ref.read(syncProvider.notifier).setFarmId(farmId);
     } catch (e) {
       debugPrint('madjana: auth setActiveFarm: $e');
     }

@@ -12,20 +12,29 @@ class CustomersScreen extends ConsumerStatefulWidget {
 }
 
 class _CustomersScreenState extends ConsumerState<CustomersScreen> {
-  String? _selectedFarmId;
+  /// State predicate: تعيد farmId المستخدم الحالي من provider المحلّي،
+  /// فتتجدد الشاشة تلقائياً عند تبديل المزرعة عبر setActiveFarm.
+  String get _currentFarmId {
+    final user = ref.watch(authProvider).currentUser;
+    // إذا كان مستخدم系统管理/admin، يرى كل المزارع ويعمل farmId فارغ (global)
+    if (user?.isSystemAdmin ?? false) return '';
+    // Otherwise use the selected farm or the user's default farm
+    return _selectedFarmId ?? (user?.farmId ?? '');
+  }
 
   @override
   void initState() {
     super.initState();
+    // للاستماع لتغييرات farmId عبر authProvider (setActiveFarm)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final user = ref.read(authProvider).currentUser;
-      if (user?.farmId != null) setState(() => _selectedFarmId = user!.farmId);
+      // Riverpod ستعيد البناء تلقائياً عند تغيير state
+      setState(() {});
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final farmId = _selectedFarmId ?? '';
+    final farmId = _currentFarmId;
     final customersAsync = ref.watch(customersProvider(farmId));
 
     return Scaffold(
@@ -87,6 +96,16 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
                   const SizedBox(height: 12),
                   TextField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم الهاتف')),
                   const SizedBox(height: 12),
+                  // علم "مرئي لكل المزارع"
+                  SwitchListTile(
+                    title: const Text('مرئي لكل المزارع'),
+                    value: isGlobal,
+                    onChanged: (bool value) {
+                      setDialogState(() => isGlobal = value);
+                    },
+                    secondary: const Icon(Icons.public),
+                  ),
+                  const SizedBox(height: 8),
                   TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'ملاحظات'), maxLines: 2),
                 ],
               ),
@@ -112,17 +131,18 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
                           final result = await ref
                               .read(dispatchProvider.notifier)
                               .addNewCustomer(
-                                farmId: _selectedFarmId ?? '',
+                                farmId: _currentFarmId,
                                 name: nameCtrl.text,
                                 phone: phoneCtrl.text,
                                 notes: notesCtrl.text.isEmpty
                                     ? null
                                     : notesCtrl.text,
+                                isGlobal: isGlobal,
                               );
                           if (result != null && ctx.mounted) {
                             Navigator.pop(ctx);
                             ref.invalidate(
-                                customersProvider(_selectedFarmId ?? ''));
+                                customersProvider(_currentFarmId)));
                           } else if (ctx.mounted) {
                             setDialogState(() => saving = false);
                             ScaffoldMessenger.of(context).showSnackBar(

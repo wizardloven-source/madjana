@@ -31,6 +31,7 @@ class DispatchScreen extends ConsumerStatefulWidget {
 class _DispatchScreenState extends ConsumerState<DispatchScreen> {
   DateTime _selectedDate = DateTime.now();
   String? _selectedCustomerId;
+  String? _selectedFlockId;
   int _cartons = 0;
   int _trays = 0;
   String _activeField = 'cartons';
@@ -277,6 +278,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
           farmId: farmId,
           date: _selectedDate,
           customerId: _selectedCustomerId!,
+          flockId: _selectedFlockId,
           cartons: _cartons,
           trays: _trays,
           trayWeightKg: _trayWeight,
@@ -360,9 +362,17 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            // اختيار القطيع/الفوج
+            DropdownButtonFormField<String>(
+              initialValue: _selectedFlockId,
+              decoration: const InputDecoration(labelText: 'القطيع / الفوج'),
+              items: (ref.watch(flocksProvider(farmId)).value ?? const <FlockModel>[])
+                  .map((f) => DropdownMenuItem(value: f.id, child: Text(f.displayName)))
+                  .toList(),
+              onChanged: (v) => setState(() => _selectedFlockId = v),
+            ),
             const SizedBox(height: 24),
-
-            // حقول الكمية
             _buildNumberField(
               label: 'كراتين',
               value: _cartons,

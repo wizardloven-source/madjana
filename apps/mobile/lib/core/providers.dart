@@ -295,4 +295,3 @@ final trayStockProvider = FutureProvider.autoDispose<TrayStock>((ref) async {
 
   return TrayStock(empty: empty, filled: filled, eggsPerTray: eggsPerTray);
 });
-

@@ -26,7 +26,7 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
   String? _selectedFarmId;
   FeedEntryMode _entryMode = FeedEntryMode.bags;
   double _quantity = 0;
-  double _kgPerBag = AppConstants.kgPerBag;
+  double _kgPerBag = 50.0; // افتراضي السيرفر — يُحدّث من farmSettings في build
   FeedType? _selectedFeedType;
   final _supplierController = TextEditingController();
   final _invoiceController = TextEditingController();
@@ -178,12 +178,10 @@ class _FeedReceivedScreenState extends ConsumerState<FeedReceivedScreen> {
     final farmSettingsAsync = ref.watch(farmSettingsProvider(farmId));
     // .farm لأن الـ provider صار يُرجع FarmFetchResult (قيمة + مصدرها).
     final farmSettings = farmSettingsAsync.value?.farm;
-    final kgPerBag = farmSettings?.feedBagWeightKg ?? AppConstants.kgPerBag;
-    if (_kgPerBag != kgPerBag) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _kgPerBag = kgPerBag);
-      });
-    }
+    // _kgPerBag ليس في build — يُستخدم فقط عند الحفظ (_quantityKg).
+    // تحديثه مباشرة بدون setState يتجنب rebuild غير ضروري.
+    _kgPerBag = farmSettings?.feedBagWeightKg ?? 50.0;
+
     return Scaffold(
       appBar: AppBar(title: const Text('استلام علف')),
       body: SingleChildScrollView(

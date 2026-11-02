@@ -27,8 +27,17 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
   String _search = '';
   int _pendingCount = 0;
 
-  String get _farmId =>
-      widget.farmId ?? ref.read(authProvider).currentUser?.farmId ?? '';
+  /// State predicate: ي返回 reactive farmId من authProvider.
+  /// يتجدد عند تبديل المزرعة عبر setActiveFarm.
+  /// admin (isSystemAdmin) يرى كل المزارع ويعمل farmId فارغ (global).
+  String get _currentFarmId {
+    final user = ref.watch(authProvider).currentUser;
+    if (user?.isSystemAdmin ?? false) return '';
+    // Use widget.farmId if explicitly provided, otherwise user's default farm
+    return widget.farmId ?? (user?.farmId ?? '');
+  }
+
+  String get _farmId => _currentFarmId;
 
   @override
   void initState() {

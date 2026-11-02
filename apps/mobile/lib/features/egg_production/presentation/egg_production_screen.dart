@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:core/core.dart';
@@ -80,18 +80,16 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
         currentValue = currentValue * 10 + int.parse(key);
       }
 
-      // تطبيق التحويل التلقائي
-      final normalized = EggCalculator.normalize(
-        cartons: _activeField == 'cartons' ? currentValue : _cartons,
-        trays: _activeField == 'trays' ? currentValue : _trays,
-        looseEggs: _activeField == 'loose' ? currentValue : _looseEggs,
-      );
-
-      _cartons = normalized.cartons;
-      _trays = normalized.trays;
-      _looseEggs = normalized.looseEggs;
-
       switch (_activeField) {
+        case 'cartons':
+          _cartons = currentValue;
+          break;
+        case 'trays':
+          _trays = currentValue;
+          break;
+        case 'loose':
+          _looseEggs = currentValue;
+          break;
         case 'broken':
           _brokenEggs = currentValue;
           break;
@@ -238,6 +236,43 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
 
   void _showSuccess(String message) => AppSnack.success(context, message);
 
+
+  /// كلمة الوحدة العربية لعداد (كرتونة / صحن / بيضة ...) حسب قواعد اللغة
+  String _unitWord(int count, String kind) {
+    if (count >= 3 && count <= 10) {
+      if (kind == 'tray') return 'صحون';
+      if (kind == 'loose') return 'بيضات';
+      return 'كراتين';
+    }
+    switch (count) {
+      case 0:
+        return kind == 'loose' ? 'بيضات' : 'كرتونة';
+      case 1:
+        return kind == 'loose' ? 'بيضة' : (kind == 'tray' ? 'صحن' : 'كرتونة');
+      case 2:
+        return kind == 'loose' ? 'بيضتان' : (kind == 'tray' ? 'صحفان' : 'كرتونتان');
+      default:
+        return kind == 'loose' ? 'بيضة' : (kind == 'tray' ? 'صحن' : 'كرتونة');
+    }
+  }
+
+  /// التحويل المكافئ لإجمالي البيض (كربونة + صحون + بيضات)
+  String _formatEquivalent(int totalEggs) {
+    if (totalEggs <= 0) return '';
+    final breakdown = EggCalculator.normalize(
+      cartons: 0,
+      trays: 0,
+      looseEggs: totalEggs,
+    );
+    final cartonsPart =
+        '${Formatters.formatNumber(breakdown.cartons)} ${_unitWord(breakdown.cartons, "carton")}';
+    final traysPart =
+        '${Formatters.formatNumber(breakdown.trays)} ${_unitWord(breakdown.trays, "tray")}';
+    final loosePart =
+        '${Formatters.formatNumber(breakdown.looseEggs)} ${_unitWord(breakdown.looseEggs, "loose")}';
+    return '≈ $cartonsPart + $traysPart + $loosePart';
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).currentUser;
@@ -354,6 +389,37 @@ class _EggProductionScreenState extends ConsumerState<EggProductionScreen> {
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                       color: Color(AppConstants.colorInfo),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+// التحويل المكافئ (كربونة / صحون / بيضات)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+              decoration: BoxDecoration(
+                color: AppColors.accentSoft.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.accentSoft.withValues(alpha: 0.15)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Text(
+                    'الإجمالي: ${Formatters.formatNumber(_totalEggs)} بيضة',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatEquivalent(_totalEggs),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: AppColors.textTertiary,
                     ),
                   ),
                 ],

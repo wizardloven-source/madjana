@@ -42,19 +42,23 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // خلفية داكنة تنسجم مع صورة السبلاش (ديك ذهبي على خلفية سوداء): حواف
-      // الصورة ≈ (1,1,1) فتندمج مع الخلفية بلا إطار مرئي.
-      backgroundColor: const Color(0xFF0D0D0D),
+      // خلفية داكنة واضحة لضمان ظهور المحتوى حتى لو تعذّرت صورة السبلاش.
+      backgroundColor: const Color(0xFF121212),
       body: SafeArea(
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // الصورة مباشرة على الخلفية الداكنة — بلا إطار/زاوية بيضاء.
+              // الصورة مباشرة على الخلفية — مع واجهة احتياطية إذا تعذّر التحميل.
               Image.asset(
                 'assets/yaseen_farm splash.jpg',
                 width: 300,
                 fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Icon(
+                  Icons.business,
+                  size: 120,
+                  color: Color(0xFFD4AF37),
+                ),
               ),
               const SizedBox(height: 32),
               Padding(
@@ -72,10 +76,10 @@ class _SplashScreenState extends State<SplashScreen> {
               ),
               const SizedBox(height: 40),
               const SizedBox(
-                width: 28,
-                height: 28,
+                width: 40,
+                height: 40,
                 child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
+                  strokeWidth: 3,
                   color: Color(0xFFD4AF37),
                 ),
               ),

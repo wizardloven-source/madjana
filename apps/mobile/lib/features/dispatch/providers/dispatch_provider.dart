@@ -33,12 +33,14 @@ class DispatchNotifier extends StateNotifier<bool> {
     required String customerId,
     required int cartons,
     required int trays,
+    String? flockId,
     double? trayWeightKg,
     String? notes,
     required String workerId,
   }) async {
     final record = DispatchModel(
       farmId: farmId,
+      flockId: flockId,
       date: date,
       customerId: customerId,
       cartons: cartons,
@@ -61,6 +63,7 @@ class DispatchNotifier extends StateNotifier<bool> {
     required String name,
     required String phone,
     String? notes,
+    bool isGlobal = false,
   }) async {
     try {
       return await _repository.addCustomer(
@@ -69,6 +72,7 @@ class DispatchNotifier extends StateNotifier<bool> {
           name: name,
           phone: phone,
           notes: notes,
+          isGlobal: isGlobal,
         ),
       );
     } catch (e) {

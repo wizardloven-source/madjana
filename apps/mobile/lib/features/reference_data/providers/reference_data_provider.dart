@@ -15,11 +15,12 @@ final flocksProvider = FutureProvider.family<List<FlockModel>, String>((
 });
 
 /// جلب الزبائن للمدجنة
+/// يعتمد على ref.watch لضمان إعادة الجلب عند تغيير repository (logout/login)
 final customersProvider = FutureProvider.family<List<CustomerModel>, String>((
   ref,
   farmId,
 ) async {
-  return ref.read(dispatchRepositoryProvider).getCustomers(farmId);
+  return ref.watch(dispatchRepositoryProvider).getCustomers(farmId);
 });
 
 /// إعدادات المدجنة (المصدر: إعدادات سطح مكتب المدير).

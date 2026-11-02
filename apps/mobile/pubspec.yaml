@@ -1,6 +1,6 @@
 name: poultry_mobile
 description: تطبيق إدارة المداجن - الموبايل
-version: 1.0.1+2
+version: 2.0.0+1
 publish_to: none
 
 environment:

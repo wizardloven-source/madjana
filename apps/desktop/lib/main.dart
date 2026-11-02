@@ -16,60 +16,71 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // نافذة داكنة من اللحظة الأولى — لا وميض أبيض قبل رسم السبلاش.
-  // setBackgroundColor يرسم خلفية النافذة عبر DWM فوراً، قبل أول إطار Flutter.
+  // تهيئة window_manager لضبط حجم وموقع النافذة — لا نستخدم setBackgroundColor
+  // لأنّه يلوّن إطار النافذة عبر DWM قبل رسم إطار Flutter الأول، فإذا تأخّر
+  // رسم المحتوى يظهر إطار رمادي فارغ بدون محتوى Flutter.
   if (Platform.isWindows) {
     try {
       await windowManager.ensureInitialized();
-      await windowManager.setBackgroundColor(const Color(0xFF0D0D0D));
+      await windowManager.setSize(const Size(1280, 800));
+      await windowManager.center();
+      await windowManager.setTitle('madjana - نظام إدارة المداجن');
     } catch (e) {
-      debugPrint('madjana: window background init skipped: $e');
+      debugPrint('madjana: window init skipped: $e');
     }
   }
 
   // ===== الحل الجديد: تهيئة قاعدة البيانات لـ Windows =====
-  // هذا السطر يحل مشكلة databaseFactory
   if (Platform.isWindows) {
-    sqfliteFfiInit();  // تهيئة FFI لقاعدة البيانات
-    databaseFactory = databaseFactoryFfi;  // تعيين المصنع
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
   }
-  // ========================================================
 
   // تحميل المفاتيح من ملف .env
   try {
     await dotenv.load(fileName: '.env');
   } catch (e) {
     debugPrint('madjana: dotenv load skipped: $e');
-    // بدون مفاتيح يعمل التطبيق وضع Offline حتى ضبط الإعدادات
   }
 
   // تهيئة Supabase (مع تجاهل الأخطاء إذا كانت المفاتيح غير جاهزة)
+  // CR-4 FIX: مهلة 8 ثوانٍ — Supabase.initialize() يعلق بلا مهلة إذا كان
+  // الخادم غير متاح، فيبقى التطبيق على شاشة خلفية رمادية إبدئاً.
   try {
-    await SupabaseConfig.initialize();
+    await SupabaseConfig.initialize().timeout(
+      const Duration(seconds: 8),
+      onTimeout: () {
+        debugPrint('madjana: supabase init timed out — running offline');
+        return null;
+      },
+    );
   } catch (e) {
     debugPrint('madjana: supabase init skipped: $e');
-    // يعمل وضع Offline حتى ضبط الإعدادات
   }
 
-  // ===== ثبات مسار قاعدة البيانات المحلية على Windows =====
-  // آمن وقف التشعب: القاعدة توضع في مجلد ثابت على مستوى المستخدم
-  // بدلاً من دليل العمل، حتى لا تختلف بين تشغيلٍ وآخر.
+  // ثبات مسار قاعدة البيانات المحلية على Windows
   if (Platform.isWindows) {
-    final appData = Platform.environment['APPDATA'] ??
-        Directory.systemTemp.path;
+    final appData = Platform.environment['APPDATA'] ?? Directory.systemTemp.path;
     final dbDir = Directory(p.join(appData, 'madjana'));
     dbDir.createSync(recursive: true);
     LocalDatabase.setDatabasePath(p.join(dbDir.path, LocalDatabase.dbName));
   }
 
-  // تهيئة قاعدة البيانات المحلية
-  await LocalDatabase.database;
+  // تهيئة قاعدة البيانات المحلية — مهلة 10 ثوانٍ
+  try {
+    await LocalDatabase.database.timeout(const Duration(seconds: 10));
+  } catch (e) {
+    debugPrint('madjana: local DB init timed out — will retry lazily');
+  }
 
-  // بوابة عقد المزامنة (M9 — docs/SYNC.md): عند اختلاف **عقد العميل**
-  // (kSyncContractVersion) عن إصدار الخادم نمنع فتح الواجهة حتى يُحدَّث
-  // الجانب الأقدم. الرقم المحلي `_dbVersion` (ترحيلات SQLite) محلي بحت ولا
-  // يُقارن بالخادم. فشل الاتصال (offline) يُتخطى — التطبيق يفتح دائماً.
-  final startupBlock = await _schemaVersionBlock();
+  // بوابة عقد المزامنة (M9) — مهلة 12 ثانية
+  final startupBlock = await _schemaVersionBlock().timeout(
+    const Duration(seconds: 12),
+    onTimeout: () {
+      debugPrint('madjana: sync contract block timed out — proceeding unblocked');
+      return null;
+    },
+  );
 
   runApp(ProviderScope(
     child: MadjanaDesktopApp(startupBlockMessage: startupBlock),
